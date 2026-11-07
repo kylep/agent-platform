@@ -23,7 +23,6 @@ from agentplatform.db import (ACTIVE_STATES, AgentDef, ChatIdentity, Conversatio
 ENROLLMENT_PREFIX = 'lpe_'
 BEARER_PREFIX = 'lps_'
 RENEWAL_PREFIX = 'lpr_'
-SESSION_HOURS = 12
 TOKEN_MINUTES = 15
 DRAIN_MINUTES = 60
 
@@ -123,12 +122,10 @@ def lost_access(before, after):
                for k, values in before['endpoints'].items())
 
 
-async def enrollment_live(s, row, *, upload=False):
+async def enrollment_live(s, row):
     enrollment = await s.get(LocalPersonaEnrollment, row.enrollment_id)
     return (enrollment is not None and enrollment.revoked_at is None and
-            not expired(enrollment.expires_at) and row.revoked_at is None and
-            (not expired(row.expires_at) or
-             (upload and row.state == 'draining' and not expired(row.drain_until))))
+            row.revoked_at is None)
 
 
 async def grants_now(s, row, *, refresh=False):
@@ -190,9 +187,9 @@ async def new_run(s, row, enrollment):
 
 async def mint(s, row):
     token = BEARER_PREFIX + secrets.token_urlsafe(32)
-    deadline = row.drain_until if row.state == 'draining' else row.expires_at
-    expiry = min(deadline.replace(tzinfo=utcnow().tzinfo),
-                 utcnow() + timedelta(minutes=TOKEN_MINUTES))
+    expiry = utcnow() + timedelta(minutes=TOKEN_MINUTES)
+    if row.state == 'draining':
+        expiry = min(row.drain_until.replace(tzinfo=expiry.tzinfo), expiry)
     s.add(LocalPersonaCredential(token_hash=hash_token(token), session_id=row.id,
                                 writer_epoch=row.writer_epoch, expires_at=expiry))
     return {'token': token, 'expires_at': expiry.isoformat(), 'session_id': row.id,
@@ -206,7 +203,7 @@ async def resolve(s, token, *, upload=False, refresh=False, status=False):
         raise HTTPException(401, 'persona credential expired')
     row = await s.get(LocalPersonaSession, credential.session_id, with_for_update=True)
     if (not row or row.writer_epoch != credential.writer_epoch or
-            not await enrollment_live(s, row, upload=upload)):
+            not await enrollment_live(s, row)):
         raise HTTPException(401, 'persona credential revoked or superseded')
     if upload:
         if not status and (row.state == 'finalized' or (row.state == 'draining' and expired(row.drain_until))):

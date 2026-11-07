@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import uuid
+from datetime import timedelta
 
 import pytest
 
@@ -17,7 +18,8 @@ pytestmark = pytest.mark.skipif(not os.environ.get('AP_PERSONA_TEST_POSTGRES_URL
 async def test_postgres_memory_fencing_provenance_revert_and_migration(tmp_path):
     import httpx
     from sqlalchemy import select, text
-    from agentplatform.db import (AgentDef, LocalPersonaSession, LocalPersonaMutation, Memory,
+    from agentplatform.db import (AgentDef, LocalPersonaSession, LocalPersonaEnrollment,
+        LocalPersonaMutation, Memory, SchemaMark, utcnow,
         Run, Conversation, RelayParticipant, init_db, make_engine, make_session_factory)
     from agentplatform.appprovisioner import ToolProvisioner
     from agentplatform.config import Settings
@@ -74,7 +76,28 @@ async def test_postgres_memory_fencing_provenance_revert_and_migration(tmp_path)
             headers = {'Authorization':'Bearer '+session['token']}
             path = '/api/local-persona/sessions/'+session['session_id']
             async with sf() as s:
-                run_id = (await s.get(LocalPersonaSession, session['session_id'])).run_id
+                row = await s.get(LocalPersonaSession, session['session_id'])
+                run_id = row.run_id
+                # Reproduce old persisted deadlines and NOT NULL constraints.
+                row.expires_at = utcnow() - timedelta(days=89)
+                (await s.get(LocalPersonaEnrollment, row.enrollment_id)).expires_at = utcnow() - timedelta(days=60)
+                await s.delete(await s.get(SchemaMark, 'local-persona-unlimited-v1'))
+                await s.commit()
+            async with engine.begin() as conn:
+                for table in ('local_persona_sessions', 'local_persona_enrollments'):
+                    await conn.execute(text(f'ALTER TABLE {table} ALTER COLUMN expires_at SET NOT NULL'))
+            await init_db(engine)
+            await init_db(engine)  # idempotent, preserving identity and history
+            async with sf() as s:
+                row = await s.get(LocalPersonaSession, session['session_id'])
+                assert row.expires_at is None and row.run_id == run_id
+                assert row.conversation_id == session['conversation_id']
+                assert (await s.get(LocalPersonaEnrollment, row.enrollment_id)).expires_at is None
+                # Even a legacy deadline written during a rolling upgrade must
+                # not block the memory SQL fence after the new code is live.
+                row.expires_at = utcnow() - timedelta(days=89)
+                (await s.get(LocalPersonaEnrollment, row.enrollment_id)).expires_at = utcnow() - timedelta(days=60)
+                await s.commit()
             tool_env = {k:v for k,v in os.environ.items() if not k.startswith(('AP_','PERSONA_'))}
             tool_env.update(TOOL_CALLER_AGENT='local-test', TOOL_RUN_ID=run_id,
                             TOOL_DB_URL=(await secrets_store.get('tool-memory-db'))['TOOL_DB_URL'])

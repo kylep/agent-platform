@@ -8,7 +8,7 @@ import { useTitle } from "../lib/title";
 
 type Session = { id: string; agent: string; harness: string; state: string;
   conversation_id: string; run_id: string; accepted_sequence: number;
-  last_seen_at: string; expires_at: string; device_label?: string; context_stale?: boolean };
+  last_seen_at: string; expires_at: string | null; device_label?: string; context_stale?: boolean };
 type Event = { sequence: number; local_turn_id: string; kind: string;
   payload: Record<string, unknown> };
 type Mutation = { id: string; kind: string; target_id: string; before: unknown; after: unknown; reverted: boolean };
@@ -107,7 +107,7 @@ export default function LocalPersonaSessions() {
         <h3>{s.agent} · {s.harness} {s.device_label && `· ${s.device_label}`} <Chip>{s.state}</Chip></h3>
         {s.context_stale && <p className="muted">Persona context changed. Resume through the launcher to reload it.</p>}
         <p>Last contact {new Date(s.last_seen_at).toLocaleString()} · {s.accepted_sequence} records stored.
-          Authority expires {new Date(s.expires_at).toLocaleString()}.</p>
+          {s.expires_at ? ` Authority expires ${new Date(s.expires_at).toLocaleString()}.` : " No session time limit."}</p>
         <div className="row-actions">
           <Link to={`/relay?channel=${s.conversation_id}`}>Conversation</Link>
           <Link to={`/runs/${s.run_id}`}>Execution</Link>

@@ -151,7 +151,8 @@ class LocalPersonaEnrollment(Base):
     device_label: Mapped[str] = mapped_column(String(128))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Retained for schema compatibility; devices remain enrolled until revoked.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -176,7 +177,8 @@ class LocalPersonaSession(Base):
     native_session_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     accepted_sequence: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Retained for schema compatibility; session age no longer limits access.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     drain_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1453,6 +1455,24 @@ def _ensure_local_persona_ddl(conn):
                  .values(execution_location='cluster'))
     if conn.dialect.name == 'postgresql':
         conn.exec_driver_sql("ALTER TABLE runs ALTER COLUMN execution_location SET DEFAULT 'cluster'")
+
+    mark = 'local-persona-unlimited-v1'
+    if conn.execute(select(SchemaMark.name).where(SchemaMark.name == mark)).first():
+        return
+    from sqlalchemy import inspect as sa_inspect
+    for table in (LocalPersonaSession.__table__, LocalPersonaEnrollment.__table__):
+        column = next(c for c in sa_inspect(conn).get_columns(table.name)
+                      if c['name'] == 'expires_at')
+        if not column['nullable']:
+            if conn.dialect.name == 'postgresql':
+                conn.exec_driver_sql(f'ALTER TABLE {table.name} ALTER COLUMN expires_at DROP NOT NULL')
+            else:
+                # SQLite cannot change nullability. This obsolete deadline has no
+                # indexes or references; discard it without rebuilding the table.
+                conn.exec_driver_sql(f'ALTER TABLE {table.name} DROP COLUMN expires_at')
+                conn.exec_driver_sql(f'ALTER TABLE {table.name} ADD COLUMN expires_at DATETIME')
+        conn.execute(table.update().values(expires_at=None))
+    conn.execute(SchemaMark.__table__.insert().values(name=mark))
 
 
 def _ensure_appdata_index_diet(conn) -> None:

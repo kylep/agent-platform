@@ -20,7 +20,7 @@ test("local session revocation is described as AP access, and activity stays rea
   await page.route("**/api/local-persona/sessions", route => route.fulfill({ json: [{
     id:"test-session", agent:"pai", harness:"codex", state:"active", device_label:"Laptop",
     conversation_id:"rc1", run_id:"r1", accepted_sequence:7,
-    last_seen_at:"2026-10-15T12:00:00Z", expires_at:"2026-10-16T00:00:00Z",
+    last_seen_at:"2026-10-15T12:00:00Z", expires_at:null,
   }] }));
   await page.route("**/api/local-persona/sessions/test-session/history?after=0", route => route.fulfill({ json: [{
     sequence:1, local_turn_id:"turn1", kind:"tool_result", payload:{ output:"synthetic tool result" },
@@ -28,6 +28,7 @@ test("local session revocation is described as AP access, and activity stays rea
   await page.goto("/settings/local-personas");
   await expect(page.getByText("Revoking AP access leaves the laptop process running.", { exact:false })).toBeVisible();
   await expect(page.getByRole("button", { name:"Revoke AP access" })).toBeVisible();
+  await expect(page.getByText("No session time limit.", { exact:false })).toBeVisible();
   await page.getByRole("button", { name:"View recorded activity" }).click();
   await page.getByText("1 · tool_result · turn turn1").click();
   await expect(page.getByText('"output": "synthetic tool result"', {exact:false})).toBeVisible();

@@ -11,7 +11,6 @@ import json
 import hashlib
 import math
 import uuid
-from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -116,8 +115,8 @@ async def enrollment(s, request):
     row = (await s.execute(select(LocalPersonaEnrollment).where(
         LocalPersonaEnrollment.token_hash == hash_token(bearer(request, lp.ENROLLMENT_PREFIX)))
         .with_for_update())).scalar_one_or_none()
-    if not row or row.revoked_at or expired(row.expires_at):
-        raise HTTPException(401, 'enrollment expired or revoked')
+    if not row or row.revoked_at:
+        raise HTTPException(401, 'enrollment revoked or unknown')
     return row
 
 
@@ -154,11 +153,11 @@ async def create_enrollment(request: Request, body: EnrollmentIn):
     async with request.app.state.session_factory() as s:
         await selected_persona(s, body.agent)
         row = LocalPersonaEnrollment(**body.model_dump(), initiated_by='admin',
-            token_hash=hash_token(token), expires_at=utcnow() + timedelta(days=30))
+            token_hash=hash_token(token))
         s.add(row)
         await s.commit()
     return {'id': row.id, 'token': token, 'agent': row.agent, 'device_id': row.device_id,
-            'expires_at': row.expires_at.isoformat()}
+            'expires_at': None}
 
 
 @router.delete('/enrollments/{enrollment_id}', dependencies=[Depends(require_admin_session)])
@@ -203,8 +202,7 @@ async def launch(request: Request, body: LaunchIn):
             conversation_id=conv.id, run_id='', renewal_hash=hash_token(renewal),
             frozen_tools=list(agent.platform_tools or []),
             access_snapshot=await lp.access_snapshot(s, agent.name),
-            authorization_generation=agent.authorization_generation or 0,
-            expires_at=utcnow() + timedelta(hours=lp.SESSION_HOURS))
+            authorization_generation=agent.authorization_generation or 0)
         s.add(row)
         await s.flush()
         await lp.new_run(s, row, e)
@@ -223,7 +221,7 @@ async def resume(request: Request, session_id: str, body: BindingIn):
         row = await s.get(LocalPersonaSession, session_id, with_for_update=True)
         if (not row or row.enrollment_id != e.id or not await lp.enrollment_live(s, row)
                 or row.native_session_id != body.native_session_id):
-            raise HTTPException(403, 'resume binding mismatch or lifetime ended')
+            raise HTTPException(403, 'resume binding mismatch or access revoked')
         agent = await selected_persona(s, row.agent)
         current = await lp.access_snapshot(s, row.agent)
         if lp.lost_access(row.access_snapshot, current):
@@ -247,7 +245,7 @@ async def renew(request: Request, session_id: str):
     token = bearer(request, lp.RENEWAL_PREFIX)
     async with request.app.state.session_factory() as s:
         row = await s.get(LocalPersonaSession, session_id, with_for_update=True)
-        if not row or not secrets.compare_digest(row.renewal_hash, hash_token(token)) or not await lp.enrollment_live(s, row, upload=True):
+        if not row or not secrets.compare_digest(row.renewal_hash, hash_token(token)) or not await lp.enrollment_live(s, row):
             raise HTTPException(401)
         # Renewal never reactivates suspended/draining/finalized sessions.
         if row.state == 'finalized' or (row.state == 'draining' and expired(row.drain_until)):
@@ -432,7 +430,7 @@ async def recover(request: Request, session_id: str):
     async with request.app.state.session_factory() as s:
         e = await enrollment(s, request)
         row = await s.get(LocalPersonaSession, session_id, with_for_update=True)
-        # Recovery is upload-only, including after the 12h domain lifetime.
+        # Recovery is upload-only; it does not reactivate a closed session.
         if not row or row.enrollment_id != e.id or row.revoked_at:
             raise HTTPException(403)
         await lp.drain(s, row)
@@ -449,7 +447,7 @@ def status_view(row):
             'conversation_id': row.conversation_id, 'run_id': row.run_id,
             'state': row.state, 'writer_epoch': row.writer_epoch,
             'accepted_sequence': row.accepted_sequence, 'projected_sequence': row.accepted_sequence,
-            'last_seen_at': row.last_seen_at.isoformat(), 'expires_at': row.expires_at.isoformat(),
+            'last_seen_at': row.last_seen_at.isoformat(), 'expires_at': None,
             'native_session_id': row.native_session_id, 'context_hash': row.context_hash,
             'context_stale': row.context_stale}
 
@@ -470,8 +468,6 @@ async def human_sessions(request: Request):
         views = []
         for r in (await s.execute(select(LocalPersonaSession)
                 .order_by(LocalPersonaSession.created_at.desc()).limit(200))).scalars():
-            if r.state == 'active' and expired(r.expires_at):
-                await lp.drain(s, r, 'finalized')
             enrollment = await s.get(LocalPersonaEnrollment, r.enrollment_id)
             views.append({**status_view(r), 'device_label': enrollment.device_label})
         await s.commit()
@@ -560,7 +556,7 @@ async def revert(request: Request, session_id: str):
 async def list_enrollments(request: Request):
     async with request.app.state.session_factory() as s:
         return [{'id': e.id, 'agent': e.agent, 'device_label': e.device_label,
-                 'revoked': bool(e.revoked_at), 'expires_at': e.expires_at.isoformat()}
+                 'revoked': bool(e.revoked_at), 'expires_at': None}
                 for e in (await s.execute(select(LocalPersonaEnrollment).order_by(
                     LocalPersonaEnrollment.created_at.desc()).limit(200))).scalars()]
 

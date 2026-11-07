@@ -1,9 +1,9 @@
 """Exercise direct REST boundaries, durable projection and fencing, not prompts."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 import uuid
 
 import pytest
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from agentplatform.db import (AgentDef, ApiKey, Conversation, LocalPersonaCredential,
     LocalPersonaEnrollment, LocalPersonaEvent, LocalPersonaSession, LocalPersonaTurn,
     RelayMessage, RelayParticipant, Run, RunState, utcnow)
@@ -101,12 +101,24 @@ async def test_resume_fences_hooks_tools_and_old_run(local, token_client, sf, pr
     if previous_state != 'active':
         endpoint = '/finalize' if previous_state == 'finalized' else '/close'
         assert (await token_client.post(path + endpoint, headers=headers)).status_code == 200
+    # A conversation remains resumable after the former session and device
+    # deadlines, including when the old server already finalized it on expiry.
+    async with sf() as s:
+        row = await s.get(LocalPersonaSession, state['session_id'])
+        row.created_at = utcnow() - timedelta(days=90)
+        row.expires_at = utcnow() - timedelta(days=89)
+        (await s.get(LocalPersonaEnrollment, row.enrollment_id)).expires_at = utcnow() - timedelta(days=60)
+        await s.commit()
     eheaders = {'Authorization': 'Bearer ' + state['enrollment']['token']}
     resumed = await token_client.post(path + '/resume', headers=eheaders,
         json={'native_session_id': 'native-1'})
     assert resumed.status_code == 200, resumed.text
     new = resumed.json()
     assert new['writer_epoch'] == 2
+    assert new['session_id'] == state['session_id']
+    assert new['conversation_id'] == state['conversation_id']
+    assert (await token_client.get(path + '/bootstrap', headers={
+        'Authorization': 'Bearer ' + new['token']})).status_code == 200
     assert (await token_client.get('/api/whoami', headers=headers)).status_code == 401
     assert (await token_client.post(path + '/events', headers=headers, json={'events': [event(1)]})).status_code == 401
     assert (await token_client.post(path + '/renew', headers={'Authorization': 'Bearer ' + state['renewal']})).status_code == 401
@@ -114,6 +126,77 @@ async def test_resume_fences_hooks_tools_and_old_run(local, token_client, sf, pr
         runs = list((await s.execute(select(Run).where(Run.local_persona_session_id == state['session_id']))).scalars())
         assert sorted(r.state for r in runs) == ['interrupted', 'running']
         assert not await lp.run_authorized(s, next(r for r in runs if r.state == 'interrupted'), 'memory')
+
+
+@pytest.mark.parametrize('revoke_device', [False, True])
+async def test_old_session_renews_short_lived_tokens_until_revoked(
+        local, token_client, admin_client, sf, revoke_device):
+    state = await local('codex')
+    path = state['path']
+    assert state['enrollment']['expires_at'] is None
+    async with sf() as s:
+        row = await s.get(LocalPersonaSession, state['session_id'])
+        assert row.expires_at is None
+        row.created_at = utcnow() - timedelta(days=90)
+        row.expires_at = utcnow() - timedelta(days=89)  # legacy deadline is ignored
+        (await s.get(LocalPersonaEnrollment, row.enrollment_id)).expires_at = utcnow() - timedelta(days=60)
+        credential = await s.get(LocalPersonaCredential, hash_token(state['token']))
+        credential.expires_at = utcnow() - timedelta(seconds=1)
+        run_id = row.run_id
+        await s.commit()
+    assert (await token_client.get('/api/whoami', headers=state['headers'])).status_code == 401
+    renewal_headers = {'Authorization': 'Bearer ' + state['renewal']}
+    result = await token_client.post(path + '/renew', headers=renewal_headers)
+    assert result.status_code == 200, result.text
+    renewed = result.json()
+    assert renewed['token'] != state['token']
+    assert 0 < (datetime.fromisoformat(renewed['expires_at']) - utcnow()).total_seconds() <= 15 * 60
+    headers = {'Authorization': 'Bearer ' + renewed['token']}
+    # Opening Settings must not silently finalize an old active session.
+    listing = await admin_client.get('/api/local-persona/sessions')
+    entry = next(r for r in listing.json() if r['id'] == state['session_id'])
+    assert entry['state'] == 'active' and entry['expires_at'] is None
+    assert (await token_client.get(path + '/bootstrap', headers=headers)).status_code == 200
+    assert (await token_client.post(path + '/bind', headers=headers,
+        json={'native_session_id': 'original-native'})).status_code == 200
+    assert (await token_client.post(path + '/events', headers=headers,
+        json={'events': [event(1)]})).status_code == 200
+    async with sf() as s:
+        assert await lp.run_authorized(s, await s.get(Run, run_id), 'memory')
+    revoked = await admin_client.delete(
+        '/api/local-persona/enrollments/' + state['enrollment']['id'] if revoke_device else path)
+    assert revoked.status_code == 200
+    assert (await token_client.post(path + '/renew', headers=renewal_headers)).status_code == 401
+    assert (await token_client.get(path + '/bootstrap', headers=headers)).status_code == 401
+    enrollment_headers = {'Authorization': 'Bearer ' + state['enrollment']['token']}
+    assert (await token_client.post(path + '/resume', headers=enrollment_headers,
+        json={'native_session_id': 'original-native'})).status_code in (401, 403)
+    assert (await token_client.post(path + '/recover', headers=enrollment_headers)).status_code in (401, 403)
+    async with sf() as s:
+        assert not await lp.run_authorized(s, await s.get(Run, run_id), 'memory')
+
+
+async def test_sqlite_old_deadlines_migrate_without_losing_session_or_revocation(local, sf):
+    from agentplatform.db import SchemaMark, _ensure_local_persona_ddl
+    state = await local()
+    async with sf() as s:
+        row = await s.get(LocalPersonaSession, state['session_id'])
+        row.revoked_at = utcnow()
+        run_id = row.run_id
+        await s.delete(await s.get(SchemaMark, 'local-persona-unlimited-v1'))
+        await s.commit()
+    engine = sf.kw['bind']
+    async with engine.begin() as conn:
+        for table in ('local_persona_sessions', 'local_persona_enrollments'):
+            await conn.execute(text(f'ALTER TABLE {table} DROP COLUMN expires_at'))
+            await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN expires_at DATETIME NOT NULL DEFAULT '2020-01-01'"))
+        await conn.run_sync(_ensure_local_persona_ddl)
+        await conn.run_sync(_ensure_local_persona_ddl)
+    async with sf() as s:
+        row = await s.get(LocalPersonaSession, state['session_id'])
+        assert row.expires_at is None and row.revoked_at is not None
+        assert row.run_id == run_id and row.conversation_id == state['conversation_id']
+        assert (await s.get(LocalPersonaEnrollment, row.enrollment_id)).expires_at is None
 
 
 async def test_grant_intersection_generation_and_access_loss(local, token_client, sf):

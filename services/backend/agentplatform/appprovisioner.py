@@ -252,7 +252,7 @@ class ToolProvisioner:
                           WHERE l.id = r.local_persona_session_id AND l.run_id = r.id
                             AND l.writer_epoch = r.local_persona_epoch
                             AND l.state = 'active' AND l.revoked_at IS NULL
-                            AND l.expires_at > now() AND e.revoked_at IS NULL AND e.expires_at > now()
+                            AND e.revoked_at IS NULL
                             AND a.enabled AND a.authorization_generation = l.authorization_generation
                             AND r.state = 'running'
                             AND a.platform_tools::jsonb ? 'mcp__platform__memory'

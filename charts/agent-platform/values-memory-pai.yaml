@@ -3,7 +3,9 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: eng12-8aaf272
+    tag: persona-unlimited-20261107
+  web:
+    tag: persona-unlimited-20261107
   runner:
     tag: dream-355fda4
   runnerDev:

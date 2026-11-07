@@ -85,12 +85,14 @@ that native process and use the launcher to resume the original conversation or
 launch a new AP session. Native SessionEnd is only a hint; the launcher drains on
 actual process exit. No daemon or heartbeat is installed.
 
-The current lifetimes are 30 days for enrollment, 12 hours for domain sessions,
-15 minutes for access bearers and one hour for upload draining. MCP header
-helpers renew within the current writer epoch. Renewal cannot extend the
-absolute session lifetime or reactivate a drained session. Explicit historical
-recovery can upload pending records after that lifetime while the enrollment is
-valid; it does not restore domain authority. Human revocation stops recovery too.
+Enrollments and sessions have no time limit, including sessions created before
+this policy changed. Exit and use `ap-persona resume` to continue the same native
+conversation later. Access bearers expire after 15 minutes; MCP header helpers
+renew them within the current writer epoch. Closing a session allows one hour
+for upload draining. Automatic renewal cannot reactivate a drained session;
+explicit resume rechecks access, rotates credentials and takes over the writer.
+Historical recovery is upload-only. Human revocation stops resume, renewal and
+recovery too.
 
 Initial launch requires AP. Established offline work keeps its fixed identity
 and cached context, and stores history locally. Failed AP memory writes remain
