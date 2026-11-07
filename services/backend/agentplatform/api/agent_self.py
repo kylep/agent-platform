@@ -20,9 +20,8 @@ from agentplatform.api.schemas import AgentImageIn
 router = APIRouter(tags=["agent-self"])
 
 # An agent that schedules itself spends the shared quota unattended, so the
-# server bounds what it may declare: a handful of triggers, none firing more
-# often than hourly. Kyle's admin routes are not subject to these.
-MAX_SELF_CRONS = 6
+# server bounds how often each trigger fires: never more than hourly. How
+# many triggers it declares is up to the agent (Kyle, 2026-11-07). Kyle's admin routes are not subject to these.
 MIN_CRON_INTERVAL = timedelta(hours=1)
 
 
@@ -57,7 +56,7 @@ class SelfProfileIn(BaseModel):
     runtime: Literal["claude", "codex"] | None = None
     # The COMPLETE list of this agent's own cron triggers (replaces it), read in
     # `timezone`; webhooks and topics are never touched through here.
-    crons: list[SelfCron] | None = Field(default=None, max_length=MAX_SELF_CRONS)
+    crons: list[SelfCron] | None = None
     timezone: str | None = Field(default=None, max_length=64)
     expected_version: int = Field(ge=0)
 

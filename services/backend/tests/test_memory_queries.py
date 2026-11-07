@@ -152,7 +152,7 @@ async def test_job_query_persists_to_run_now_and_scheduled_ingress(admin_client,
 async def test_declared_cron_query_survives_ingress(sf,producer,agent_store):
     from agentplatform.agentdefs import CronEntry
     from agentplatform.db import Schedule
-    from agentplatform.scheduler import Scheduler
+    from agentplatform.scheduler import Scheduler, prev_fire
     from agentplatform.events import TOPIC_RUN_INBOUND
     assert 'memory_query' not in CronEntry(schedule='0 12 * * *').model_dump(mode='json')
     cron=CronEntry(schedule='0 12 * * *',prompt='cron instructions',memory_query='🦊 archive')
@@ -160,7 +160,7 @@ async def test_declared_cron_query_survives_ingress(sf,producer,agent_store):
     scheduler=Scheduler(sf,agent_store,producer);now=utcnow()
     await scheduler._tick_agent('hello-world',[cron],now)
     async with sf() as s:
-        (await s.get(Schedule,'hello-world')).next_fire=now-timedelta(seconds=1);await s.commit()
+        (await s.get(Schedule,'hello-world')).next_fire=prev_fire(cron.schedule,now);await s.commit()
     await scheduler._tick_agent('hello-world',[cron],now)
     inbound=[p for topic,_,p in producer.published if topic==TOPIC_RUN_INBOUND][-1]
     assert inbound['memory_query']=='🦊 archive'

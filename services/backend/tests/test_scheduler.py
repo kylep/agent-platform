@@ -138,6 +138,29 @@ async def test_cron_without_a_prompt_falls_back_to_the_generic_one(sf, now):
     assert inbound[0]["prompt"] == "Scheduled run."
 
 
+async def test_changed_crons_rearm_the_schedule(sf):
+    """Pai's hourly openers (2026-11-07): the row was armed for the old 16:00
+    opener, so the new 13:00-15:00 fires never ran. And a removed cron's armed
+    fire must not run the entry that replaced it."""
+    producer = FakeProducer()
+    day = datetime(2026, 7, 20, tzinfo=timezone.utc)
+    store = FakeStore([_agent("pai", "0 16 * * *", prompt="Old opener.")])
+    sch = Scheduler(sf, store, producer)
+    await sch.tick(day + timedelta(hours=11))                      # arm → 16:00
+    store._infos = [_agent("pai", "0 7-22 * * *", prompt="Hourly.")]
+    await sch.tick(day + timedelta(hours=12, minutes=30))          # re-arm → 13:00
+    await sch.tick(day + timedelta(hours=13, seconds=1))
+    await sch.tick(day + timedelta(hours=14, seconds=1))
+    prompts = [v["prompt"] for t, _, v in producer.published if t == TOPIC_RUN_INBOUND]
+    assert prompts == ["Hourly.", "Hourly."]
+    store._infos = [_agent("pai", "0 20 * * *", prompt="Evening.")]
+    await sch.tick(day + timedelta(hours=15, seconds=1))           # 15:00 was armed; now removed
+    async with sf() as s:
+        row = await s.get(Schedule, "pai")
+    runs = [t for t, _, _ in producer.published if t == TOPIC_RUN_INBOUND]
+    assert len(runs) == 2 and as_utc(row.next_fire) == day + timedelta(hours=20)
+
+
 async def test_the_prompt_belongs_to_the_cron_that_actually_fired(sf):
     """Two rhythms with different asks is the whole reason a cron entry carries
     a prompt: each fire must say what ITS trigger asked for, not whichever was

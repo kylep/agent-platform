@@ -208,11 +208,14 @@ async def test_self_crons_replace_own_list_with_bounds_and_keep_sessions(client,
         assert audit[-1].changed_via == "tool:agent_self"
     for crons in ([{"schedule": "*/5 * * * *", "prompt": "x"}],
                   [{"schedule": "0,30 * * * *", "prompt": "x"}],
-                  [{"schedule": "nope", "prompt": "x"}],
-                  [{"schedule": "0 8 * * *", "prompt": "x"}] * 7):
+                  [{"schedule": "nope", "prompt": "x"}]):
         bad = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version + 1, "crons": crons})
         assert bad.status_code == 422, crons
-    cleared = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version + 1, "crons": []})
+    # No cap on how many (Kyle, 2026-11-07); each still honours the hourly floor.
+    many = [{"schedule": f"0 {h} * * *", "prompt": "x"} for h in range(7, 23)]
+    ok = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version + 1, "crons": many})
+    assert ok.status_code == 200 and len(ok.json()["crons"]) == 16
+    cleared = await client.patch("/api/agent-self", headers=headers, json={"expected_version": version + 2, "crons": []})
     assert cleared.status_code == 200 and cleared.json()["crons"] == []
 
 

@@ -253,7 +253,16 @@ class Scheduler:
                 sched.next_fire = soonest
                 await s.commit()
                 return
-            if not sched.enabled or now < as_utc(sched.next_fire):
+            armed = as_utc(sched.next_fire)
+            if armed > soonest or max(prev_fire(c.schedule, now, tz) for c in crons) < armed <= now:
+                # The crons changed since this was armed (agent_self, an admin
+                # edit, a sync): a stored fire later than the new soonest would
+                # swallow every new fire before it, and one no current cron
+                # declares would fire a removed entry. Re-arm, don't fire.
+                sched.next_fire = soonest
+                await s.commit()
+                return
+            if not sched.enabled or now < armed:
                 return
             if paused:
                 # Maintenance: a due fire is dropped, not held, so resuming
