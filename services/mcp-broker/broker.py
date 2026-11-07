@@ -198,6 +198,9 @@ async def health_incident(incident_key: str, title: str = "", body: str = "",
     """Health worker only: upsert an OPS incident by stable key, or mark recovery.
     Repeated observations update one ticket. Pai decides whether to notify the
     human; this tool never sends an external alert. resolved=true needs no title.
+    Tool-denial recovery requires server-verified later matching successful calls
+    in succeeded runs. Expired counters alone are insufficient; a rejected
+    recovery must remain unresolved for review, without retrying this pass.
     """
     return await _call("POST", "/api/health/incidents", json={
         "incident_key": incident_key, "title": title, "body": body, "resolved": resolved})

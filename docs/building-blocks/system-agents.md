@@ -25,6 +25,21 @@ maps to one Ticket. Repeated observations update the evidence; recovery closes
 the incident, and recurrence can reopen the same Ticket. This Tool is restricted
 to an active Health Monitor run and never sends external messages.
 
+For `tool-denials:<tool>`, zero denials in a rolling window do not prove recovery.
+The server checks retained audit evidence from the Ticket's initial 24-hour
+observation window onward. Every denied agent/action/argument signature must have
+a later matching successful call in a succeeded run; a subsequent error, pending
+run, or unrelated successful call cannot satisfy that check. Verified recovery
+records the supporting run links. This proves matching calls succeeded, not that
+an entire workflow produced the intended result. Missing evidence, legacy calls
+without argument digests, or more than 100 affected signatures require review
+and disposition through Tickets. A rejected recovery leaves the incident and
+Ticket unchanged; the monitor retains the unresolved key and does not retry it
+in the same pass. Health Monitor cannot bypass this check by closing a tracked
+tool-denial Ticket through the generic Tickets API. Pai and humans retain their
+review/disposition path: once they close the Ticket, the monitor's next resolve
+is accepted without evidence, and a later denial reopens the Ticket. No raw arguments or digests are included in recovery messages.
+
 Pai receives an internal assignment when available. Pending health requests also
 appear in a bounded context block on her next invocation, so a missed or
 suppressed wake does not lose the request. Pai decides whether and how to notify

@@ -5,14 +5,16 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 import hashlib
 
-from sqlalchemy import DateTime, String, select
+from sqlalchemy import DateTime, String, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from agentplatform.db import (AgentDef, Base, Conversation, Ticket, utcnow)
+from agentplatform.db import (AgentDef, Base, Conversation, Run, RunState, Ticket,
+                              ToolAudit, utcnow)
 from agentplatform import ticket_store
 from agentplatform.relay import is_member, room_home
 from agentplatform.relay_store import enabled_agents, explicit_members
 from agentplatform.tickets import CLOSED_STATES
+from agentplatform.scheduler import as_utc
 
 
 # The worker is a model and rewords its evidence on every 15-minute pass, so a
@@ -29,6 +31,58 @@ class HealthIncident(Base):
     status: Mapped[str] = mapped_column(String(16), default="active")
     fingerprint: Mapped[str] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+async def _verify_tool_recovery(session, ticket: Ticket, tool: str) -> list[str]:
+    """Require positive evidence for every denied call signature in this incident.
+
+    Start at the ticket's original 24-hour observation window, not today's
+    rolling window or updated_at (which changes when evidence is refreshed).
+    Match the argument digest as well as agent/action: another successful read
+    may target a different namespace/resource. Digests never leave the server.
+    Missing/legacy evidence requires a reviewed Ticket disposition, not an
+    automatic recovery. This establishes call recovery, not workflow correctness.
+    """
+    error = ticket_store.TicketRuleError(
+        "Tool-denial recovery is unverified: each denied call needs a later "
+        "matching successful call in a succeeded run. Expired counters are not "
+        "recovery evidence. Retain the unresolved key; Pai can review and "
+        "dispose of the Ticket if automatic verification is unavailable.")
+    cutoff = as_utc(ticket.created_at) - timedelta(days=1)
+    scopes = (await session.execute(select(
+        ToolAudit.agent, ToolAudit.action, ToolAudit.args_digest,
+        func.max(ToolAudit.ts).label("last_denial"))
+        .where(ToolAudit.tool == tool, ToolAudit.ts >= cutoff,
+               ToolAudit.decision.like("deny%"))
+        .group_by(ToolAudit.agent, ToolAudit.action, ToolAudit.args_digest)
+        .limit(101))).all()
+    # Bound verification work. An empty history is unknown, never healthy.
+    if not scopes or len(scopes) > 100:
+        raise error
+    runs = set()
+    for scope in scopes:
+        if not scope.agent or not scope.args_digest:
+            raise error
+        matches = (ToolAudit.tool == tool, ToolAudit.agent == scope.agent,
+                   ToolAudit.action == scope.action,
+                   ToolAudit.args_digest == scope.args_digest,
+                   ToolAudit.ts >= scope.last_denial)
+        last_failure = await session.scalar(select(func.max(ToolAudit.ts)).where(
+            *matches, ToolAudit.decision != "allow"))
+        latest = (await session.execute(select(ToolAudit, Run)
+            .outerjoin(Run, Run.id == ToolAudit.run_id)
+            .where(*matches).order_by(ToolAudit.ts.desc(), ToolAudit.id.desc())
+            .limit(1))).first()
+        if latest is None or last_failure is None:
+            raise error
+        audit, run = latest
+        if (audit.decision != "allow" or as_utc(audit.ts) <= as_utc(last_failure)
+                or run is None or run.agent != scope.agent
+                or run.state != RunState.SUCCEEDED
+                or run.finished_at is None or as_utc(run.finished_at) < as_utc(audit.ts)):
+            raise error
+        runs.add(run.id)
+    return sorted(runs)
 
 
 async def report_incident(session, producer, *, incident_key: str, title: str,
@@ -76,6 +130,14 @@ async def report_incident(session, producer, *, incident_key: str, title: str,
     if resolved:
         if record.status == "resolved":
             return ticket
+        # A closed tool-denial Ticket is Pai's or a human's disposition: the
+        # monitor can't close one itself (api/tickets.py). Accept it, so the
+        # monitor stops retrying and a recurrence reopens the Ticket.
+        if incident_key.startswith("tool-denials:") and ticket.state not in CLOSED_STATES:
+            recovery_runs = await _verify_tool_recovery(
+                session, ticket, incident_key.removeprefix("tool-denials:"))
+            body += "\n\nVerified matching tool calls in succeeded runs: " + ", ".join(
+                f"/runs/{run_id}" for run_id in recovery_runs)
         record.status = "resolved"
         record.updated_at = utcnow()
         if ticket.state not in CLOSED_STATES:

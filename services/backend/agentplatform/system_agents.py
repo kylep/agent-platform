@@ -43,8 +43,14 @@ The tool durably upserts one OPS ticket and asks Pai internally to decide whethe
 and how to notify the human. Repeating an unchanged incident does not page Pai.
 Read memory(action="read", q="alert-state") for previously observed keys. For each
 previous key whose metric is now known healthy, call health_incident with
-resolved=true and a brief recovery explanation. Never resolve an unknown metric or
-one you could not retrieve. Save current and still-unknown unresolved keys to memory(key="alert-state").
+resolved=true and a brief recovery explanation. Tool-denial counters becoming zero
+or disappearing from the rolling window do not establish recovery. The server
+requires later matching successful calls in succeeded runs; unrelated calls or
+successful run summaries alone are insufficient. A rejected recovery remains
+unresolved: retain its key, do not retry it in this pass or close its Ticket via
+another tool. Once Pai or a human closes its Ticket, resolving it succeeds.
+Never resolve an unknown metric or one you could not retrieve. Save current and
+still-unknown unresolved keys to memory(key="alert-state").
 Do not send external messages. Do not claim that the human was notified: Pai owns
 that decision. Reply with a short health summary and the incident ticket links.
 '''

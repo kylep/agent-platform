@@ -591,6 +591,14 @@ async def move_ticket(request: Request, key: str, body: S.TicketMoveIn,
         conv = await _channel_or_404(s, ticket.channel_id)
         await _may_write(s, conv, caller, agents)
         run = await _run_of(s, request, caller, writing=True)
+        if caller.agent == "health-monitor" and body.state in CLOSED_STATES:
+            from agentplatform.health_incidents import HealthIncident
+            tracked = await s.scalar(select(HealthIncident.incident_key).where(
+                HealthIncident.ticket_id == ticket.id,
+                HealthIncident.incident_key.startswith("tool-denials:")))
+            if tracked:
+                raise HTTPException(409, "Resolve tracked tool denials through health_incident; "
+                                    "Pai or a human may review and dispose of the Ticket.")
         try:
             await store.move_ticket(s, st.producer, ticket, actor=caller.participant,
                                     to_state=body.state, reason=body.reason, run=run,
