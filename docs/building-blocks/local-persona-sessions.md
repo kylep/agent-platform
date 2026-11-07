@@ -9,9 +9,31 @@ who typed a message or whether a laptop reported every event.
 Ordinary harness launches receive no persona hooks or configuration from this
 package. Local mode uses an invocation-only credential fence, including a cut to
 ambient MCP access. The native harness still uses your own provider login and
-normal permission system. A human-approved Codex sandbox escalation can bypass
-the fence. Resume persona work through the launcher; a plain native resume is
+normal permission system. On Codex 0.167.0, an approved sandbox escalation
+widens filesystem writes but keeps the fence's denied reads and the no-network
+policy (other versions are unverified). Resume persona work through the launcher; a plain native resume is
 unsupported and can retain a persona prompt while dropping recording hooks.
+
+## Shell network (CA-11)
+
+A persona session's shell has no network: the launcher sets
+`permissions.persona.network.enabled=false`, so DNS fails (`gaierror`) and ICMP
+is refused (`ping: sendto: Operation not permitted`). AP access goes through
+the `platform` MCP server and hooks, which run outside the shell sandbox.
+Escalation does not lift this. The credential paths are deny entries, and Codex
+marks those non-escalatable. An approved `require_escalated` command therefore
+runs in a restricted sandbox (`EscalatedSandboxWithRestrictions`) that keeps the
+profile's network policy, even when auto-review returns `allow`. This is the
+intended policy, not a laptop DNS or macOS fault. Measured on 2026-11-07: the
+same laptop's ordinary terminal resolved and fetched github.com and pypi.org,
+`codex sandbox -P persona` with the launcher's profile failed DNS, and the same
+profile with network enabled succeeded.
+
+Installing dependencies and running tests belong in an ordinary coding session
+(Claude Code or Codex launched without the persona launcher), or to the cluster
+`coder` agent through a Ticket. Don't enable network in the persona profile to
+work around this. A persona session that needs tests run should hand off, as
+CA-12 did.
 
 ## Install and enroll
 
