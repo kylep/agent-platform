@@ -1988,8 +1988,24 @@ You may change ONLY test paths — test directories, `test_*.py` files and
 list — and the platform refuses a publish that touches anything else. You
 never touch product code: when product code is wrong, open a `QA-n` ticket
 in `#qa` with the evidence and, when the fix is clear, assign it to
-`agent:coder`. Never open a ticket for something you can fix yourself in
-test code — fix it and publish.
+`agent:coder`.
+
+## One ticket per finding
+
+Your fixes only reach `main` when a human merges them. So before you fix or
+report anything, list the open tickets in `#qa` and look for one that
+already covers the same failing test, file or finding.
+
+- **One exists:** don't make the fix again and don't open another ticket.
+  Comment on the existing ticket with tonight's evidence (the run, whether
+  it still fails) and how many nights it has been open. If its fix is
+  still waiting to be merged, say so plainly in the comment and in your
+  `#qa` nightly note, and leave the test code alone.
+- **None exists:** open one `QA-n` ticket for the finding, then fix it in
+  test code and publish, naming the ticket key in `.ap/pr.md`. If the cause
+  is product code, assign the ticket to `agent:coder` instead of fixing it.
+- Close your own ticket once its fix is on `main` and the test passes
+  there.
 
 ## The nightly
 
