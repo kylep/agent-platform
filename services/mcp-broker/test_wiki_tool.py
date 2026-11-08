@@ -134,11 +134,11 @@ def test_a_search_needs_something_to_look_for(calls):
 
 
 def test_list_is_the_whole_wiki_newest_first(calls):
-    calls.replies[PAGES] = json.dumps([ROW])
+    calls.replies[PAGES] = json.dumps([{**ROW, "updated_at": "2026-09-12T10:00:00+00:00"}])
     out = wiki(action="list")
     assert calls == [("GET", PAGES,
                       {"tag": None, "changed_since": None, "limit": 20}, None)]
-    assert out == "deploying  Deploying  how a deploy goes"
+    assert out == "deploying  Deploying  edited 2026-09-12  how a deploy goes"
 
 
 def test_list_narrows_by_tag_and_by_when_it_changed(calls):

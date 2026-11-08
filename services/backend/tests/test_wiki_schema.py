@@ -298,11 +298,11 @@ async def test_the_gardener_job_is_seeded(engine, sfx):
     async with sfx() as s:
         job = (await s.execute(select(ScheduledJob).where(
             ScheduledJob.name == "wiki-gardener"))).scalar_one()
-        assert (job.cron, job.timezone) == ("0 10 * * 0", "America/Toronto")
+        assert (job.cron, job.timezone) == ("0 10 * * *", "America/Toronto")
         # A relay-post job, not an agent run: the summons has to come from the
         # platform, because an agent's own @mention carries a hop.
         assert (job.relay_channel, job.agent) == ("wiki", None)
-        assert job.prompt.startswith("@wiki — which pages")
+        assert job.prompt.startswith("@wiki Daily garden pass")
         assert (job.enabled, job.next_fire) == (True, None)
         assert await s.get(SchemaMark, WIKI_GARDENER_MARK) is not None
 

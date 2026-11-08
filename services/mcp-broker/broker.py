@@ -1577,12 +1577,15 @@ def _wiki_refs(rows) -> list[str]:
     return [r.get("slug") or "?" for r in rows or []]
 
 
-def _wiki_line(p: dict) -> str:
-    return "  ".join([p.get("slug") or "?", _flat(p.get("title")),
+def _wiki_line(p: dict, dated: bool = False) -> str:
+    # A listing carries the last edit date: it is how the gardener finds the
+    # stale pages.
+    edited = ["edited " + str(p.get("updated_at") or "?")[:10]] if dated else []
+    return "  ".join([p.get("slug") or "?", _flat(p.get("title")), *edited,
                       _flat(p.get("summary"))])
 
 
-def _wiki_lines(out: str, limit: int) -> str:
+def _wiki_lines(out: str, limit: int, dated: bool = False) -> str:
     """A search result as lines rather than as rows of JSON: a `WikiPageView`
     carries the whole 64 KB body, a face and four timestamps, and what the
     agent is choosing between is a slug and a sentence. A full page says so,
@@ -1596,7 +1599,7 @@ def _wiki_lines(out: str, limit: int) -> str:
         return out
     if not rows:
         return "no pages"
-    lines = [_wiki_line(p) for p in rows]
+    lines = [_wiki_line(p, dated) for p in rows]
     if len(rows) >= limit:
         lines.append("more pages than shown — narrow it with q, tag or "
                      "changed_since")
@@ -1732,7 +1735,7 @@ async def wiki(action: str, slug: str | None = None, q: str | None = None,
     if action == "list":
         return _wiki_lines(await _call("GET", "/api/wiki/pages", {
             "tag": tag or None, "changed_since": changed_since or None,
-            "limit": size}), size)
+            "limit": size}), size, dated=True)
     if action == "history":
         return await _wiki_history(ref, size)
     if action == "wanted":

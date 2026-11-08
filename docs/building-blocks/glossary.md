@@ -153,8 +153,8 @@ Every long-running piece of the platform. All of these are Deployments in the
   broken link: it is how the wiki says what it is missing.
 - **Librarian** — the `wiki` system agent. It answers `@wiki` from the pages
   rather than from memory, cites what it used as `[[slug]]`, and offers to
-  write the page when the wiki cannot answer. The `wiki-gardener` job asks it
-  every Sunday what has gone stale and what is still red.
+  write the page when the wiki cannot answer. The daily `wiki-gardener` job has
+  it review, fix or flag the six oldest stale pages.
 - **Usage window** — one of the two rolling limits on the Claude
   subscription every agent runs on: a **5-hour window** and a **7-day window**,
   each reported as a percentage already spent across the whole platform and a

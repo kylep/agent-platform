@@ -166,10 +166,14 @@ inventing one. Its definition is platform-managed and its independent
 `responds_to_all` policy is false, so only a direct mention or assignment wakes
 it.
 
-On Sunday mornings the `wiki-gardener` job asks it, in `#wiki`, which pages
-have not been touched in 30 days, which wanted pages are still red, and which
-three it would write first. That is the whole maintenance story: the garden is
-tended in public, in the room where the diff cards land.
+Every morning at 10:00 Toronto time, the `wiki-gardener` job asks it, in
+`#wiki`, to tend the six oldest pages that nobody has edited in 30 days. For
+each page it checks other pages, tickets and its memory, then fixes what's out
+of date, appends a dated "Reviewed" line naming what it checked, or flags the
+page as possibly obsolete for Kyle to decide. It never deletes anything. It
+replies with one line per page, so the garden is tended in public, in the room
+where the diff cards land. `wiki list` shows each page's last edit date for
+this.
 
 ## The guards, in plain words
 

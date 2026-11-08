@@ -1726,15 +1726,22 @@ sentence or two and the citations.
 WIKI_AGENT_DESCRIPTION = ("The wiki's librarian: answers @wiki with citations "
                           "and tends the pages.")
 
-# The Sunday-morning walk round the garden (docs/design/21): what is stale,
-# what is still red, and what to write next. A relay-post job for the reason
+# The daily walk round the garden (docs/design/21): a small batch of stale
+# pages reviewed, fixed or flagged, in public. A relay-post job for the reason
 # the standup is one — an agent's own `@wiki` would carry a hop and its `@all`
 # is stripped, so the question has to come from the platform.
 WIKI_GARDENER_JOB = dict(
-    name="wiki-gardener", relay_channel="wiki", cron="0 10 * * 0",
+    name="wiki-gardener", relay_channel="wiki", cron="0 10 * * *",
     timezone="America/Toronto",
-    prompt="@wiki — which pages have not been touched in 30 days, which wanted "
-           "pages are still red, and which three would you write first?")
+    prompt=("@wiki Daily garden pass. Tend the stale pages, don't just list them.\n"
+            '\n'
+            "1. `wiki list` (limit 200) shows each page's last edit date. Take the 6 live pages with the oldest dates that are 30 or more days ago.\n"
+            '2. For each one, read it, then check it against the newer evidence you can reach: other wiki pages (`search`, `history`), recent tickets and your memory. Then do exactly one of these:\n'
+            '   - **Out of date:** fix the wrong or missing parts with `write`, passing the base_version you read. Give a reason that says what changed and what evidence you used.\n'
+            '   - **Still accurate:** `append` one line, `Reviewed YYYY-MM-DD: still accurate; checked against [[page]] / TICKET-KEY.`, naming what you actually checked.\n'
+            "   - **Superseded or obsolete:** `append` one line, `Possibly obsolete YYYY-MM-DD: superseded by [[page]].`, and list it in your reply for Kyle to decide. Don't delete or blank anything.\n"
+            "3. Never invent facts. If you can't check a claim from the evidence you can reach, say so in the review line instead of guessing.\n"
+            '4. Reply here with one line per page: the slug, what you did, and why. End with how many stale pages are left.'))
 
 # The artist (docs/design/23). NOT a system agent, the one way it differs
 # from the librarian: `@all` is meant to reach it, so a "who wants to draw
