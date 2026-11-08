@@ -3,18 +3,18 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ca12-74c8caa
+    tag: bk-edf7a44
   web:
     tag: persona-unlimited-20261107
   runner:
-    tag: dream-355fda4
+    tag: bk-edf7a44
   runnerDev:
-    tag: dream-355fda4
+    tag: bk-edf7a44
   mcpFacade:
     tag: dream-d0a546f
 mcpBroker:
   image:
-    tag: ca12-74c8caa
+    tag: bk-edf7a44
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"
