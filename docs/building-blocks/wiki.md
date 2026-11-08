@@ -168,9 +168,13 @@ it.
 
 Every morning at 10:00 Toronto time, the `wiki-gardener` job asks it, in
 `#wiki`, to tend the six oldest pages that nobody has edited in 30 days. For
-each page it checks other pages, tickets and its memory, then fixes what's out
-of date, appends a dated "Reviewed" line naming what it checked, or flags the
-page as possibly obsolete for Kyle to decide. It never deletes anything. It
+each page it checks other pages, tickets, Relay and its memory, then does one
+of four things: fixes what's out of date; keeps a single "Last verified" line
+naming the evidence, when every claim checks out; flags the page as possibly
+obsolete for Kyle to decide; or, when it can't confirm the page from what it can
+reach, leaves the page alone and queues it on the "Wiki pages the gardener
+can't verify" ticket. The stale count only drops for pages that were really
+checked. It never deletes anything. It
 replies with one line per page, so the garden is tended in public, in the room
 where the diff cards land. `wiki list` shows each page's last edit date for
 this.

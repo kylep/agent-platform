@@ -14,7 +14,7 @@ images:
     tag: dream-d0a546f
 mcpBroker:
   image:
-    tag: bk-edf7a44
+    tag: gd-5de8c83
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"

@@ -1727,21 +1727,24 @@ WIKI_AGENT_DESCRIPTION = ("The wiki's librarian: answers @wiki with citations "
                           "and tends the pages.")
 
 # The daily walk round the garden (docs/design/21): a small batch of stale
-# pages reviewed, fixed or flagged, in public. A relay-post job for the reason
+# pages fixed, verified or flagged, in public. A page the librarian can't check
+# is left stale and queued on a ticket, so the stale count stays honest. A relay-post job for the reason
 # the standup is one — an agent's own `@wiki` would carry a hop and its `@all`
 # is stripped, so the question has to come from the platform.
 WIKI_GARDENER_JOB = dict(
     name="wiki-gardener", relay_channel="wiki", cron="0 10 * * *",
     timezone="America/Toronto",
-    prompt=("@wiki Daily garden pass. Tend the stale pages, don't just list them.\n"
+    prompt=('@wiki Daily garden pass. Tend the stale pages. Only edit a page when you have actually confirmed or corrected something.\n'
             '\n'
-            "1. `wiki list` (limit 200) shows each page's last edit date. Take the 6 live pages with the oldest dates that are 30 or more days ago.\n"
-            '2. For each one, read it, then check it against the newer evidence you can reach: other wiki pages (`search`, `history`), recent tickets and your memory. Then do exactly one of these:\n'
-            '   - **Out of date:** fix the wrong or missing parts with `write`, passing the base_version you read. Give a reason that says what changed and what evidence you used.\n'
-            '   - **Still accurate:** `append` one line, `Reviewed YYYY-MM-DD: still accurate; checked against [[page]] / TICKET-KEY.`, naming what you actually checked.\n'
-            "   - **Superseded or obsolete:** `append` one line, `Possibly obsolete YYYY-MM-DD: superseded by [[page]].`, and list it in your reply for Kyle to decide. Don't delete or blank anything.\n"
-            "3. Never invent facts. If you can't check a claim from the evidence you can reach, say so in the review line instead of guessing.\n"
-            '4. Reply here with one line per page: the slug, what you did, and why. End with how many stale pages are left.'))
+            '1. Find the open OPS ticket titled "Wiki pages the gardener can\'t verify" and read it; create it if it is missing. Skip every page it lists as awaiting verification, unless a later comment there says that page is resolved.\n'
+            "2. `wiki list` (limit 200) shows each page's last edit date. Take the 6 live pages with the oldest dates that are 30 or more days ago.\n"
+            '3. For each page, read it and check each claim that matters against evidence you can reach: other wiki pages (`search`, `history`), tickets, Relay and your memory. Then do exactly one of these:\n'
+            '   - **Wrong or missing:** fix it with `write`, passing the base_version you read. Give a reason that names the evidence.\n'
+            '   - **Every claim confirmed:** keep exactly one `Last verified YYYY-MM-DD against [[page]] / TICKET-KEY.` line at the end of the page. Replace the old one with `write` if there is one, and never stack them. Name only evidence that actually confirms the claims.\n'
+            '   - **Superseded:** `append` `Possibly obsolete YYYY-MM-DD: superseded by [[page]].`, and list the page in your reply for Kyle to decide. Never delete or blank anything.\n'
+            "   - **Can't confirm from what you can reach:** don't edit the page. Comment on that ticket with the slug, the specific claims you couldn't check, and where they could be checked: code, configuration, run history, or Kyle.\n"
+            '4. Never invent facts. "Nothing contradicts it" is not confirmation.\n'
+            '5. Reply here with one line per page: the slug, what you did, and why. End with counts: fixed, verified, flagged obsolete, sent for verification, and stale pages left.'))
 
 # The artist (docs/design/23). NOT a system agent, the one way it differs
 # from the librarian: `@all` is meant to reach it, so a "who wants to draw
