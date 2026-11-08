@@ -34,8 +34,9 @@ spec:
 # the mcp-broker (it forwards every brokered tool call here with the caller's
 # own token), the mcp-facade (same, for external clients — design/17), and the
 # claude-proxy (its quota snapshot push — design/22), codex-proxy (OAuth
-# token rotation persistence — design/26), and both tool-executor pools (a
-# tool call's app-data endpoint — design/39).
+# token rotation persistence — design/26), both tool-executor pools (a
+# tool call's app-data endpoint — design/39), and the dispatcher (its secret
+# heartbeat proves qa-web-login against the platform's own login).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -53,7 +54,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, mcp-broker, mcp-facade, claude-proxy, codex-proxy, connector-discord, tool-executor, tool-executor-views]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, dispatcher, mcp-broker, mcp-facade, claude-proxy, codex-proxy, connector-discord, tool-executor, tool-executor-views]}
       ports:
         - port: 8000
           protocol: TCP
