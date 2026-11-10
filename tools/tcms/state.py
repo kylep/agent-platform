@@ -145,6 +145,15 @@ def _case_refs(base):
     return refs
 
 
+def _results_by_run(base, runs):
+    """Each complete run's results, newest run first, one indexed
+    `results_for_run` read at a time. A caller that can stop early stops
+    reading; nothing ever loads the whole result store, whose single-read row
+    cap the store outgrew around 27 nightlies (QA-26, QA-27)."""
+    for run in runs:
+        yield run, _rows(base, "results_for_run", {"run": run["id"]})
+
+
 def record_results(base, args):
     agent, run_id = legacy._identity()
     sha = str(args.get("commit_sha") or "").strip().lower()
@@ -239,8 +248,12 @@ def read(base, args):
     if action == "cases":
         rows = _rows(base, "cases_recent")
         if args.get("unlinked"):
-            linked = {row.get("case") for row in _rows(base, "results_all")}
-            rows = [row for row in rows if row["layer"] != "manual" and row["id"] not in linked]
+            pending = {row["id"] for row in rows if row["layer"] != "manual"}
+            for _run, results in _results_by_run(base, _rows(base, "runs_recent")):
+                pending -= {row.get("case") for row in results}
+                if not pending:
+                    break
+            rows = [row for row in rows if row["id"] in pending]
         for key in ("layer", "status", "area"):
             if args.get(key):
                 rows = [row for row in rows if row[key] == args[key]]
@@ -258,7 +271,11 @@ def read(base, args):
         if not matches:
             return f"no case {key}"
         case = matches[0]
-        results = [row for row in _rows(base, "results_all") if row.get("case") == case["id"]]
+        results = []
+        for _run, run_results in _results_by_run(base, _rows(base, "runs_recent")):
+            results += [row for row in run_results if row.get("case") == case["id"]]
+            if len(results) >= 10:
+                break
         lines = [f'{case["key"]}: {case["title"]}', f'layer={case["layer"]} status={case["status"]}',
                  f'expected: {case.get("expected") or "-"}']
         lines += [f'{r["status"]}: {r["ref"]} ({r["duration_ms"]} ms)' for r in results[:10]]
