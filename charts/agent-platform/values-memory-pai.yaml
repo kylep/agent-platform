@@ -3,11 +3,11 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: bk-edf7a44
+    tag: bk-bf190b0
   web:
-    tag: persona-unlimited-20261107
+    tag: bk-bf190b0
   runner:
-    tag: bk-edf7a44
+    tag: bk-1383a26
   runnerDev:
     tag: bk-edf7a44
   mcpFacade:
