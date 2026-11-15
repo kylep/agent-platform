@@ -382,13 +382,14 @@ TOOL_HELP: list[dict] = [
 # `claude --model`). ADVISORY, not an allow-list: the server accepts any value,
 # so a brand-new model isn't blocked by a stale registry (the inverse trade-off
 # from AVAILABLE_TOOLS, where unknown = privilege escalation; an unknown model
-# just fails the run visibly). Verified against the models docs 2026-07-30.
+# just fails the run visibly). Verified against the models docs 2026-11-15.
 KNOWN_MODELS: list[dict[str, str]] = [
     {"id": "claude-sonnet-5-5", "label": "Sonnet 5.5 — speed + intelligence"},
     {"id": "", "label": "Platform default"},
-    {"id": "claude-fable-5-1", "label": "Fable 5.1 — most capable, long-running agents"},
+    {"id": "claude-fable-5-2", "label": "Fable 5.2 — demanding reasoning, long-horizon agents"},
     {"id": "claude-opus-5-5", "label": "Opus 5.5 — complex agentic work"},
     {"id": "claude-haiku-5-5", "label": "Haiku 5.5 — fastest"},
+    {"id": "claude-fable-5-1", "label": "Fable 5.1 (previous)"},
     {"id": "claude-fable-5", "label": "Fable 5 (legacy)"},
     {"id": "claude-opus-5", "label": "Opus 5 (legacy)"},
     {"id": "claude-sonnet-5", "label": "Sonnet 5 (legacy)"},
