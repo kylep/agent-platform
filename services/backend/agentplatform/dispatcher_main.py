@@ -25,6 +25,7 @@ from agentplatform.pruning import (AppDataPruner, ArtifactPruner, LiveDataPruner
                                    TranscriptPruner, sweep_orphaned_keys_forever)
 from agentplatform.mergedtickets import MergedTicketCloser
 from agentplatform.prsummarizer import PrSummarizer
+from agentplatform import rapid_chat
 from agentplatform.relay_router import RelayRouter
 from agentplatform.reportregistry import ReportTypeRegistry
 from agentplatform.scheduler import Scheduler
@@ -156,7 +157,8 @@ async def main() -> None:
                              relay_router.run_forever(),
                              verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
-                             pr_summarizer.run_forever(), merged_tickets.run_forever())
+                             pr_summarizer.run_forever(), merged_tickets.run_forever(),
+                             rapid_chat.run_forever(session_factory, producer, settings))
     finally:
         await producer.stop()
         await engine.dispose()

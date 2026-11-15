@@ -32,6 +32,7 @@ import ProposalReview from "./pages/ProposalReview";
 import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
 import Tasks from "./pages/Tasks";
+import RapidChats from "./pages/RapidChats";
 import Skills from "./pages/Skills";
 import Profile from "./pages/Profile";
 import SettingsUsers from "./pages/SettingsUsers";
@@ -93,6 +94,7 @@ export default function App() {
             <Route path="/skills" element={<Skills />} />
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/tasks" element={<Tasks />} />
+            <Route path="/rapid-chats" element={<RapidChats />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings/local-personas" element={<LocalPersonaSessions />} />
             <Route path="/settings" element={<Settings />} />

@@ -1373,6 +1373,59 @@ class ScheduledTaskEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RapidChat(Base):
+    """A time- and quota-boxed multi-persona sprint (docs/design/45). The
+    controller (`rapid_chat.py`, in the dispatcher) owns `areas`, `state` and
+    the sink; the API only creates rows and requests a stop."""
+    __tablename__ = "rapid_chats"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    title: Mapped[str] = mapped_column(String(128))
+    goal: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(128))
+    initiated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    participants: Mapped[list] = mapped_column(JSON, default=list)
+    sink: Mapped[dict] = mapped_column(JSON, default=dict)
+    areas: Mapped[list] = mapped_column(JSON, default=list)
+    integrated_pass: Mapped[int] = mapped_column(Integer, default=-1)
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    max_turns: Mapped[int] = mapped_column(Integer, default=200)
+    turn_timeout_seconds: Mapped[int] = mapped_column(Integer, default=240)
+    limits: Mapped[dict] = mapped_column(JSON, default=dict)
+    state: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    end_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    turns_total: Mapped[int] = mapped_column(Integer, default=0)
+    last_quota: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    output_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RapidChatTurn(Base):
+    """The audit log: one row per job handed to a participant, including the
+    exact prompt and the raw reply, so a bad session is debuggable from here."""
+    __tablename__ = "rapid_chat_turns"
+    __table_args__ = (UniqueConstraint("chat_id", "seq", name="uq_rapid_turn_seq"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    chat_id: Mapped[str] = mapped_column(String(32), index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    agent: Mapped[str] = mapped_column(String(128))
+    area_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pass_no: Mapped[int] = mapped_column(Integer, default=0)
+    role: Mapped[str] = mapped_column(String(16))
+    run_id: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parsed: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
 class TaskScheduleGrant(Base):
     """Admin-managed creator -> target permission for delayed invocation."""
     __tablename__ = "task_schedule_grants"

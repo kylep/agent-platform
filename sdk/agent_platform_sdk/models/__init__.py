@@ -171,6 +171,21 @@ from .quota_in_limits import QuotaInLimits
 from .quota_ok import QuotaOk
 from .quota_reading import QuotaReading
 from .quota_window import QuotaWindow
+from .rapid_chat_area_in import RapidChatAreaIn
+from .rapid_chat_in import RapidChatIn
+from .rapid_chat_limits_in import RapidChatLimitsIn
+from .rapid_chat_sink_in import RapidChatSinkIn
+from .rapid_chat_sink_in_kind import RapidChatSinkInKind
+from .rapid_chat_sink_in_mode import RapidChatSinkInMode
+from .rapid_chat_turn_view import RapidChatTurnView
+from .rapid_chat_turn_view_parsed_type_0 import RapidChatTurnViewParsedType0
+from .rapid_chat_view import RapidChatView
+from .rapid_chat_view_areas_item import RapidChatViewAreasItem
+from .rapid_chat_view_last_quota_type_0 import RapidChatViewLastQuotaType0
+from .rapid_chat_view_limits import RapidChatViewLimits
+from .rapid_chat_view_output_ref_type_0 import RapidChatViewOutputRefType0
+from .rapid_chat_view_sink import RapidChatViewSink
+from .rapid_chat_view_turn_counts import RapidChatViewTurnCounts
 from .read_binding import ReadBinding
 from .receipt_in import ReceiptIn
 from .record_create_in import RecordCreateIn
@@ -513,6 +528,21 @@ __all__ = (
     "QuotaOk",
     "QuotaReading",
     "QuotaWindow",
+    "RapidChatAreaIn",
+    "RapidChatIn",
+    "RapidChatLimitsIn",
+    "RapidChatSinkIn",
+    "RapidChatSinkInKind",
+    "RapidChatSinkInMode",
+    "RapidChatTurnView",
+    "RapidChatTurnViewParsedType0",
+    "RapidChatView",
+    "RapidChatViewAreasItem",
+    "RapidChatViewLastQuotaType0",
+    "RapidChatViewLimits",
+    "RapidChatViewOutputRefType0",
+    "RapidChatViewSink",
+    "RapidChatViewTurnCounts",
     "ReadBinding",
     "ReceiptIn",
     "RecordCreateIn",

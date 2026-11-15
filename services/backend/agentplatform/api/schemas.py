@@ -1774,3 +1774,86 @@ class RegistrationState(BaseModel):
 
 
 __all__ = [n for n in dir() if n[0].isupper()]
+
+
+# --- Rapid-chat (docs/design/45) ---------------------------------------------
+
+class RapidChatAreaIn(BaseModel):
+    """A launcher-supplied area; `seed` starts it `drafted` so it is critiqued,
+    not re-derived."""
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=120)
+    seed: str | None = Field(default=None, max_length=6000)
+
+
+class RapidChatSinkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["wiki", "relay", "artifact"] = "wiki"
+    slug: str = Field(min_length=1, max_length=64)
+    mode: Literal["replace", "append"] = "replace"
+
+
+class RapidChatLimitsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    claude_5h_max_pct: int = Field(default=95, ge=0, le=100)
+    claude_7d_max_pct: int = Field(default=40, ge=0, le=100)
+    codex_7d_max_pct: int = Field(default=40, ge=0, le=100)
+
+
+class RapidChatIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=128)
+    goal: str = Field(min_length=1, max_length=20000)
+    participants: list[str] = Field(min_length=1, max_length=5)
+    areas: list[str | RapidChatAreaIn] = Field(default=[], max_length=12)
+    sink: RapidChatSinkIn
+    duration_minutes: int = Field(default=60, ge=5, le=240)
+    max_turns: int = Field(default=200, ge=1, le=500)
+    turn_timeout_seconds: int = Field(default=240, ge=60, le=900)
+    limits: RapidChatLimitsIn = Field(default_factory=RapidChatLimitsIn)
+
+
+class RapidChatView(BaseModel):
+    id: str
+    title: str
+    goal: str
+    created_by: str
+    initiated_by: str | None = None
+    created_at: str
+    participants: list[str]
+    sink: dict[str, Any]
+    areas: list[dict[str, Any]]
+    integrated_pass: int
+    duration_minutes: int
+    max_turns: int
+    turn_timeout_seconds: int
+    limits: dict[str, Any]
+    state: str
+    end_reason: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    turns_total: int
+    last_quota: dict[str, Any] | None = None
+    output_ref: dict[str, Any] | None = None
+    summary: str | None = None
+    last_error: str | None = None
+    turn_counts: dict[str, int] = {}
+
+
+class RapidChatTurnView(BaseModel):
+    id: str
+    chat_id: str
+    seq: int
+    agent: str
+    area_key: str | None = None
+    pass_no: int
+    role: str
+    run_id: str | None = None
+    state: str
+    outcome: str | None = None
+    prompt: str
+    result: str | None = None
+    parsed: dict[str, Any] | None = None
+    started_at: str
+    finished_at: str | None = None
+    reason: str | None = None

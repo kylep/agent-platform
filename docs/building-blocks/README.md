@@ -29,6 +29,7 @@ git.
 | [Apps](apps.md) | Postgres (`app_data_*`); legacy coded Apps in `apps/` | what agents build and maintain for Kyle |
 | [App data](app-data.md) | Postgres (`app_data_*`) | the store, definitions and tools behind Apps |
 | [Jobs](jobs.md) | Postgres | ad-hoc scheduled experiments |
+| [Rapid-chat](rapid-chat.md) | Postgres (`rapid_chats` + `rapid_chat_turns`) | a timed sprint of persona turns that writes one artifact |
 | [Runs](runs.md) | Postgres | every execution, forever |
 | [Relay](relay.md) | Postgres (+ Kafka) | the rooms agents and humans talk in |
 | [Tickets](tickets.md) | Postgres (+ Kafka) | the work agents and humans track |

@@ -303,16 +303,53 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
 DREAM_PATHS = re.compile(r"^/api/(?:whoami|memory-(?:review|delete|hybrid)|commitments(?:/[0-9a-f]{32}/(?:complete|void))?)$")
 
 
+# A rapid-chat turn (docs/design/45) only thinks and reads: the controller
+# writes the page, so the turn may reach whoami, wiki reads, memory search and
+# the quota readings, and nothing that sends, writes or starts other runs.
+RAPID_READ_PATHS = re.compile(r"^/api/(?:whoami|wiki(?:/.*)?|quota(?:/ok)?)$")
+RAPID_POST_PATHS = re.compile(r"^/api/memory-hybrid$")
+
+
+def rapid_turn_allows(method: str, path: str) -> bool:
+    if path == "/api/whoami":
+        return True
+    if method in ("GET", "HEAD"):
+        return bool(RAPID_READ_PATHS.match(path))
+    return method == "POST" and bool(RAPID_POST_PATHS.match(path))
+
+
+async def _live_turn_agent(s, agent: str) -> bool:
+    """Whether `agent` has a rapid-chat turn whose Run is still active."""
+    from sqlalchemy import select
+    from agentplatform.db import ACTIVE_STATES, RapidChatTurn, Run
+    return (await s.execute(select(RapidChatTurn.id).join(Run, Run.id == RapidChatTurn.run_id).where(
+        RapidChatTurn.agent == agent, Run.state.in_(ACTIVE_STATES)).limit(1))).first() is not None
+
+
 async def _dream_fence(request: Request) -> None:
     run_id = getattr(request.state, "api_key_run_id", None)
-    if not run_id or not getattr(request.state, "api_key_agent", None):
+    agent = getattr(request.state, "api_key_agent", None)
+    if not agent:
         return
-    if DREAM_PATHS.match(request.url.path):
+    if not run_id:
+        # A run pod's ServiceAccount token authenticates without its run JWT
+        # too, and a Codex shell can read it. Personas run one at a time, so a
+        # run-less workload call while the agent has a live turn comes from
+        # that turn's pod: it gets the turn's fence.
+        if (getattr(request.state, "auth_kind", None) == "workload"
+                and not rapid_turn_allows(request.method, request.url.path)):
+            async with request.app.state.session_factory() as s:
+                if await _live_turn_agent(s, agent):
+                    raise HTTPException(403, "a rapid-chat turn may only read; the platform writes the page")
         return
     from agentplatform.dreams import active_dream
+    from agentplatform.rapid_chat import active_turn
     async with request.app.state.session_factory() as s:
-        if await active_dream(s, run_id) is not None:
+        if not DREAM_PATHS.match(request.url.path) and await active_dream(s, run_id) is not None:
             raise HTTPException(403, "a dreaming run may use only its memory Tool")
+        if (not rapid_turn_allows(request.method, request.url.path)
+                and await active_turn(s, run_id) is not None):
+            raise HTTPException(403, "a rapid-chat turn may only read; the platform writes the page")
 
 
 async def _authenticate(request: Request) -> tuple[str, str] | None:
@@ -636,19 +673,31 @@ async def whoami(request: Request):
     agent = getattr(request.state, "api_key_agent", None)
     run_id = getattr(request.state, "api_key_run_id", None)
     tools: list[str] | None = None
-    dream = False
+    dream = rapid = False
     if agent and run_id:
-        # A dream run (docs/design/44) holds only its memory Tool, whatever
-        # the agent's grants: the broker enforces this answer.
-        from agentplatform.dreams import MEMORY_TOOL, active_dream
+        # A dream run (docs/design/44) holds only its memory Tool, and a
+        # rapid-chat turn (docs/design/45) only memory, wiki and quota,
+        # whatever the agent's grants: the broker enforces this answer.
+        from agentplatform.dreams import active_dream
+        from agentplatform.rapid_chat import active_turn
         async with request.app.state.session_factory() as s:
             dream = await active_dream(s, run_id) is not None
+            rapid = not dream and await active_turn(s, run_id) is not None
+
+    def fenced(granted):
+        from agentplatform.agentspec import TOOL_QUOTA, TOOL_WIKI
+        from agentplatform.dreams import MEMORY_TOOL
+        if dream:
+            return [t for t in granted if t == MEMORY_TOOL]
+        if rapid:
+            return [t for t in granted if t in (MEMORY_TOOL, TOOL_WIKI, TOOL_QUOTA)]
+        return granted
     frozen = getattr(request.state, "frozen_tools", None)
     if frozen is not None:
         # design/13 C: the grant set was FROZEN into the run JWT at launch —
         # a mid-run grant edit cannot widen (or shrink) a live run.
         return {"principal": name, "role": role, "agent": agent,
-                "run_id": run_id, "tools": [t for t in frozen if t == MEMORY_TOOL] if dream else frozen,
+                "run_id": run_id, "tools": fenced(frozen),
                 "initiated_by": getattr(request.state, "initiated_by", None), "dream": dream}
     if agent:
         st = request.app.state
@@ -659,9 +708,7 @@ async def whoami(request: Request):
         # `tools:` line means unrestricted" default went away with the file,
         # and the broker's grant check stays a plain membership test.
         granted = info.platform_tools if info else []
-        tools = [t for t in granted if t.startswith("mcp__platform__")]
-        if dream:
-            tools = [t for t in tools if t == MEMORY_TOOL]
+        tools = fenced([t for t in granted if t.startswith("mcp__platform__")])
     return {"principal": name, "role": role, "agent": agent,
             "run_id": run_id, "tools": tools, "dream": dream}
 

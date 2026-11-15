@@ -43,6 +43,7 @@ from agentplatform.api import dreaming as dreaming_api
 from agentplatform.api import metrics as metrics_api
 from agentplatform.api import pulls as pulls_api
 from agentplatform.api import quota as quota_api
+from agentplatform.api import rapid_chats as rapid_chats_api
 from agentplatform.api import relay as relay_api
 from agentplatform.api import reports as reports_api
 from agentplatform.api import scopes as scopes_api
@@ -538,6 +539,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     # No auth dependency anywhere on this one: the shared secret IS the
     # credential (docs/design/22), because nginx presents nothing else.
     app.include_router(quota_api.internal_router)
+    app.include_router(rapid_chats_api.router)
     app.include_router(relay_api.router)
     app.include_router(reports_api.router)
     app.include_router(scopes_api.router)
