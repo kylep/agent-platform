@@ -656,16 +656,16 @@ async def test_a_turn_runs_credential_only_reads(token_client, sf, producer, see
     assert (await token_client.get("/api/relay/channels", headers=headers)).status_code == 403
 
 
-async def test_whoami_narrows_a_turn_to_memory_wiki_and_quota(token_client, sf, producer, seed_agent):
+async def test_whoami_narrows_a_turn_to_wiki_and_quota(token_client, sf, producer, seed_agent):
     headers = await _turn_run(sf, producer, seed_agent)
     me = (await token_client.get("/api/whoami", headers=headers)).json()
-    assert sorted(me["tools"]) == sorted(FENCE_TOOLS[:3])
+    assert sorted(me["tools"]) == ["mcp__platform__get_quota_usage", "mcp__platform__wiki"]
 
 
 def test_fence_paths():
     from agentplatform.api.auth import rapid_turn_allows as ok
     assert ok("GET", "/api/wiki/pages/a") and ok("GET", "/api/wiki/pages") and ok("GET", "/api/quota")
-    assert ok("POST", "/api/memory-hybrid") and ok("GET", "/api/whoami")
+    assert ok("GET", "/api/whoami") and not ok("POST", "/api/memory-hybrid")
     assert not ok("PUT", "/api/wiki/pages/a") and not ok("POST", "/api/wiki/pages")
     assert not ok("POST", "/api/quota/refresh") and not ok("GET", "/api/relay/channels")
     assert not ok("GET", "/api/wikix") and not ok("POST", "/api/memory-delete")

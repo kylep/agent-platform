@@ -284,3 +284,34 @@ async def test_a_far_cursor_does_not_count_as_reading(token_client, sf, producer
     assert page["done"] is True
     async with sf() as s:
         assert "memories" not in (await s.get(D.Dream, d.id)).pages_served
+
+
+async def test_a_rapid_chat_reaches_the_dream_as_one_item(token_client, sf, producer, seed_agent):
+    """Design 45: a sprint is one experience. The dream sees one item with the
+    agent's own turn summaries, not one raw run per turn."""
+    from agentplatform.db import RapidChat, RapidChatTurn
+    await _agent(seed_agent)
+    async with sf() as s:
+        s.add(RapidChat(id="c1", title="Game sprint", goal="design the game", created_by="admin",
+                        initiated_by="admin", participants=["pai", "kai"], areas=[],
+                        sink={"kind": "wiki", "slug": "g"}, limits={}, state="done",
+                        end_reason="elapsed", ended_at=utcnow(), summary="decided: invitations",
+                        output_ref={"slug": "g", "version": 3}))
+        for n, who in enumerate(("pai", "kai", "pai")):
+            rid = f"{n:032d}"
+            s.add(Run(id=rid, agent=who, trigger="rapid_chat", requested_by="rapid-chat:c1",
+                      prompt="turn prompt", state=RunState.SUCCEEDED, result=f"raw reply {n}",
+                      finished_at=utcnow()))
+            s.add(RapidChatTurn(chat_id="c1", seq=n, agent=who, area_key="world", role="author",
+                                run_id=rid, state="done", outcome="ok", prompt="p",
+                                parsed={"summary": f"summary {n}"}))
+        await s.commit()
+    d = await _start(sf, producer)
+    await _materialize(sf, d)
+    items = (await _review(token_client, sf, d, "conversations")).json()["items"]
+    assert not [i for i in items if i.get("type") == "run" and i.get("trigger") == "rapid_chat"]
+    [chat] = [i for i in items if i["type"] == "rapid_chat"]
+    assert chat["your_turns"] == 2 and chat["output"] == {"slug": "g", "version": 3}
+    assert "summary 0" in chat["your_turn_summaries"] and "summary 2" in chat["your_turn_summaries"]
+    assert "summary 1" not in chat["your_turn_summaries"]
+    assert chat["session_summary"] == "decided: invitations"

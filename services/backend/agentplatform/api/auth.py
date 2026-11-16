@@ -304,18 +304,18 @@ DREAM_PATHS = re.compile(r"^/api/(?:whoami|memory-(?:review|delete|hybrid)|commi
 
 
 # A rapid-chat turn (docs/design/45) only thinks and reads: the controller
-# writes the page, so the turn may reach whoami, wiki reads, memory search and
-# the quota readings, and nothing that sends, writes or starts other runs.
+# writes the page, so the turn may reach whoami, wiki reads and the quota
+# readings, and nothing that sends, writes or starts other runs. It holds no
+# memory Tool either: startup memory already brings relevant memories, and a
+# sprint's scratch positions are not memories; the night's dream sees the
+# sprint as one item and decides what to keep.
 RAPID_READ_PATHS = re.compile(r"^/api/(?:whoami|wiki(?:/.*)?|quota(?:/ok)?)$")
-RAPID_POST_PATHS = re.compile(r"^/api/memory-hybrid$")
 
 
 def rapid_turn_allows(method: str, path: str) -> bool:
     if path == "/api/whoami":
         return True
-    if method in ("GET", "HEAD"):
-        return bool(RAPID_READ_PATHS.match(path))
-    return method == "POST" and bool(RAPID_POST_PATHS.match(path))
+    return method in ("GET", "HEAD") and bool(RAPID_READ_PATHS.match(path))
 
 
 async def _live_turn_agent(s, agent: str) -> bool:
@@ -676,7 +676,7 @@ async def whoami(request: Request):
     dream = rapid = False
     if agent and run_id:
         # A dream run (docs/design/44) holds only its memory Tool, and a
-        # rapid-chat turn (docs/design/45) only memory, wiki and quota,
+        # rapid-chat turn (docs/design/45) only wiki and quota,
         # whatever the agent's grants: the broker enforces this answer.
         from agentplatform.dreams import active_dream
         from agentplatform.rapid_chat import active_turn
@@ -690,7 +690,7 @@ async def whoami(request: Request):
         if dream:
             return [t for t in granted if t == MEMORY_TOOL]
         if rapid:
-            return [t for t in granted if t in (MEMORY_TOOL, TOOL_WIKI, TOOL_QUOTA)]
+            return [t for t in granted if t in (TOOL_WIKI, TOOL_QUOTA)]
         return granted
     frozen = getattr(request.state, "frozen_tools", None)
     if frozen is not None:
