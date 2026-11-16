@@ -19,22 +19,24 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   one-time Tasks — schedule, read, edit, cancel, their run log and the usage
   report (which still require admin authority in the API, or a Task-granted
   agent run), and memory's history and restore, persona commitments and
-  dreams (design 44), memory guards (ENG-13) and rapid-chats (design 45). Always
-  tools. 164 of them.
+  dreams (design 44), memory guards (ENG-13), rapid-chats (design 45) and the UI
+  Designer's text routes (design 46: list, create, get, outline, edit, history,
+  restore). Always tools. 172 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page, and the Task schedule grants (which agent may
-  schedule which), and a room's watcher list and watch-turn log. Offered
-  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 53 of
+  schedule which), a room's watcher list and watch-turn log, and the UI Designer's
+  delete, prune and asset GC. Offered
+  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 56 of
   them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 97 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 335 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 102 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 351 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -138,6 +140,14 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/workbench/events$"),
     ("*", r"^/api/runs/\{run_id\}/workbench$"),
     ("*", r"^/api/runs/\{run_id\}/publish$"),
+    # The UI Designer's picture and byte routes (design/46 §6): render PNGs, the
+    # server SVG, the resolved tree and asset bytes belong to the web UI and to
+    # agent runs, never to an MCP text result. `place` copies an image artifact
+    # into a document, and an admin bearer must not become a way to show an
+    # artifact to every holder of the tool. Facade callers get text.
+    (("GET",),  r"^/api/ui-designer/docs/\{slug\}/(?:render|svg|resolved)$"),
+    (("GET",),  r"^/api/ui-designer/assets/\{sha256\}$"),
+    (("POST",), r"^/api/ui-designer/docs/\{slug\}/place$"),
     # An artifact's two byte routes (design/23): a PNG has no place in an MCP
     # text result, and a client that wants the bytes has both URLs from the
     # metadata the artifact tools do return. Agents see a picture through the
@@ -292,6 +302,12 @@ GATED_ADMIN = (
     # decision as binding the room — and the watch-turn log is an admin audit
     # read of why each watcher answered or declined. An agent key gets 403.
     (("GET", "PUT"), r"^/api/relay/channels/\{channel_id\}/watchers$"),
+    # UI Designer reclaim (design/46 §10): a delete (soft, or hard on Kyle's
+    # session only), a version prune and asset GC remove what a document holds.
+    # The text routes (list, create, get, outline, edit, history, restore) stay KEEP.
+    (("DELETE",), r"^/api/ui-designer/docs/\{slug\}$"),
+    (("POST",),   r"^/api/ui-designer/docs/\{slug\}/prune$"),
+    (("POST",),   r"^/api/ui-designer/assets/gc$"),
     (("GET",),    r"^/api/relay/channels/\{channel_id\}/watch-turns$"),
 )
 

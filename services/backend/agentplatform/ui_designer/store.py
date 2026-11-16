@@ -29,17 +29,10 @@ from agentplatform.ui_designer.ops import apply_ops
 from agentplatform.ui_designer.schema import (SHA_RE, check_expansion, image_assets, index_nodes,
                                               new_document, normalize_document, validate_document)
 
-# Codes this module adds to the registry (T1's errors.py is not T3's file);
-# registered here so `issue()`/`UiDesignerError` accept them.
-UD_NOT_FOUND = "UD-NOT-FOUND"
-UD_SLUG_TAKEN = "UD-SLUG-TAKEN"
-UD_REQUEST_REUSED = "UD-REQUEST-REUSED"
-UD_BUDGET_STORAGE = "UD-BUDGET-STORAGE"
-errors.CODES.setdefault(UD_NOT_FOUND, "Check the slug or version number; `history` lists what exists.")
-errors.CODES.setdefault(UD_SLUG_TAKEN, "Pick another slug, or delete the existing document first.")
-errors.CODES.setdefault(UD_REQUEST_REUSED, "Use a fresh request_id for a different call.")
-errors.CODES.setdefault(UD_BUDGET_STORAGE, "Reclaim space: hard-delete a document, prune old versions, "
-                                           "or run asset GC (Kyle's session).")
+UD_NOT_FOUND = errors.UD_NOT_FOUND
+UD_SLUG_TAKEN = errors.UD_SLUG_TAKEN
+UD_REQUEST_REUSED = errors.UD_REQUEST_REUSED
+UD_BUDGET_STORAGE = errors.UD_BUDGET_STORAGE
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 FOLD_WINDOW = timedelta(seconds=120)
@@ -245,12 +238,46 @@ async def create_document(s, *, slug: str, title: str = "", owner: str, author: 
     return {**document_view(row), "replayed": False, "warnings": []}
 
 
-async def list_documents(s, *, include_deleted: bool = False, limit: int = 100) -> list[dict]:
-    stmt = select(UiDesignerDocument).order_by(UiDesignerDocument.updated_at.desc()).limit(limit)
+async def list_documents(s, *, include_deleted: bool = False, limit: int = 100, q: str | None = None,
+                         before: str | None = None) -> list[dict]:
+    """Newest-updated first. `q` matches slug or title (case-insensitive);
+    `before` is the slug of the last row of the previous page (the cursor)."""
+    stmt = select(UiDesignerDocument).order_by(UiDesignerDocument.updated_at.desc(),
+                                               UiDesignerDocument.id.desc()).limit(limit)
     if not include_deleted:
         stmt = stmt.where(UiDesignerDocument.deleted_at.is_(None))
+    if q:
+        like = "%" + q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        stmt = stmt.where(func.lower(UiDesignerDocument.slug).like(like, escape="\\")
+                          | func.lower(UiDesignerDocument.title).like(like, escape="\\"))
+    if before:
+        anchor = await _live(s, before)
+        stmt = stmt.where((UiDesignerDocument.updated_at < anchor.updated_at)
+                          | ((UiDesignerDocument.updated_at == anchor.updated_at)
+                             & (UiDesignerDocument.id < anchor.id)))
     return [{k: v for k, v in document_view(r).items() if k != "doc"}
             for r in (await s.execute(stmt)).scalars()]
+
+
+def doc_sha256(doc: dict) -> str:
+    return hashlib.sha256(_canon(doc)).hexdigest()
+
+
+async def write_times(s, author: str, since: datetime) -> list[datetime]:
+    """When `author` wrote (one entry per accepted write, folded rows included)
+    since `since`, oldest first: the input to the hourly write budget."""
+    since = _aware(since)
+    out: list[datetime] = []
+    for chunks, in (await s.execute(select(UiDesignerVersion.chunks).where(
+            UiDesignerVersion.author == author, UiDesignerVersion.last_write_at >= since))):
+        for c in chunks or []:
+            try:
+                at = _aware(datetime.fromisoformat(c["at"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if at >= since:
+                out.append(at)
+    return sorted(out)
 
 
 async def get_document(s, slug: str, *, reader: str | None = None, version: int | None = None) -> dict:
@@ -409,12 +436,16 @@ async def restore_version(s, slug: str, version: int, *, expected_version: int, 
                                caps=caps, now=now)
 
 
-async def history(s, slug: str, *, limit: int = 100, now: datetime | None = None) -> list[dict]:
-    """Rows newest first, as `v7`, `v8–v12`, `v13`."""
+async def history(s, slug: str, *, limit: int = 100, before: int | None = None,
+                  now: datetime | None = None) -> list[dict]:
+    """Rows newest first, as `v7`, `v8–v12`, `v13`. `before` is a version
+    number: only rows whose last number is below it (the cursor)."""
     now = now or utcnow()
     row = await _live(s, slug)
-    rows = (await s.execute(select(UiDesignerVersion).where(UiDesignerVersion.document_id == row.id)
-                            .order_by(UiDesignerVersion.version.desc()).limit(limit))).scalars().all()
+    stmt = select(UiDesignerVersion).where(UiDesignerVersion.document_id == row.id)
+    if before is not None:
+        stmt = stmt.where(UiDesignerVersion.version < before)
+    rows = (await s.execute(stmt.order_by(UiDesignerVersion.version.desc()).limit(limit))).scalars().all()
     return [{"range": f"v{v.first_version}" if v.first_version == v.version
              else f"v{v.first_version}–v{v.version}", "first_version": v.first_version,
              "version": v.version, "author": v.author, "run_id": v.run_id, "label": v.label,

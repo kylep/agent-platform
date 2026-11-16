@@ -175,11 +175,11 @@ async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, 
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 164."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 172."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 164, \
+    assert len(tools) == len(expected) == 172, \
         sorted({(t._route.method, t._route.path) for t in tools})
     assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
             ("GET", "/api/backups/jobs/{name}")} <= {
@@ -187,14 +187,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (217 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (228 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 217, \
+    assert len(admin_tools) == len(expected) == 228, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -689,3 +689,25 @@ def test_rapid_chat_tools_exposed(tools):
     for name in ("create_rapid_chat", "list_rapid_chats", "get_rapid_chat",
                  "list_rapid_chat_turns", "stop_rapid_chat"):
         assert name in default, f"{name} not exposed"
+
+
+def test_ui_designer_text_routes_are_tools_and_pictures_are_not(spec, tools, admin_tools):
+    """design/46 §6: facade callers get the text routes; render/svg/resolved,
+    the asset bytes and `place` are never tools, and delete/prune/GC are gated."""
+    default = {t.name for t in tools}
+    for name in ("list_ui_documents", "create_ui_document", "get_ui_document", "edit_ui_document",
+                 "ui_document_outline", "ui_document_versions", "restore_ui_document"):
+        assert name in default, name
+    P = "/api/ui-designer"
+    hidden = {("GET", f"{P}/docs/{{slug}}/render"), ("GET", f"{P}/docs/{{slug}}/svg"),
+              ("GET", f"{P}/docs/{{slug}}/resolved"), ("GET", f"{P}/assets/{{sha256}}"),
+              ("POST", f"{P}/docs/{{slug}}/place")}
+    gated = {("DELETE", f"{P}/docs/{{slug}}"), ("POST", f"{P}/docs/{{slug}}/prune"),
+             ("POST", f"{P}/assets/gc")}
+    ops = operations(spec)
+    assert hidden | gated <= set(ops)
+    for surface in ({(t._route.method, t._route.path) for t in tools},
+                    {(t._route.method, t._route.path) for t in admin_tools}):
+        assert not hidden & surface
+    assert not gated & {(t._route.method, t._route.path) for t in tools}
+    assert gated <= {(t._route.method, t._route.path) for t in admin_tools}

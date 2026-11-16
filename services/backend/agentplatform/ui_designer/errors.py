@@ -20,6 +20,14 @@ UD_ASSET_UNKNOWN = "UD-ASSET-UNKNOWN"
 UD_RENDER_FAILED = "UD-RENDER-FAILED"
 UD_IMAGE_TOO_LARGE = "UD-IMAGE-TOO-LARGE"
 UD_OP_TARGET = "UD-OP-TARGET"
+UD_NOT_FOUND = "UD-NOT-FOUND"
+UD_SLUG_TAKEN = "UD-SLUG-TAKEN"
+UD_REQUEST_REUSED = "UD-REQUEST-REUSED"
+UD_BUDGET_STORAGE = "UD-BUDGET-STORAGE"
+UD_BUDGET_WRITES = "UD-BUDGET-WRITES"
+UD_BUDGET_PIXELS = "UD-BUDGET-PIXELS"
+UD_NO_IMAGES_HERE = "UD-NO-IMAGES-HERE"
+UD_FORBIDDEN = "UD-FORBIDDEN"
 
 # code -> the fix suggested when a check has nothing more specific to say.
 CODES: dict[str, str] = {
@@ -31,6 +39,16 @@ CODES: dict[str, str] = {
     UD_ASSET_UNKNOWN: "Place the image into this document with `place` first.",
     UD_RENDER_FAILED: "Retry once; if it repeats, snapshot a smaller node or simplify the document.",
     UD_IMAGE_TOO_LARGE: "Snapshot a smaller region (`nodes=[...]`) or a lower scale.",
+    UD_NOT_FOUND: "Check the slug or version number; `history` lists what exists.",
+    UD_SLUG_TAKEN: "Pick another slug, or delete the existing document first.",
+    UD_REQUEST_REUSED: "Use a fresh request_id for a different call.",
+    UD_BUDGET_STORAGE: "Reclaim space: hard-delete a document, prune old versions, "
+                       "or run asset GC (Kyle's session).",
+    UD_BUDGET_WRITES: "Wait `retry_after` seconds; batch more ops into one `edit`.",
+    UD_BUDGET_PIXELS: "Wait `retry_after` seconds; snapshot fewer or smaller nodes, or use "
+                      "`snapshot as=boxes`.",
+    UD_NO_IMAGES_HERE: "Images go to agent runs; use the web UI, or call without `snapshot`.",
+    UD_FORBIDDEN: "This action is for the document's owner or an administrator.",
     # Issues inside UD-INVALID.
     "UD-UNKNOWN-KEY": "Remove the key; the schema is closed.",
     "UD-MISSING": "Add the required key.",

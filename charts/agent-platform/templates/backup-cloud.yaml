@@ -68,7 +68,8 @@ spec:
               args:
                 - |
                   set -euo pipefail
-                  pg_dump --no-owner --no-acl | gzip > /work/database.sql.gz.tmp
+                  # The UI Designer render cache is derivable: dump its definition, not its rows.
+                  pg_dump --no-owner --no-acl --exclude-table-data=public.ui_designer_renders | gzip > /work/database.sql.gz.tmp
                   gzip -t /work/database.sql.gz.tmp
                   mv /work/database.sql.gz.tmp /work/database.sql.gz
               env:

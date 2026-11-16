@@ -39,6 +39,13 @@ class Rendered:
     cached: bool = False
 
 
+def cache_key(doc_sha256: str, node: str | None, mode: str | None, scale: float, annotate: bool = False,
+              max_edge: int = 1568, max_bytes: int | None = None, background: str | None = None) -> str:
+    """The render-cache key (also the web ETag) of one image."""
+    variant = f"{int(annotate)}:{max_edge}:{max_bytes or 0}:{background or ''}"
+    return store.render_key(renderer_version(), doc_sha256, node or "", mode or "", scale, variant)
+
+
 def _raise(status: int, body: Any) -> None:
     if not isinstance(body, dict):
         raise UiDesignerError(UD_RENDER_FAILED, f"renderer answered HTTP {status}")
@@ -103,8 +110,8 @@ class RenderClient:
         Cached PNGs come from the table; the rest are rendered in one call."""
         nodes = list(nodes or [None])
         version = renderer_version()
-        variant = f"{int(annotate)}:{max_edge}:{max_bytes or 0}:{background or ''}"
-        keys = [store.render_key(version, doc_sha256, n or "", mode or "", scale, variant) for n in nodes]
+        keys = [cache_key(doc_sha256, n, mode, scale, annotate, max_edge, max_bytes, background)
+                for n in nodes]
         out: list[Rendered | None] = [None] * len(nodes)
         for i, (n, key) in enumerate(zip(nodes, keys)):
             row = await store.render_get(s, key)

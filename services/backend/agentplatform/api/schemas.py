@@ -1857,3 +1857,152 @@ class RapidChatTurnView(BaseModel):
     started_at: str
     finished_at: str | None = None
     reason: str | None = None
+
+
+# --- UI Designer (docs/design/46 §6) -----------------------------------------
+
+class UiDocSummary(BaseModel):
+    id: str
+    slug: str
+    title: str
+    description: str = ""
+    owner: str
+    version: int
+    doc_sha256: str
+    node_count: int
+    expanded_count: int
+    bytes: int
+    created_at: str | None = None
+    updated_at: str | None = None
+    deleted_at: str | None = None
+
+
+class UiDocList(BaseModel):
+    docs: list[UiDocSummary]
+    # Pass as `before` for the next page; None at the end.
+    next_before: str | None = None
+
+
+class UiDocCreateIn(BaseModel):
+    slug: str
+    title: str = ""
+    description: str = ""
+    doc: dict[str, Any] | None = None
+    reason: str = ""
+    request_id: str | None = Field(default=None, max_length=128)
+
+
+class UiDocPlaceIn(BaseModel):
+    artifact_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class UiDocPlaceOut(BaseModel):
+    sha256: str
+    bytes: int
+    mime: str
+
+
+class UiDocEditIn(BaseModel):
+    ops: list[dict[str, Any]]
+    expected_version: int
+    reason: str = ""
+    request_id: str | None = Field(default=None, max_length=128)
+    # Node ids (a page id renders the page) to picture after the write, at most
+    # 4; `true` is the first page. Refused for a caller without a run.
+    snapshot: list[str | None] | bool | None = None
+    mode: str | None = None
+    scale: float = 1
+    annotate: bool = False
+
+
+class UiDocRestoreIn(BaseModel):
+    version: int
+    expected_version: int
+    reason: str = ""
+    request_id: str | None = Field(default=None, max_length=128)
+
+
+class UiDocSnapshot(BaseModel):
+    node: str | None = None
+    format: str
+    mime: str
+    width: int
+    height: int
+    data: str                    # base64
+    cached: bool = False
+    boxes: dict[str, Any] | None = None
+
+
+class UiDocWriteOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    text: str = ""
+    warnings: list[dict[str, Any]] = []
+    # A repeat of a request_id: nothing applied again; no pictures come back.
+    replayed: bool = False
+    folded: bool = False
+    snapshots: list[UiDocSnapshot] = []
+
+
+class UiDocGetOut(UiDocSummary):
+    at_version: int
+    state: str | None = None     # `open` | `closed`, for a named version
+    node: str | None = None
+    doc: Any
+    truncated: bool = False
+    notes: list[str] = []
+    # Where the cut stopped: `get node=<parent> after=<id>`.
+    cursor: dict[str, str] | None = None
+    resolved: Any = None
+
+
+class UiDocOutline(BaseModel):
+    slug: str
+    version: int
+    text: str
+    next_after: str | None = None
+    layout: str                  # `resolved` | `authored` (no renderer answered)
+
+
+class UiVersionRow(BaseModel):
+    range: str
+    first_version: int
+    version: int
+    author: str
+    run_id: str | None = None
+    label: str | None = None
+    open: bool
+    created_at: str | None = None
+    last_write_at: str | None = None
+    reasons: list[str] = []
+
+
+class UiVersionList(BaseModel):
+    slug: str
+    version: int
+    versions: list[UiVersionRow]
+    next_before: int | None = None
+
+
+class UiDocDeleteOut(BaseModel):
+    ok: bool = True
+    hard: bool = False
+    assets_removed: int = 0
+    bytes_freed: int = 0
+
+
+class UiDocPruneIn(BaseModel):
+    older_than_days: int = Field(ge=0)
+    keep_last: int = Field(default=20, ge=1)
+
+
+class UiDocPruneOut(BaseModel):
+    removed_rows: int
+    assets_removed: int
+    bytes_freed: int
+
+
+class UiAssetGcOut(BaseModel):
+    assets_removed: int
+    bytes_freed: int

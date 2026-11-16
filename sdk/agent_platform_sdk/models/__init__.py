@@ -328,6 +328,28 @@ from .tool_wizard_secret import ToolWizardSecret
 from .typed_block import TypedBlock
 from .typed_block_kind import TypedBlockKind
 from .typed_definition import TypedDefinition
+from .ui_asset_gc_out import UiAssetGcOut
+from .ui_doc_create_in import UiDocCreateIn
+from .ui_doc_create_in_doc_type_0 import UiDocCreateInDocType0
+from .ui_doc_delete_out import UiDocDeleteOut
+from .ui_doc_edit_in import UiDocEditIn
+from .ui_doc_edit_in_ops_item import UiDocEditInOpsItem
+from .ui_doc_get_out import UiDocGetOut
+from .ui_doc_get_out_cursor_type_0 import UiDocGetOutCursorType0
+from .ui_doc_list import UiDocList
+from .ui_doc_outline import UiDocOutline
+from .ui_doc_place_in import UiDocPlaceIn
+from .ui_doc_place_out import UiDocPlaceOut
+from .ui_doc_prune_in import UiDocPruneIn
+from .ui_doc_prune_out import UiDocPruneOut
+from .ui_doc_restore_in import UiDocRestoreIn
+from .ui_doc_snapshot import UiDocSnapshot
+from .ui_doc_snapshot_boxes_type_0 import UiDocSnapshotBoxesType0
+from .ui_doc_summary import UiDocSummary
+from .ui_doc_write_out import UiDocWriteOut
+from .ui_doc_write_out_warnings_item import UiDocWriteOutWarningsItem
+from .ui_version_list import UiVersionList
+from .ui_version_row import UiVersionRow
 from .user_group_in import UserGroupIn
 from .user_out import UserOut
 from .user_out_kind import UserOutKind
@@ -685,6 +707,28 @@ __all__ = (
     "TypedBlock",
     "TypedBlockKind",
     "TypedDefinition",
+    "UiAssetGcOut",
+    "UiDocCreateIn",
+    "UiDocCreateInDocType0",
+    "UiDocDeleteOut",
+    "UiDocEditIn",
+    "UiDocEditInOpsItem",
+    "UiDocGetOut",
+    "UiDocGetOutCursorType0",
+    "UiDocList",
+    "UiDocOutline",
+    "UiDocPlaceIn",
+    "UiDocPlaceOut",
+    "UiDocPruneIn",
+    "UiDocPruneOut",
+    "UiDocRestoreIn",
+    "UiDocSnapshot",
+    "UiDocSnapshotBoxesType0",
+    "UiDocSummary",
+    "UiDocWriteOut",
+    "UiDocWriteOutWarningsItem",
+    "UiVersionList",
+    "UiVersionRow",
     "UserGroupIn",
     "UserOut",
     "UserOutKind",

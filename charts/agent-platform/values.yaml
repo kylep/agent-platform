@@ -122,6 +122,22 @@ uiRenderer:
     requests: {memory: 256Mi, cpu: 200m}
     limits: {memory: 1Gi, cpu: "2"}
 
+# UI Designer budgets and caps (docs/design/46 §3.2, §10); the API and the
+# dispatcher read them as AP_UI_DESIGNER_*. The storage caps are sized from the
+# ~170 MiB compressed-dump budget of the shared backup PVC, not from the 512 MiB
+# restore check. Humans are not metered.
+uiDesigner:
+  writesPerHour: 120            # per agent, rolling hour (UD-BUDGET-WRITES)
+  pixelsPerHourMp: 600          # derived: writes x 4 images x 1.25 MP (UD-BUDGET-PIXELS)
+  maxImagesPerRequest: 4
+  maxMegapixelsPerRequest: 10
+  snapshotDeadlineS: 15
+  textCapBytes: 32768           # every text answer is cut here with a pointer
+  renderCacheMb: 256            # LRU; the table is not backed up
+  maxTotalBytes: 50331648       # 48 MiB across versions, documents and assets
+  maxVersionBytesPerDoc: 12582912   # 12 MiB
+  pruneDays: 30                 # soft-deleted documents are hard-deleted after this
+
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are
 # configured under the `postgresql:` and `kafka:` keys below.

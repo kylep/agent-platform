@@ -63,7 +63,8 @@ spec:
                   OUT="/backups/{{ .Release.Name }}-${TS}.sql.gz"
                   TMP="${OUT}.tmp"
                   echo "pg_dump ${PGDATABASE}@${PGHOST} -> ${OUT}"
-                  pg_dump | gzip > "${TMP}"
+                  # The UI Designer render cache is derivable: dump its definition, not its rows.
+                  pg_dump --exclude-table-data=public.ui_designer_renders | gzip > "${TMP}"
                   mv "${TMP}" "${OUT}"
                   echo "dump ok: $(du -h "${OUT}" | cut -f1)"
                   echo "retention: keeping newest ${BACKUP_KEEP} dump(s)"

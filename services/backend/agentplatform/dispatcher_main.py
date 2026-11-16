@@ -21,7 +21,7 @@ from agentplatform.ingest import Ingestor, ToolAuditIngestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
 from agentplatform.pruning import (AppDataPruner, ArtifactPruner, LiveDataPruner, ReportPruner,
-                                   SessionPruner,
+                                   SessionPruner, UiDesignerAssetSweeper, UiDesignerPruner,
                                    TranscriptPruner, sweep_orphaned_keys_forever)
 from agentplatform.mergedtickets import MergedTicketCloser
 from agentplatform.prsummarizer import PrSummarizer
@@ -115,6 +115,8 @@ async def main() -> None:
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     report_pruner = ReportPruner(session_factory, ReportTypeRegistry(settings.reports_root))
     artifact_pruner = ArtifactPruner(session_factory, settings, producer)
+    ui_designer_pruner = UiDesignerPruner(session_factory, settings.ui_designer_prune_days)
+    ui_designer_sweeper = UiDesignerAssetSweeper(session_factory)
     live_data_pruner = LiveDataPruner(session_factory)
     app_data_pruner = AppDataPruner(session_factory)
     session_pruner = SessionPruner(session_factory)
@@ -148,6 +150,8 @@ async def main() -> None:
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), report_pruner.run_forever(),
                              artifact_pruner.run_forever(),
+                             ui_designer_pruner.run_forever(),
+                             ui_designer_sweeper.run_forever(),
                              live_data_pruner.run_forever(),
                              app_data_pruner.run_forever(),
                              session_pruner.run_forever(),

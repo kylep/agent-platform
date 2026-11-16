@@ -87,3 +87,13 @@ def test_extract_pauses_restore_of_an_older_archive(tmp_path: Path, monkeypatch)
     assert b"CREATE TABLE sample" in restored_sql
     assert b"CREATE TABLE IF NOT EXISTS public.platform_maintenance" in restored_sql
     assert b"VALUES (1, 'restore'" in restored_sql
+
+
+def test_export_refuses_a_dump_over_the_restore_limit(tmp_path: Path, monkeypatch):
+    from agentplatform import backup_export
+    dump = tmp_path / "database.sql.gz"
+    dump.write_bytes(b"x" * 10)
+    backup_export.check_dump_size(dump)
+    monkeypatch.setattr(backup_export, "MAX_DATABASE_BYTES", 5)
+    with pytest.raises(RuntimeError, match="restore limit"):
+        backup_export.check_dump_size(dump)

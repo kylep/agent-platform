@@ -38,6 +38,7 @@ jobs:
       facade: ${{ steps.out.outputs.facade }}
       runner: ${{ steps.out.outputs.runner }}
       codex_proxy: ${{ steps.out.outputs.codex_proxy }}
+      ui_renderer: ${{ steps.out.outputs.ui_renderer }}
       apps: ${{ steps.out.outputs.apps }}
       tools: ${{ steps.out.outputs.tools }}
       chart: ${{ steps.out.outputs.chart }}
@@ -71,6 +72,11 @@ jobs:
             codex_proxy:
               - 'services/codex-proxy/**'
               - 'charts/**'
+            ui_renderer:
+              - 'services/ui-renderer/**'
+              - 'services/backend/agentplatform/ui_designer/**'
+              - 'services/backend/agentplatform/appdata/errors.py'
+              - 'charts/**'
             apps:
               - 'apps/**'
             tools:
@@ -99,7 +105,7 @@ jobs:
           F: ${{ toJSON(steps.f.outputs) }}
           G: ${{ toJSON(steps.g.outputs) }}
         run: |
-          for k in backend web facade runner codex_proxy apps tools chart; do
+          for k in backend web facade runner codex_proxy ui_renderer apps tools chart; do
             v=$(echo "$F $G" | jq -rs --arg k "$k" 'map(.[$k] // empty) | first // "false"')
             if [ "$FULL" = "true" ] || [ "$v" = "true" ]; then echo "$k=true" >> "$GITHUB_OUTPUT"; else echo "$k=false" >> "$GITHUB_OUTPUT"; fi
           done
@@ -191,6 +197,22 @@ jobs:
       - run: pip install -e 'services/codex-proxy[test]'
       - run: pytest -q services/codex-proxy/tests
       - run: docker build -t agent-platform-codex-proxy:test services/codex-proxy
+
+  ui-renderer:
+    # The UI Designer renderer (docs/design/46 §5): aiohttp + resvg, importing the
+    # backend's database-free ui_designer modules, so the tests see the backend
+    # tree and the image is built from the repo root.
+    needs: changes
+    if: needs.changes.outputs.ui_renderer == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r services/ui-renderer/requirements.txt pytest pytest-asyncio
+      - run: cd services/ui-renderer && python -m pytest -q
+      - run: docker build -f services/ui-renderer/Dockerfile -t agent-platform-ui-renderer:test .
 
   mcp-facade:
     # The external MCP facade (docs/design/17) generates its tools from the
@@ -430,7 +452,7 @@ jobs:
   # The one check to require once branch protection is on. Skipped jobs are fine
   # (the `changes` job chose not to run them); a failed or cancelled one is not.
   ci-ok:
-    needs: [changes, backend, runner, codex-proxy, mcp-facade, apps, tools, web, web-ui, helm, claude-proxy, secret-scan, security-scan, subscription-guard]
+    needs: [changes, backend, runner, codex-proxy, ui-renderer, mcp-facade, apps, tools, web, web-ui, helm, claude-proxy, secret-scan, security-scan, subscription-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:

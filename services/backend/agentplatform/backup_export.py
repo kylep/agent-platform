@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ARCHIVE_VERSION = 1
+# The compressed pg dump inspect/extract accepts; export must not produce more.
+MAX_DATABASE_BYTES = 512 * 1024 * 1024
 BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,221}[a-z0-9]$")
 PREFIX_RE = re.compile(r"^[a-zA-Z0-9/_-]{0,180}$")
 RECIPIENT_RE = re.compile(r"^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$")
@@ -158,7 +160,7 @@ def inspect_archive(encrypted: Path, identity: str) -> dict:
                         raise ValueError("archive contains an unexpected file")
                     if member.name in observed or not member.isfile():
                         raise ValueError("archive has duplicate or non-file entries")
-                    if member.size > (512 * 1024 * 1024 if member.name == "database.sql.gz"
+                    if member.size > (MAX_DATABASE_BYTES if member.name == "database.sql.gz"
                                       else 16 * 1024 * 1024):
                         raise ValueError("archive member exceeds its size limit")
                     source = archive.extractfile(member)
@@ -216,6 +218,16 @@ def inspect_archive(encrypted: Path, identity: str) -> dict:
             "secret_count": len(secret_names), "secret_names": sorted(secret_names)}
 
 
+def check_dump_size(dump: Path) -> None:
+    """Fail the job loudly when the compressed dump is over what inspect/extract
+    accepts, rather than uploading an archive that can never be restored."""
+    size = dump.stat().st_size
+    if size > MAX_DATABASE_BYTES:
+        raise RuntimeError(
+            f"database dump is {size} bytes, over the {MAX_DATABASE_BYTES}-byte restore limit; "
+            "reclaim space (UI Designer versions and assets are the usual cause) before the next backup")
+
+
 def export() -> None:
     output = Path(os.environ.get("AP_BACKUP_OUTPUT_DIR", "/backups"))
     output.mkdir(parents=True, exist_ok=True)
@@ -246,6 +258,7 @@ def _export_locked(output: Path) -> None:
     name = f"ap-recovery-{stamp}.tar.age"
     target = output / name
     dump = Path(os.environ.get("AP_BACKUP_DUMP_PATH", "/work/database.sql.gz"))
+    check_dump_size(dump)
     secrets = _namespace_secrets(namespace)
     manifest = write_archive(dump, target, recipient, namespace, secrets,
                              created_at=now.isoformat())

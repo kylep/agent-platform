@@ -143,6 +143,47 @@ async def test_place_refuses_every_restricted_run(sf, seed_agent, agent_store, a
     assert await _placements(sf) == []
 
 
+async def _run(sf, **fields) -> str:
+    async with sf() as s:
+        run = Run(agent="hello-world", trigger="relay", requested_by="test", prompt="p",
+                  state=RunState.SUCCEEDED, **fields)
+        s.add(run)
+        await s.commit()
+        return run.id
+
+
+async def test_place_refuses_a_child_of_a_restricted_run(sf, seed_agent, agent_store,
+                                                         admin_client, token_client):
+    await _doc(sf)
+    h = await _agent(sf, seed_agent, agent_store, "pai")
+    pilot = await _run(sf, startup_memory_enabled=True)
+    local_run = await _run(sf, local_persona_session_id="b" * 32)
+    grandchild_parent = await _run(sf, parent_run_id=pilot)
+    deep = await _run(sf)                          # an unrestricted chain past the bound
+    from agentplatform.config import get_settings
+    for _ in range(get_settings().max_run_chain_depth + 1):
+        deep = await _run(sf, parent_run_id=deep)
+    cases = {
+        "child of startup pilot": {"parent_run_id": pilot},
+        "child of local persona": {"parent_run_id": local_run},
+        "grandchild of startup pilot": {"parent_run_id": grandchild_parent},
+        "missing parent": {"parent_run_id": "f" * 32},
+        "past the depth bound": {"parent_run_id": deep},
+    }
+    for label, fields in cases.items():
+        art = await upload(admin_client, png_bytes(30, 8 + len(label)))
+        await _set_run(sf, art["id"], **fields)
+        r = await _place(admin_client, art["id"])
+        assert r.status_code == 403, (label, r.text)
+        r = await _place(token_client, art["id"], h)
+        assert r.status_code == 403, (label, r.text)
+    # A child of an unrestricted parent is placeable.
+    art = await upload(admin_client, png_bytes(31, 31))
+    await _set_run(sf, art["id"], parent_run_id=await _run(sf))
+    assert (await _place(admin_client, art["id"])).status_code == 200
+    assert len(await _placements(sf)) == 1
+
+
 async def test_place_runless_only_by_its_uploader(sf, seed_agent, agent_store, admin_client,
                                                   token_client):
     await _doc(sf)
@@ -207,10 +248,10 @@ async def test_runless_snapshot_is_refused(sf, seed_agent, agent_store, admin_cl
     r = await token_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body,
                                 headers=admin_key)
     assert r.status_code == 403 and r.json()["detail"]["code"] == "UD-NO-IMAGES-HERE"
-    # An agent run gets past the refusal (the edit itself is not built yet).
+    # An agent run gets past the refusal (empty ops are then refused as invalid).
     h = await _agent(sf, seed_agent, agent_store, "pai")
     r = await token_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body, headers=h)
-    assert r.status_code == 501, r.text
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "UD-INVALID", r.text
 
 
 # --- local persona -------------------------------------------------------------------
@@ -223,6 +264,14 @@ async def test_local_persona_route_needs_the_grant(local, seed_agent, agent_stor
     assert not lp.route_allowed("POST", path, [RELAY, ART])
     assert lp.route_allowed("GET", f"/api/ui-designer/docs/{SLUG}/outline", [UD])
     assert not lp.route_allowed("GET", f"/api/ui-designer/docs/{SLUG}/render", [UD])
+    base = f"/api/ui-designer/docs/{SLUG}"
+    for method, p in (("GET", "/api/ui-designer/docs"), ("GET", base), ("GET", base + "/versions"),
+                      ("GET", base + "/versions/3"), ("POST", base + "/edit"),
+                      ("POST", base + "/restore"), ("POST", "/api/ui-designer/docs")):
+        assert lp.route_allowed(method, p, [UD]) and not lp.route_allowed(method, p, [RELAY]), p
+    for method, p in (("DELETE", base), ("POST", base + "/prune"), ("GET", "/api/ui-designer/assets/" + "a" * 64),
+                      ("POST", "/api/ui-designer/assets/gc")):
+        assert not lp.route_allowed(method, p, [UD]), p
 
     await _doc(sf)
     await seed_agent("carol", agent_type="persona", platform_tools=[
