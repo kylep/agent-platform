@@ -5,6 +5,11 @@ import type { UiEditOp, UiWriteResult } from "./uiDesigner";
 type Entry = { forward: UiEditOp[]; inverse: UiEditOp[] };
 type Pending = { ops: UiEditOp[]; expected_version: number; request_id: string; reason: string; entry: Entry; kind: "edit" | "undo" | "redo" };
 
+// getRandomValues also works on the platform's plain-HTTP LAN origin.
+function requestId() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /** Single-writer local history. Every transition is still guarded by server CAS. */
 export function useDesignerEditing(base: string, onRefresh: (version?: number, external?: boolean) => void, scope = base) {
   const generation = useRef(0);
@@ -63,13 +68,13 @@ export function useDesignerEditing(base: string, onRefresh: (version?: number, e
   }
   function commit(forward: UiEditOp[], inverse: UiEditOp[]) {
     if (pending.current || head.current == null || !forward.length) return;
-    const payload: Pending = { ops: forward, expected_version: head.current, request_id: crypto.randomUUID(), reason: "edited in UI Designer", entry: { forward, inverse }, kind: "edit" };
+    const payload: Pending = { ops: forward, expected_version: head.current, request_id: requestId(), reason: "edited in UI Designer", entry: { forward, inverse }, kind: "edit" };
     pending.current = payload; void send(payload);
   }
   function travel(kind: "undo" | "redo") {
     if (pending.current || head.current == null) return;
     const entry = history.current[kind].at(-1); if (!entry) return;
-    const payload: Pending = { ops: kind === "undo" ? entry.inverse : entry.forward, expected_version: head.current, request_id: crypto.randomUUID(), reason: `${kind} in UI Designer`, entry, kind };
+    const payload: Pending = { ops: kind === "undo" ? entry.inverse : entry.forward, expected_version: head.current, request_id: requestId(), reason: `${kind} in UI Designer`, entry, kind };
     pending.current = payload; void send(payload);
   }
   return { pin, external, reset, commit, undo: () => travel("undo"), redo: () => travel("redo"),

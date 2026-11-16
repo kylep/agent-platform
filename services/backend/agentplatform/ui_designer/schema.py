@@ -39,8 +39,8 @@ MAX_BACKDROPS = 8     # nodes with `backdrop_blur` (each re-paints what is behin
 MAX_DASH = 8
 MAX_STEPPED = 64      # angular/diamond paints in the expanded tree (each is ~50-100 shapes)
 GRADIENT_KINDS = ("linear", "radial", "angular", "diamond")
-# Figma's blend modes under their CSS mix-blend-mode names. Figma's "pass through"
-# is the default (omit `blend`); "plus darker" has no CSS name and is not offered.
+# Supported CSS mix-blend-mode names. Omit `blend` for normal compositing;
+# modes without a supported CSS equivalent are not offered.
 BLEND_MODES = ("normal", "darken", "multiply", "color-burn", "lighten", "screen", "color-dodge",
                "plus-lighter", "overlay", "soft-light", "hard-light", "difference", "exclusion",
                "hue", "saturation", "color", "luminosity")

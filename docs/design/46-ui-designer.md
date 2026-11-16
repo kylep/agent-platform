@@ -7,9 +7,7 @@ Author: Claude (design partner, Kyle's session).
 ## Problem
 
 Kyle wants a visual design tool the platform owns, so the personas can design
-a game's spectator UI without Figma's free-tier walls (three files, no Dev
-Mode, no variable modes, 30-day history, and on the Starter plan no MCP
-allowance at all for a Full seat — see Appendix A). His words: it "should let
+a game's spectator UI without external design-tool plan limits. His words: it "should let
 me as a human visually review things and interact, but its primary user
 should be agents, especially codex and claude based ones. It should be easy
 for them to control, it should serve them images they can use their image
@@ -68,7 +66,7 @@ Goals
   fidelity report that counts approximations as well as drops.
 
 Non-goals (named so they stay out)
-- Figma parity: no vector pen tool, boolean operations editing, prototyping
+- Full design-suite parity: no vector pen tool, boolean operations editing, prototyping
   animations, multiplayer cursors, plugins, FigJam, Sites or Make.
 - Design-to-code generation in v1 (an `inspect` action gives resolved
   geometry and tokens; HTML/CSS export is §12 deferred).
@@ -229,8 +227,7 @@ sha256, `fit`: `cover|contain|fill`), `instance` (`of`: a component id,
 in the document, `^[a-z0-9][a-z0-9-]{0,47}$`, server-generated from
 `title` when omitted), `title`, `w`/`h` (number | `"fill"` | `"hug"`),
 `x`/`y` (under a frame with no layout, or with `absolute: true` under a
-laid-out frame — Figma's "absolute position" children, which the HUD
-overlays need), `rotate` (degrees about the node's centre), `fill`
+laid-out frame — absolute-positioned children, which the HUD overlays need), `rotate` (degrees about the node's centre), `fill`
 (a paint or a list of up to 8 stacked bottom to top; a paint is a colour,
 `{"color", "opacity"?}`, `{"gradient": "linear"|"radial"|"angular"|"diamond",
 "stops": [[0, "#…"], [1, "#…"]], "angle"?: 90, "opacity"?}` or `{"image": sha256,
@@ -240,14 +237,12 @@ join?, sides?}` (`sides` = per-side widths on frames and rects), `radius`
 (number | 4-tuple), `opacity`, `visible`, `clip`, `mask`
 (`alpha|vector|luminance`: a frame's first child masks its siblings —
 `alpha` by the child's alpha, `vector` by its fill and stroke regions
-regardless of paint alpha, `luminance` by its luminance; Figma's three
-`maskType`s), `shadow`
+regardless of paint alpha, `luminance` by its luminance), `shadow`
 (one or a list of `{x, y, blur ≤ 64, spread, color, inset}`: drop shadows
 under the node, inner shadows over it), `blur` (layer blur ≤ 64),
 `backdrop_blur` (background blur: the painter re-paints what is already behind
 the node, blurs it and clips it to the node's shape; resvg has no
-BackgroundImage, so this is an approximation), `blend` (Figma's blend modes as
-CSS `mix-blend-mode` names; `plus-lighter` paints as `screen`), `meta` (free JSON ≤ 2 KiB, where the Figma
+BackgroundImage, so this is an approximation), `blend` (CSS `mix-blend-mode` names; `plus-lighter` paints as `screen`), `meta` (free JSON ≤ 2 KiB, where the Figma
 importer keeps `figma.id`). `layout`: `dir` (`row|column`), `gap`, `pad`
 (number | [v,h] | [t,r,b,l]), `align` (`start|center|end|stretch`),
 `justify` (`start|center|end|space-between`), `wrap` (bool). `text`:
@@ -256,8 +251,7 @@ importer keeps `figma.id`). `layout`: `dir` (`row|column`), `gap`, `pad`
 `{family, size, weight, line, letter}`), `color`, `align`
 (`left|center|right`), `max_lines`. A `$path` anywhere a value goes
 resolves against `tokens`; a token whose value is an object keyed by mode
-resolves by the render's mode (the variable-modes feature Figma gates
-behind Professional).
+resolves by the render's mode.
 
 Limits, checked at validation: document ≤ 1 MiB, ≤ 5,000 authored nodes,
 ≤ 50 pages, ≤ 200 components, instance nesting depth ≤ 6 and **≤ 20,000
@@ -438,8 +432,7 @@ and intrinsic (`hug`) text is measured unconstrained. Two passes at most
 for a `fill` child inside a `hug` parent on the same axis (the circular
 case): the parent measures once without that child, then gives it the
 result; the warning in §3.3 says so. Rotation is applied after layout
-(the rotated bounds are reported in `inspect`; they do not feed layout,
-as in Figma).
+(the rotated bounds are reported in `inspect`; they do not feed layout).
 
 Taffy through its Python binding `stretchable` (1.1.8, 2025-10-29; 46
 stars; no documented measure callback) was checked and not adopted: the
@@ -936,7 +929,7 @@ while `ui_designer_renders` is empty.
   agent path needs an open, awake Penpot tab and acts on the focused
   page, the opposite of a server-side tool three agents call
   concurrently; ~16 GB RAM guidance for its server. Penpot is the right
-  answer for humans who want Figma without Figma; it is not agent-first.
+  answer for interactive human design workflows; it is not agent-first.
 - **Embed tldraw** (source-available since SDK 4.0; production use needs
   a licence or shows a watermark; export is browser-only, "use headless
   Playwright"; an official Agent starter kit exists). Rejected: a
@@ -997,7 +990,7 @@ while `ui_designer_renders` is empty.
 | Figma plan changes (REST limits moved to seat × plan on 2025-11-17) | the importer is one tool behind one secret |
 | Version rows outgrow the backup limits | coalescing, per-document version budget, Dashboard meter, cache excluded from dumps |
 | Expansion bomb from nested instances | depth ≤ 6 and ≤ 20,000 expanded nodes checked at validation |
-| Scope creep toward Figma | the non-goals list; every new node type or prop is a reviewed change to `schema.py` with a painter, a layout rule and a test |
+| Scope creep toward a full design suite | the non-goals list; every new node type or prop is a reviewed change to `schema.py` with a painter, a layout rule and a test |
 | A persona wrecks the shared document | full-snapshot versions, `history diff`, `restore`; a labeled version per milestone |
 
 ## 14. Open questions for Kyle
@@ -1039,10 +1032,8 @@ deps).
 
 ## Appendix A — sources (verified 2026-11-16)
 
-Figma product and plans
-- Pricing: Professional Full $16, Dev $12, Collab $3; Organization Full $55, Dev $25, Collab $5; Enterprise Full $90, Dev $35, Collab $5; variable modes 10 (Pro) / 20 (Org) / unlimited (Enterprise). https://www.figma.com/pricing/
+Figma import plan constraints
 - Starter: one team, three files, 30-day version history, no Dev Mode, no variable modes. https://help.figma.com/hc/en-us/articles/360040328273-Figma-plans-and-features
-- Figma Make (prompt-to-app) and Sites: https://help.figma.com/hc/en-us/categories/31304285531543-Figma-Make
 
 Figma REST API
 - File and image endpoints (`GET /v1/files/:key` with `geometry=paths`, `depth`, `ids`; `GET /v1/files/:key/images` for image fills; `GET /v1/images/:key` with `format jpg|png|svg|pdf`, `scale 0.01–4`, 32-megapixel cap, URLs expire in 30 days): https://developers.figma.com/docs/rest-api/file-endpoints/

@@ -5,7 +5,7 @@ images:
   backend:
     tag: ud-import-20261116
   web:
-    tag: ud-editor-20261116
+    tag: ud-editor-fix-20261116
   runner:
     tag: bk-1383a26
   runnerDev:

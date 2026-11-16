@@ -6,7 +6,7 @@ Flutter/Yoga discipline: constraints go down, sizes come up, and text is
 measured at the width it is given (`text.layout_text`).
 
 Sizing, per axis, for a node with spec `w`/`h`:
-  * a number is tight (and wins over the constraint, as in Figma);
+  * a number is tight (and wins over the constraint);
   * `fill` takes the remaining main-axis space of a laid-out parent (shared
     equally between fill siblings), or the whole cross axis; under a free
     frame it fills the frame's box;

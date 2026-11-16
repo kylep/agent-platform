@@ -1,4 +1,4 @@
-"""Figma-equivalent effects (stacked fills, shadows, blurs, blend, extra gradients,
+"""UI Designer visual effects (stacked fills, shadows, blurs, blend, extra gradients,
 stroke options): validation, and PNG pixel checks at a few points through resvg."""
 import io
 

@@ -179,3 +179,18 @@ test('a proxy failure after commit retries receipt without applying twice', asyn
   expect(state.writes[2].expected_version).toBe(2);
   expect(state.writes[2].ops[0].set.w).toBe(100);
 });
+
+
+test('save undo and redo work when secure-context randomUUID is unavailable', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window.crypto, 'randomUUID', { value: undefined }));
+  const state = await setup(page); await pick(page);
+  await page.getByLabel('Width', { exact: true }).fill('120'); await page.getByRole('button', { name: 'Save node' }).click();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect.poll(() => state.writes.length).toBe(3);
+  expect(state.writes.map((w) => w.expected_version)).toEqual([1, 2, 3]);
+  expect(state.writes.every((w) => /^[0-9a-f]{32}$/.test(w.request_id))).toBe(true);
+  expect(new Set(state.writes.map((w) => w.request_id)).size).toBe(3);
+});
