@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { UD, flatten, pageBounds, type RNode, type RPage } from "../../lib/uiDesigner";
 
-/** The server's SVG in a pan/zoom viewport with a transparent hit-box overlay.
- * The browser paints nothing itself: the overlay only selects. */
+/** The server's PNG render in a pan/zoom viewport with a transparent hit-box overlay.
+ * The browser paints nothing itself (the server is the only painter, so the picture
+ * matches what an agent sees); the overlay only selects. An <img> cannot load the SVG
+ * route's external asset URLs, so the canvas uses the raster route. */
 export function Canvas({ slug, page, version, mode, selected, onSelect }: {
   slug: string; page: RPage; version: number | null; mode: "dark" | "light";
   selected: string | null; onSelect: (n: RNode | null) => void;
@@ -10,7 +12,9 @@ export function Canvas({ slug, page, version, mode, selected, onSelect }: {
   const b = pageBounds(page);
   const [view, setView] = useState({ s: 1, x: 20, y: 20 });
   const drag = useRef<{ px: number; py: number; moved: boolean } | null>(null);
-  const q = new URLSearchParams({ mode, node: page.id });
+  // Whole-number scale the render route accepts: sharper on hi-dpi screens.
+  const scale = typeof window !== "undefined" && window.devicePixelRatio > 1.25 ? 2 : 1;
+  const q = new URLSearchParams({ mode, node: page.id, scale: String(scale) });
   if (version) q.set("version", String(version));
   useEffect(() => setView({ s: 1, x: 20, y: 20 }), [page.id]);
 
@@ -49,7 +53,7 @@ export function Canvas({ slug, page, version, mode, selected, onSelect }: {
       <div className="ud-stage" style={{ width: b.w, height: b.h,
            transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
         <img className="ud-svg" draggable={false} alt={`Page ${page.id}`}
-             src={`${UD}/${encodeURIComponent(slug)}/svg?${q}`} width={b.w} height={b.h} />
+             src={`${UD}/${encodeURIComponent(slug)}/render?${q}`} width={b.w} height={b.h} />
         <svg className="ud-overlay" width={b.w} height={b.h} viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`}>
           {boxes.map((n) => (
             <rect key={n.id} x={n.x ?? 0} y={n.y ?? 0} width={n.w ?? 0} height={n.h ?? 0}

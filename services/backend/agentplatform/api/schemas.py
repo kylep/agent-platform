@@ -1886,7 +1886,7 @@ class UiDocList(BaseModel):
 class UiDocCreateIn(BaseModel):
     slug: str
     title: str = ""
-    description: str = ""
+    description: str = Field(default="", max_length=2000)
     doc: dict[str, Any] | None = None
     reason: str = ""
     request_id: str | None = Field(default=None, max_length=128)

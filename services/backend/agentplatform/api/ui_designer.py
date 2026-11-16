@@ -31,6 +31,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from sqlalchemy import select
 
 from agentplatform import artifact_store
@@ -38,7 +39,7 @@ from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_UI_DESIGNER
 from agentplatform.api import agents as agents_api
 from agentplatform.api import relay as relay_api
 from agentplatform.api import schemas as S
-from agentplatform.api.artifacts import _authorize_read, _may_modify
+from agentplatform.api.artifacts import _authorize_read, _bounded_body, _may_modify
 from agentplatform.api.auth import require_browser_session
 from agentplatform.api.relay import READ, WRITE, Caller, require_relay_access
 from agentplatform.api.tickets import _run_of
@@ -53,7 +54,31 @@ from agentplatform.ui_designer.render_client import RenderClient
 from agentplatform.ui_designer.schema import image_assets, lint
 from agentplatform.ui_designer import svg as ud_svg
 
-router = APIRouter()
+
+
+class _BoundedRoute(APIRoute):
+    """Every write body is read under `ui_designer_max_body_bytes` before the
+    JSON parser sees it (create/edit would otherwise buffer anything sent)."""
+
+    def get_route_handler(self):
+        inner = super().get_route_handler()
+
+        async def handler(request: Request):
+            if request.method in ("POST", "PUT", "PATCH"):
+                bound = request.app.state.settings.ui_designer_max_body_bytes
+                try:
+                    request = await _bounded_body(request, bound)
+                except HTTPException as e:
+                    if e.status_code != 413:
+                        raise
+                    raise ud_http(UiDesignerError(
+                        ud_errors.UD_BODY_TOO_LARGE, f"a request body is at most {bound} bytes",
+                        detail={"limit": bound})) from e
+            return await inner(request)
+        return handler
+
+
+router = APIRouter(route_class=_BoundedRoute)
 
 PREFIX = "/api/ui-designer"
 NOT_GRANTED = "this agent is not granted the ui_designer tool"
@@ -70,6 +95,7 @@ _STATUS = {
     ud_errors.UD_VERSION_CONFLICT: 409,
     ud_errors.UD_RENDER_FAILED: 502,
     ud_errors.UD_IMAGE_TOO_LARGE: 413,
+    ud_errors.UD_BODY_TOO_LARGE: 413,
     ud_errors.UD_BUDGET_WRITES: 429,
     ud_errors.UD_BUDGET_PIXELS: 429,
     ud_errors.UD_FORBIDDEN: 403,
@@ -490,7 +516,8 @@ async def _attach_snapshots(request: Request, caller: Caller, out: S.UiDocWriteO
             view = await store.get_document(s, slug)
             images = await asyncio.wait_for(renderer.render(
                 s, document_id=view["id"], doc=doc, doc_sha256=store.doc_sha256(doc), mode=body.mode,
-                nodes=nodes, scale=body.scale, annotate=body.annotate, timeout_s=deadline), deadline)
+                nodes=nodes, scale=body.scale, annotate=body.annotate, timeout_s=deadline,
+                max_bytes=request.app.state.settings.ui_designer_snapshot_max_bytes), deadline)
             await s.commit()
         _check_megapixels(request, images)
     except asyncio.TimeoutError:
@@ -638,7 +665,9 @@ async def render_ui_document(slug: str, request: Request, node: str | None = Non
                              caller: Caller = Depends(require_ui_designer_access(*READ))):
     _check_scale(scale)
     view, sha, cc = await _doc_at(request, caller, slug, version)
-    etag = '"' + render_client.cache_key(sha, node, mode, scale, annotate) + '"'
+    # An agent's picture goes into a model's context: the byte ladder applies.
+    max_bytes = request.app.state.settings.ui_designer_snapshot_max_bytes if caller.agent is not None else None
+    etag = '"' + render_client.cache_key(sha, node, mode, scale, annotate, max_bytes=max_bytes) + '"'
     headers = {"Cache-Control": cc, "ETag": etag, "X-Content-Type-Options": "nosniff"}
     if _etag_hit(request, etag):
         return Response(status_code=304, headers=headers)
@@ -647,7 +676,7 @@ async def render_ui_document(slug: str, request: Request, node: str | None = Non
         try:
             images = await _renderer(request).render(
                 s, document_id=view["id"], doc=view["doc"], doc_sha256=sha, mode=mode, nodes=[node],
-                scale=scale, annotate=annotate)
+                scale=scale, annotate=annotate, max_bytes=max_bytes)
             await s.commit()
             _check_megapixels(request, images)
         except UiDesignerError as e:

@@ -40,6 +40,7 @@ RECEIPT_TTL = timedelta(days=7)
 MAX_ASSET_BYTES = 8 << 20
 MAX_ASSET_BYTES_PER_VERSION = 16 << 20
 MAX_RECEIPT_BYTES = 16 << 10
+MAX_RECEIPT_WARNINGS = 20
 RECEIPT_KEYS = {"version", "warnings", "text", "wants_snapshot", "slug", "ok"}
 _SHA_IN_TEXT = re.compile(r"[0-9a-f]{64}")
 
@@ -102,7 +103,11 @@ def document_view(row: UiDesignerDocument, *, doc: dict | None = None, at_versio
 async def _live(s, slug: str, *, lock: bool = False) -> UiDesignerDocument:
     stmt = select(UiDesignerDocument).where(UiDesignerDocument.slug == slug,
                                             UiDesignerDocument.deleted_at.is_(None))
-    row = (await s.execute(_for_update(s, stmt) if lock else stmt)).scalars().first()
+    if lock:
+        # populate_existing: a row already in the identity map must be
+        # refreshed from the locked read, or the CAS below sees stale columns.
+        stmt = _for_update(s, stmt).execution_options(populate_existing=True)
+    row = (await s.execute(stmt)).scalars().first()
     if row is None:
         raise _not_found(f"document {slug!r}")
     return row
@@ -143,6 +148,18 @@ async def _check_caps(s, caps: Caps, add: int, document_id: str | None = None, w
 
 
 # --- receipts ---------------------------------------------------------------
+
+def cap_warnings(warnings: list) -> list:
+    """The first MAX_RECEIPT_WARNINGS plus a count line, so lint volume can
+    never push a valid edit's receipt past its size cap."""
+    if len(warnings) <= MAX_RECEIPT_WARNINGS:
+        return warnings
+    kept = [{"code": w.get("code"), "message": str(w.get("message", ""))[:200],
+             **({"path": w["path"]} if w.get("path") else {})} if isinstance(w, dict) else str(w)[:200]
+            for w in warnings[:MAX_RECEIPT_WARNINGS]]
+    return [*kept, {"code": "UD-WARN-TRUNCATED",
+                    "message": f"{len(warnings) - MAX_RECEIPT_WARNINGS} more warnings not stored"}]
+
 
 def _check_receipt_response(response: dict) -> dict:
     bad = set(response) - RECEIPT_KEYS
@@ -210,11 +227,13 @@ async def create_document(s, *, slug: str, title: str = "", owner: str, author: 
         if prior is not None:
             return prior
     _check_slug(slug)
+    if len(description) > 2000:
+        raise invalid([issue("UD-LIMIT", "$.description", "description is at most 2000 characters")])
     if len(title) > 120:
         raise invalid([issue("UD-LIMIT", "$.title", "title is at most 120 characters", title)])
     body = normalize_document(doc) if doc is not None else new_document(title)
     validate_document(body, known_assets=set())
-    size = stored_size(body)
+    size = stored_size(body, description)
     await _check_caps(s, caps, size * 2, None, "create")  # the document row and version 1
     row = UiDesignerDocument(slug=slug, title=title or str(body.get("title") or "")[:120],
                              description=description, owner=owner, version=1, doc=body,
@@ -394,7 +413,7 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
         UiDesignerVersion.document_id == row.id, UiDesignerVersion.version == row.version))).scalars().first()
     fold_into = (latest if fold and run_id is not None and latest is not None and latest.run_id == run_id
                  and latest.author == author and row_is_open(latest, row, now) else None)
-    doc_size = stored_size(new)
+    doc_size = stored_size(new, row.description)
     if fold_into is not None:
         chunks = [*fold_into.chunks, chunk]
         new_size = stored_size(new, chunks, fold_into.base_doc)
@@ -414,7 +433,7 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
     row.last_reader = author
     if scope:
         await _receipt_write(s, scope, request_id, row.id, op, h,
-                             {"version": n, "warnings": res.warnings, "slug": slug,
+                             {"version": n, "warnings": cap_warnings(res.warnings), "slug": slug,
                               "text": f"applied {len(ops)} op(s); document is at version {n}",
                               "wants_snapshot": bool(wants_snapshot)}, now)
     await s.flush()
@@ -426,7 +445,7 @@ async def restore_version(s, slug: str, version: int, *, expected_version: int, 
                           run_id: str | None = None, request_id: str | None = None,
                           scope: str | None = None, caps: Caps = Caps(), now: datetime | None = None) -> dict:
     """Restore is a new version holding an old one's content (never folded)."""
-    row = await _live(s, slug)
+    row = await _live(s, slug, lock=True)  # lock before reading; edit_document's CAS then sees fresh state
     old = await resolve_version(s, row, version)
     if old is None:
         raise _not_found(f"version {version} of {slug!r}")
@@ -584,6 +603,12 @@ async def place_asset(s, slug: str, *, data: bytes, mime: str, placed_by: str, p
     row = await _live(s, slug)
     await _check_caps(s, caps, 0, row.id, "place")
     sha = await add_asset(s, data=data, mime=mime, width=width, height=height, caps=caps, now=now)
+    # Lock the asset row so a concurrent GC delete cannot interleave with the
+    # placement insert; if GC won the race and removed it, store it again.
+    locked = (await s.execute(_for_update(s, select(UiDesignerAsset.sha256).where(
+        UiDesignerAsset.sha256 == sha)))).scalars().first()
+    if locked is None:
+        await add_asset(s, data=data, mime=mime, width=width, height=height, caps=caps, now=now)
     if await s.get(UiDesignerDocumentAsset, (row.id, sha)) is None:
         s.add(UiDesignerDocumentAsset(document_id=row.id, sha256=sha, placed_by=placed_by,
                                       placed_from=placed_from, placed_at=now))
@@ -620,8 +645,17 @@ async def gc_assets(s) -> dict:
     if doomed:
         freed = int((await s.execute(select(func.coalesce(func.sum(UiDesignerAsset.bytes), 0)).where(
             UiDesignerAsset.sha256.in_(doomed)))).scalar_one())
-        await s.execute(delete(UiDesignerAsset).where(UiDesignerAsset.sha256.in_(doomed)))
-    return {"assets_removed": len(doomed), "bytes_freed": freed}
+        # The delete re-checks placement itself, so a placement committed after
+        # the scan above keeps its asset.
+        placed_now = select(UiDesignerDocumentAsset.sha256).where(
+            UiDesignerDocumentAsset.sha256 == UiDesignerAsset.sha256).exists()
+        res = await s.execute(delete(UiDesignerAsset).where(
+            UiDesignerAsset.sha256.in_(doomed), ~placed_now).execution_options(synchronize_session=False))
+        removed = res.rowcount if res.rowcount is not None and res.rowcount >= 0 else len(doomed)
+        if removed != len(doomed):
+            freed = int(freed * removed / len(doomed))
+        return {"assets_removed": removed, "bytes_freed": freed}
+    return {"assets_removed": 0, "bytes_freed": 0}
 
 
 # --- imports (Figma, §8) ----------------------------------------------------

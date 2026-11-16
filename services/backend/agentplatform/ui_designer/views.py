@@ -67,11 +67,68 @@ class Cutter:
         return out
 
 
+TOKENS_NODE = "$tokens"
+
+
+def _token_cut(c: Cutter, tokens: dict, after: str | None, budget: int) -> dict:
+    """Tokens in order (`group.name`), stopping where `budget` runs out; the
+    rest is reached with `node=$tokens after=<group.name>`."""
+    flat = [(g, n) for g, grp in tokens.items() if isinstance(grp, dict) for n in grp]
+    start = 0
+    if after is not None:
+        keys = [f"{g}.{n}" for g, n in flat]
+        if after not in keys:
+            raise _not_found(f"token {after!r}")
+        start = keys.index(after) + 1
+    out: dict[str, dict] = {}
+    used, lastkey = 0, ""
+    for i in range(start, len(flat)):
+        g, n = flat[i]
+        cost = size({n: tokens[g][n]}) + 2
+        if used + cost > budget and out:
+            rest = len(flat) - i
+            out["_more"] = {"count": rest, "after": lastkey}
+            c.notes.append(f"{rest} more tokens after {lastkey}; get node={TOKENS_NODE} after={lastkey}")
+            if c.cursor is None:
+                c.cursor = {"node": TOKENS_NODE, "after": lastkey}
+            used += 64
+            break
+        out.setdefault(g, {})[n] = tokens[g][n]
+        used += cost
+        lastkey = f"{g}.{n}"
+    c.left -= used
+    return out
+
+
+def _cut_siblings(c: Cutter, items: list[tuple[str, dict]], depth: int, budget: int, label: str,
+                  into: dict) -> list[dict]:
+    """Each (id, node) in turn under `budget` (always at least one); what does
+    not fit is counted, and the cursor names the first one left out."""
+    outer, c.left = c.left, budget
+    shown: list[dict] = []
+    for i, (nid, n) in enumerate(items):
+        if c.left <= 0 and shown:
+            last = str(items[i - 1][0])
+            into[f"{label}_more"] = {"count": len(items) - i, "after": last}
+            c.notes.append(f"{len(items) - i} more {label} after {last}; get node={nid}")
+            if c.cursor is None:
+                c.cursor = {"node": nid}
+            break
+        shown.append(c.node(n, depth))
+    consumed = budget - c.left
+    c.left = outer - consumed
+    return shown
+
+
 def cut_document(doc: dict, *, node: str | None, depth: int, after: str | None, budget: int) -> dict:
     """`{doc, node, truncated, notes, cursor}` for the whole document or one
-    node (page, component root or any node id)."""
+    node (page, component root, any node id, or `$tokens`). The whole document
+    is cut in order: tokens, then components, then pages (and their leaves);
+    whatever is left out sets `truncated` and a cursor."""
     c = Cutter(budget)
-    if node is not None:
+    if node == TOKENS_NODE:
+        body = {"tokens": _token_cut(c, doc.get("tokens") or {}, after, max(budget, 256))}
+    elif node is not None:
         ref = index_nodes(doc).get(node)
         if ref is None:
             raise _not_found(f"node {node!r}")
@@ -79,10 +136,16 @@ def cut_document(doc: dict, *, node: str | None, depth: int, after: str | None, 
     else:
         if after is not None:
             raise _not_found("a cursor needs `node`")
-        body = {k: v for k, v in doc.items() if k not in ("pages", "components")}
+        body = {k: v for k, v in doc.items() if k not in ("pages", "components", "tokens")}
         c.left -= size(body)
-        body["components"] = {k: c.node(v, depth) for k, v in (doc.get("components") or {}).items()}
-        body["pages"] = [c.node(p, depth) for p in doc.get("pages") or []]
+        if doc.get("tokens"):
+            body["tokens"] = _token_cut(c, doc["tokens"], None, max(c.left // 4, 512))
+        comps = [(k, v) for k, v in (doc.get("components") or {}).items()]
+        pages = [(str(p.get("id", "")), p) for p in doc.get("pages") or []]
+        cb = max(c.left // 2, 512) if pages else max(c.left, 512)
+        shown = _cut_siblings(c, comps, depth, cb, "components", body)
+        body["components"] = {k: n for (k, _), n in zip(comps, shown)}
+        body["pages"] = _cut_siblings(c, pages, depth, max(c.left, 512), "pages", body)
     return {"doc": body, "node": node, "truncated": bool(c.notes), "notes": c.notes, "cursor": c.cursor}
 
 

@@ -383,3 +383,52 @@ async def test_reads_need_the_grant(sf, seed_agent, agent_store, token_client, a
     norun = await _agent(sf, seed_agent, agent_store, "norun", run=False)
     assert (await token_client.get(f"{P}/docs", headers=norun)).status_code == 200
     assert (await token_client.post(f"{P}/docs", headers=norun, json={"slug": "x"})).status_code == 403
+
+
+# --- review fixes ------------------------------------------------------------------
+
+async def test_oversized_body_is_413_with_a_ud_code(admin_client):
+    settings(admin_client).ui_designer_max_body_bytes = 2048
+    big = {"slug": SLUG, "doc": base_doc(), "description": "x" * 5000}
+    r = await admin_client.post(f"{P}/docs", json=big)
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "UD-BODY-TOO-LARGE"
+    await mk(admin_client)
+    r = await edit(admin_client, 1, [ins("y" * 4000)])
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "UD-BODY-TOO-LARGE"
+    r = await admin_client.post(f"{P}/docs", json={"slug": "ok2", "description": "x" * 2001})
+    assert r.status_code in (413, 422)
+
+
+async def test_description_is_capped_at_2000(admin_client):
+    r = await admin_client.post(f"{P}/docs", json={"slug": SLUG, "description": "x" * 2001})
+    assert r.status_code == 422
+    r = await admin_client.post(f"{P}/docs", json={"slug": SLUG, "description": "x" * 2000})
+    assert r.status_code == 200
+
+
+async def test_agent_snapshots_pass_the_byte_budget(sf, seed_agent, agent_store, admin_client, token_client, renderer):
+    await mk(admin_client)
+    h = await _agent(sf, seed_agent, agent_store, "pai")
+    r = await edit(token_client, 1, headers=h, snapshot=["root"])
+    assert r.status_code == 200
+    sent = [b for p, b in renderer.calls if p == "/render"]
+    assert sent and all(b["max_bytes"] == 1 << 20 for b in sent)
+    settings(admin_client).ui_designer_snapshot_max_bytes = 4096
+    await token_client.get(f"{P}/docs/{SLUG}/render?node=root", headers=h)
+    assert [b for p, b in renderer.calls if p == "/render"][-1]["max_bytes"] == 4096
+
+
+async def test_get_text_cap_holds_with_many_components_and_tokens(admin_client):
+    doc = base_doc()
+    doc["components"] = {f"c{i}": {"id": f"c{i}", "type": "text", "text": "w" * 600} for i in range(100)}
+    doc["tokens"] = {"color": {f"k{i:04d}": "#%06x" % i for i in range(4000)}}
+    r = await admin_client.post(f"{P}/docs", json={"slug": SLUG, "doc": doc})
+    assert r.status_code == 200, r.text
+    raw = await admin_client.get(f"{P}/docs/{SLUG}")
+    assert len(raw.content) <= 32 * 1024 and raw.json()["truncated"] is True
+    got = raw.json()
+    assert got["cursor"] and got["notes"]
+    # the cursor is usable: it names a node (or the token list) the same route serves
+    node, after = got["cursor"]["node"], got["cursor"].get("after")
+    q = f"?node={node}" + (f"&after={after}" if after else "")
+    assert (await admin_client.get(f"{P}/docs/{SLUG}{q}")).status_code == 200

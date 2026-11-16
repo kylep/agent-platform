@@ -282,6 +282,10 @@ class Settings(BaseSettings):
     # Every text answer is cut here with a pointer (Codex's default MCP output
     # limit is the binding one, ~8k tokens).
     ui_designer_text_cap_bytes: int = 32 * 1024
+    # A JSON request body is refused above this before anything parses it.
+    ui_designer_max_body_bytes: int = 2 * 1024 * 1024
+    # Agent snapshots are re-encoded down to this (the downscale ladder).
+    ui_designer_snapshot_max_bytes: int = 1024 * 1024
     # Storage caps sized from the ~170 MiB backup budget (§10).
     ui_designer_max_total_bytes: int = 48 * 1024 * 1024
     ui_designer_max_version_bytes_per_doc: int = 12 * 1024 * 1024

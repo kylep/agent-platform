@@ -28,6 +28,7 @@ UD_BUDGET_WRITES = "UD-BUDGET-WRITES"
 UD_BUDGET_PIXELS = "UD-BUDGET-PIXELS"
 UD_NO_IMAGES_HERE = "UD-NO-IMAGES-HERE"
 UD_FORBIDDEN = "UD-FORBIDDEN"
+UD_BODY_TOO_LARGE = "UD-BODY-TOO-LARGE"
 
 # code -> the fix suggested when a check has nothing more specific to say.
 CODES: dict[str, str] = {
@@ -48,6 +49,7 @@ CODES: dict[str, str] = {
     UD_BUDGET_PIXELS: "Wait `retry_after` seconds; snapshot fewer or smaller nodes, or use "
                       "`snapshot as=boxes`.",
     UD_NO_IMAGES_HERE: "Images go to agent runs; use the web UI, or call without `snapshot`.",
+    UD_BODY_TOO_LARGE: "Send a smaller request body: fewer ops per call, or split the document.",
     UD_FORBIDDEN: "This action is for the document's owner or an administrator.",
     # Issues inside UD-INVALID.
     "UD-UNKNOWN-KEY": "Remove the key; the schema is closed.",

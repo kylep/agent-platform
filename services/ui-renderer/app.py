@@ -54,6 +54,10 @@ class Config:
     job_memory_mb: int = 512
     asset_dir: str = "/var/cache/ui-renderer/assets"
     start_timeout_s: float = 60.0
+    # Admission: requests waiting for a worker beyond `queue_max` are refused at
+    # once, and one that waits longer than `queue_deadline_s` gives up (503).
+    queue_max: int = 8
+    queue_deadline_s: float = 10.0
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -61,7 +65,9 @@ class Config:
         return cls(workers=int(e("UI_RENDERER_WORKERS", "2")),
                    job_timeout_s=float(e("UI_RENDERER_JOB_TIMEOUT_S", "10")),
                    job_memory_mb=int(e("UI_RENDERER_JOB_MEMORY_MB", "512")),
-                   asset_dir=e("UI_RENDERER_ASSET_DIR", "/var/cache/ui-renderer/assets"))
+                   asset_dir=e("UI_RENDERER_ASSET_DIR", "/var/cache/ui-renderer/assets"),
+                   queue_max=int(e("UI_RENDERER_QUEUE_MAX", "8")),
+                   queue_deadline_s=float(e("UI_RENDERER_QUEUE_DEADLINE_S", "10")))
 
 
 # --- jobs (run inside a worker process) ------------------------------------
@@ -293,11 +299,16 @@ class _Worker:
         self.conn.close()
 
 
+class Busy(Exception):
+    """No worker free and no room (or no time) to wait for one."""
+
+
 class Pool:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.idle: asyncio.Queue[_Worker] = asyncio.Queue()
         self.all: list[_Worker] = []
+        self.waiting = 0
 
     def start(self) -> None:
         for _ in range(self.cfg.workers):
@@ -309,8 +320,25 @@ class Pool:
         for w in self.all:
             w.kill()
 
+    async def _acquire(self) -> _Worker:
+        if self.idle.empty() and self.waiting >= self.cfg.queue_max:
+            raise Busy("renderer queue is full")
+        self.waiting += 1
+        try:
+            return await asyncio.wait_for(self.idle.get(), self.cfg.queue_deadline_s)
+        except asyncio.TimeoutError:
+            raise Busy("renderer queue wait timed out") from None
+        finally:
+            self.waiting -= 1
+
     async def run(self, kind: str, req: dict) -> dict:
-        w = await self.idle.get()
+        # Waiting is cancellable (a client that left frees its place); a job
+        # already on a worker is shielded so the worker is never handed back
+        # while still mid-call.
+        w = await self._acquire()
+        return await asyncio.shield(asyncio.ensure_future(self._run_on(w, kind, req)))
+
+    async def _run_on(self, w: "_Worker", kind: str, req: dict) -> dict:
         try:
             return await asyncio.get_running_loop().run_in_executor(
                 None, w.call, kind, req, self.cfg.job_timeout_s, self.cfg.start_timeout_s)
@@ -336,6 +364,10 @@ async def _job(request: web.Request, kind: str, req: dict) -> web.Response:
     t0 = time.monotonic()
     try:
         res = await request.app[POOL].run(kind, req)
+    except Busy as e:
+        log.warning("%s refused: %s", kind, e)
+        return web.json_response(_err("UD-RENDER-FAILED", f"{e}; retry shortly"), status=503,
+                                 headers={"Retry-After": "2"})
     except JobFailed as e:
         log.warning("%s job failed: %s", kind, e)
         return web.json_response(_err("UD-RENDER-FAILED", str(e)), status=504)
@@ -461,4 +493,4 @@ def create_app(cfg: Config | None = None) -> web.Application:
 
 if __name__ == "__main__":
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
-    web.run_app(create_app(), host="0.0.0.0", port=8000, access_log=None)
+    web.run_app(create_app(), host="0.0.0.0", port=8000, access_log=None, handler_cancellation=True)

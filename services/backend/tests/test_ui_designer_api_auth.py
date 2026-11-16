@@ -263,7 +263,9 @@ async def test_local_persona_route_needs_the_grant(local, seed_agent, agent_stor
     assert lp.route_allowed("POST", path, [UD])
     assert not lp.route_allowed("POST", path, [RELAY, ART])
     assert lp.route_allowed("GET", f"/api/ui-designer/docs/{SLUG}/outline", [UD])
-    assert not lp.route_allowed("GET", f"/api/ui-designer/docs/{SLUG}/render", [UD])
+    assert lp.route_allowed("GET", f"/api/ui-designer/docs/{SLUG}/render", [UD])     # standalone snapshot
+    assert not lp.route_allowed("GET", f"/api/ui-designer/docs/{SLUG}/render", [RELAY])
+    assert not lp.route_allowed("GET", f"/api/ui-designer/docs/{SLUG}/svg", [UD])
     base = f"/api/ui-designer/docs/{SLUG}"
     for method, p in (("GET", "/api/ui-designer/docs"), ("GET", base), ("GET", base + "/versions"),
                       ("GET", base + "/versions/3"), ("POST", base + "/edit"),

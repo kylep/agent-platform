@@ -127,3 +127,64 @@ def test_the_image_file_set_is_enough_to_render(tmp_path):
     out = subprocess.run([sys.executable, "-I", "-c", prog, str(tmp_path / "cache"), str(tmp_path)],
                          cwd=tmp_path, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
+
+
+# --- admission -------------------------------------------------------------------
+
+@pytest.fixture
+def slow_jobs(monkeypatch):
+    import time
+
+    def call(self, kind, req, timeout, start_timeout):
+        time.sleep(0.6)
+        return {"ok": True, "tree": {}}
+    monkeypatch.setattr(renderer._Worker, "call", call)
+
+
+async def _slow_client(tmp_path, **cfg):
+    c = TestClient(TestServer(renderer.create_app(renderer.Config(
+        workers=1, asset_dir=str(tmp_path / "a"), **cfg)), handler_cancellation=True))
+    await c.start_server()
+    return c
+
+
+async def test_full_queue_is_503_with_retry_after(tmp_path, slow_jobs):
+    import asyncio
+    c = await _slow_client(tmp_path, queue_max=1, queue_deadline_s=5)
+    try:
+        post = lambda: c.post("/resolved", json={"doc": DOC})
+        running = asyncio.create_task(post())
+        await asyncio.sleep(0.15)
+        waiting = asyncio.create_task(post())
+        await asyncio.sleep(0.15)
+        refused = await post()
+        assert refused.status == 503 and refused.headers["Retry-After"]
+        assert (await refused.json())["code"] == "UD-RENDER-FAILED"
+        assert (await running).status == 200 and (await waiting).status == 200
+    finally:
+        await c.close()
+
+
+async def test_queue_deadline_is_503_and_cancelled_client_frees_its_place(tmp_path, slow_jobs):
+    import asyncio
+    c = await _slow_client(tmp_path, queue_max=8, queue_deadline_s=0.2)
+    try:
+        running = asyncio.create_task(c.post("/resolved", json={"doc": DOC}))
+        await asyncio.sleep(0.1)
+        late = await c.post("/resolved", json={"doc": DOC})
+        assert late.status == 503 and late.headers["Retry-After"]
+        assert (await running).status == 200
+    finally:
+        await c.close()
+    c = await _slow_client(tmp_path, queue_max=8, queue_deadline_s=5)
+    try:
+        pool = c.server.app[renderer.POOL]
+        running = asyncio.create_task(c.post("/resolved", json={"doc": DOC}))
+        await asyncio.sleep(0.1)
+        with pytest.raises(asyncio.TimeoutError):          # the client gives up while queued
+            await asyncio.wait_for(c.post("/resolved", json={"doc": DOC}), 0.2)
+        await asyncio.sleep(0.1)
+        assert pool.waiting == 0                            # cancellation reached the queued handler
+        assert (await running).status == 200
+    finally:
+        await c.close()

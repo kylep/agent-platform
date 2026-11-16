@@ -461,3 +461,69 @@ async def test_usage_counts_assets_raw(sf):
 async def usage(sf):
     async with sf() as s:
         return await store.usage(s)
+
+
+# --- review fixes ------------------------------------------------------------
+
+async def test_restore_cas_sees_a_concurrent_write_through_a_stale_row(sf):
+    await make(sf)
+    for i in range(3):
+        await edit(sf, i + 1, at=i)
+    async with sf() as stale:
+        await store._live(stale, "hud")                  # this session now holds version 4
+        await edit(sf, 4, at=5)                          # a concurrent write folds in: version 5
+        with pytest.raises(UiDesignerError) as e:
+            await store.restore_version(stale, "hud", 2, expected_version=4, author=A, run_id="run1",
+                                        now=T0 + timedelta(seconds=9))
+    assert e.value.code == UD_VERSION_CONFLICT and e.value.detail["current_version"] == 5
+
+
+async def test_gc_delete_rechecks_placement(sf):
+    await make(sf)
+    async with sf() as s:
+        sha = await store.add_asset(s, data=b"racy-bytes", mime="image/png")
+        doc_id = (await s.execute(select(UiDesignerDocument.id))).scalars().first()
+        real = s.execute
+
+        async def spy(stmt, *a, **k):
+            if "DELETE FROM assets" in str(stmt).upper().replace("UI_DESIGNER_ASSETS", "ASSETS") or \
+                    str(stmt).lstrip().upper().startswith("DELETE FROM UI_DESIGNER_ASSETS"):
+                s.add(UiDesignerDocumentAsset(document_id=doc_id, sha256=sha, placed_by=A,
+                                              placed_from="x", placed_at=T0))   # lands after the scan
+                await s.flush()
+            return await real(stmt, *a, **k)
+        s.execute = spy
+        out = await store.gc_assets(s)
+        s.execute = real
+        await s.commit()
+    assert out["assets_removed"] == 0
+    async with sf() as s:
+        assert await s.get(UiDesignerAsset, sha) is not None
+
+
+async def test_description_counts_in_storage_and_is_capped(sf):
+    import os
+    big = os.urandom(700).hex()                          # incompressible, 1400 chars
+    plain = await make(sf, slug="a")
+    withd = await make(sf, slug="b", description=big)
+    assert withd["bytes"] > plain["bytes"] + 600
+    with pytest.raises(UiDesignerError):
+        async with sf() as s:
+            await store.create_document(s, slug="c", owner="kyle", doc=base_doc(), description="x" * 2001)
+
+
+async def test_receipt_warnings_are_capped_so_a_valid_edit_never_fails(sf, monkeypatch):
+    real = store.apply_ops
+
+    def noisy(*a, **k):
+        res = real(*a, **k)
+        res.warnings = [{"code": "UD-WARN-X", "path": f"$.p{i}", "message": "m" * 400} for i in range(500)]
+        return res
+    monkeypatch.setattr(store, "apply_ops", noisy)
+    await make(sf)
+    out = await edit(sf, 1, request_id="r1")
+    assert out["version"] == 2 and len(out["warnings"]) == 500        # the live answer keeps them all
+    async with sf() as s:
+        got = await store.get_receipt(s, "run1", "r1")
+    stored = got["response"]["warnings"]
+    assert len(stored) == store.MAX_RECEIPT_WARNINGS + 1 and "480 more" in stored[-1]["message"]
