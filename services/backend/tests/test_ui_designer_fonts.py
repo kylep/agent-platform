@@ -159,3 +159,40 @@ def test_font_parity_resvg_ink_matches_measured_bounds(family, weight):
     # shorter than a font's content area, so vertical containment is not implied)
     assert node["x"] - 1 <= left and right <= node["x"] + node["w"] + 1
     assert ln["w"] == pytest.approx(node["w"])
+
+
+# --- regression: line breaking and caches stay linear / bounded ----------------
+
+def test_one_very_long_unbroken_word_breaks_in_linear_time():
+    import time
+    st = style(size=14)
+    word = "x" * 4000
+    t0 = time.perf_counter()
+    t = layout_text([(word, st)], 40)
+    dt = time.perf_counter() - t0
+    assert dt < 1.0, f"{dt:.2f}s"
+    assert t.hard_broken and "".join(l.text for l in t.lines) == word
+    assert sum(len(f.glyphs) for l in t.lines for f in l.frags) == 4000
+    assert all(l.w <= 40 + 1e-6 for l in t.lines) and len(t.lines) > 100
+
+
+def test_long_text_in_a_narrow_box_is_fast_and_ellipsis_of_a_long_word_is_fast():
+    import time
+    st = style(size=14)
+    text = " ".join(["lorem ipsum dolor sit amet"] * 150)       # ~4 KiB
+    t0 = time.perf_counter()
+    t = layout_text([(text, st)], 30)
+    t2 = layout_text([("y" * 4000, st)], 200, 1)
+    assert time.perf_counter() - t0 < 1.5
+    assert len(t.lines) > 300 and t.hard_broken
+    assert t2.truncated and len(t2.lines) == 1 and t2.lines[0].text.endswith("…")
+    assert t2.lines[0].w <= 200 + 1e-6
+
+
+def test_caches_are_bounded_by_stored_glyphs():
+    from agentplatform.ui_designer import text as T
+    st = style(size=14)
+    for i in range(400):
+        layout_text([(f"word{i} " + "z" * 900, st)], 300)
+    for c in (T._SHAPED, T._ATOMS, T._LAYOUTS):
+        assert c.cost <= c.max_cost and c.cost == sum(v[1] for v in c.d.values())

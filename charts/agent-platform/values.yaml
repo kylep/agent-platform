@@ -102,6 +102,26 @@ codexProxy:
   oauthUrl: https://auth.openai.com/oauth/token
   refreshWindowSeconds: 300
 
+# UI Designer renderer (docs/design/46 section 5): its own Deployment because
+# rasterizing holds the GIL and would OOM the API pod. `workers` are separate
+# processes, each under `jobMemoryMb` of RLIMIT_DATA and `jobTimeoutS` of wall
+# clock; over either, the worker is killed and respawned and the API answers
+# UD-RENDER-FAILED. Build: docker build -f services/ui-renderer/Dockerfile
+# -t agent-platform-ui-renderer:dev . (from the repo root).
+uiRenderer:
+  enabled: true
+  image:
+    repository: agent-platform-ui-renderer
+    tag: dev
+    pullPolicy: IfNotPresent
+  workers: 2
+  jobMemoryMb: 512
+  jobTimeoutS: 10
+  assetCacheSize: 1Gi
+  resources:
+    requests: {memory: 256Mi, cpu: 200m}
+    limits: {memory: 1Gi, cpu: "2"}
+
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are
 # configured under the `postgresql:` and `kafka:` keys below.

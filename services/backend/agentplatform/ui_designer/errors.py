@@ -17,6 +17,9 @@ UD_INVALID = "UD-INVALID"
 UD_EXPANSION = "UD-EXPANSION"
 UD_VERSION_CONFLICT = "UD-VERSION-CONFLICT"
 UD_ASSET_UNKNOWN = "UD-ASSET-UNKNOWN"
+UD_RENDER_FAILED = "UD-RENDER-FAILED"
+UD_IMAGE_TOO_LARGE = "UD-IMAGE-TOO-LARGE"
+UD_OP_TARGET = "UD-OP-TARGET"
 
 # code -> the fix suggested when a check has nothing more specific to say.
 CODES: dict[str, str] = {
@@ -26,6 +29,8 @@ CODES: dict[str, str] = {
     UD_VERSION_CONFLICT: "Apply your change on top of the ops listed since your "
                          "expected_version, then retry with the current version.",
     UD_ASSET_UNKNOWN: "Place the image into this document with `place` first.",
+    UD_RENDER_FAILED: "Retry once; if it repeats, snapshot a smaller node or simplify the document.",
+    UD_IMAGE_TOO_LARGE: "Snapshot a smaller region (`nodes=[...]`) or a lower scale.",
     # Issues inside UD-INVALID.
     "UD-UNKNOWN-KEY": "Remove the key; the schema is closed.",
     "UD-MISSING": "Add the required key.",

@@ -15,6 +15,7 @@ came from and the caller maps that to a colour.
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -26,7 +27,6 @@ DEFAULT_SIZE = 14.0
 DEFAULT_LINE = 1.2
 ELLIPSIS = "…"
 _EPS = 1e-6
-_CACHE_MAX = 40_000
 _TOKEN_RE = re.compile(r"[ \t\r\f\v]+|[^ \t\r\f\v]+")
 
 
@@ -88,10 +88,45 @@ class TextLayout:
     hard_broken: bool   # a word was wider than the width and was split
 
 
+# --- bounded caches ------------------------------------------------------
+
+class _LRU:
+    """An LRU bounded by total cost (stored glyphs), not by entry count, so a
+    few huge texts cannot pin unbounded memory."""
+
+    def __init__(self, max_cost: int):
+        self.max_cost = max_cost
+        self.cost = 0
+        self.d: OrderedDict = OrderedDict()
+
+    def get(self, key):
+        hit = self.d.get(key)
+        if hit is not None:
+            self.d.move_to_end(key)
+            return hit[0]
+        return None
+
+    def put(self, key, value, cost: int) -> None:
+        cost += 1
+        old = self.d.pop(key, None)
+        if old is not None:
+            self.cost -= old[1]
+        if cost > self.max_cost:
+            return                      # too big to be worth keeping
+        self.d[key] = (value, cost)
+        self.cost += cost
+        while self.cost > self.max_cost:
+            _k, (_v, c) = self.d.popitem(last=False)
+            self.cost -= c
+
+
+CACHE_MAX_GLYPHS = 200_000          # per cache; roughly 20-40 MB each at worst
+_SHAPED = _LRU(CACHE_MAX_GLYPHS)
+_ATOMS = _LRU(CACHE_MAX_GLYPHS)
+_LAYOUTS = _LRU(CACHE_MAX_GLYPHS)
+
+
 # --- shaping -------------------------------------------------------------
-
-_SHAPED: dict[tuple, tuple] = {}
-
 
 def _shape(face: Face, text: str) -> tuple:
     """((gid, cluster, advance, dx, dy), ...) in font units; kerning and
@@ -106,22 +141,21 @@ def _shape(face: Face, text: str) -> tuple:
     hb.shape(face.hb_font, buf)
     out = tuple((i.codepoint, i.cluster, p.x_advance, p.x_offset, p.y_offset)
                 for i, p in zip(buf.glyph_infos, buf.glyph_positions))
-    if len(_SHAPED) > _CACHE_MAX:
-        _SHAPED.clear()
-    _SHAPED[k] = out
+    _SHAPED.put(k, out, len(out))
     return out
 
 
 class _Atom:
-    """A word or a run of spaces, positioned in px from its own origin."""
-    __slots__ = ("run", "style", "text", "space", "glyphs", "w")
+    """A word or a run of spaces, positioned in px from its own origin.
+    `glyphs` is ((gid, x, dy, cluster), ...) with x the pen plus the shaper's
+    offset; `starts` is ((glyph index, pen before it, cluster), ...) with one
+    entry per cluster group, computed once so breaking never reshapes."""
+    __slots__ = ("run", "style", "text", "space", "glyphs", "w", "starts")
 
-    def __init__(self, run: int, style: Style, text: str, space: bool, glyphs: tuple, w: float):
-        self.run, self.style, self.text, self.space, self.glyphs, self.w = run, style, text, space, glyphs, w
-        # glyphs: ((gid, pen, dy, cluster), ...); pen includes the glyph's x offset
-
-
-_ATOMS: dict[tuple, tuple] = {}
+    def __init__(self, run: int, style: Style, text: str, space: bool, glyphs: tuple, w: float,
+                 starts: tuple):
+        self.run, self.style, self.text, self.space = run, style, text, space
+        self.glyphs, self.w, self.starts = glyphs, w, starts
 
 
 def _atom(run: int, style: Style, text: str, space: bool) -> _Atom:
@@ -131,38 +165,56 @@ def _atom(run: int, style: Style, text: str, space: bool) -> _Atom:
         scale = style.size / style.face.upem
         pen = 0.0
         gl = []
-        for gid, cl, adv, dx, dy in _shape(style.face, text):
+        starts = []
+        last = None
+        for j, (gid, cl, adv, dx, dy) in enumerate(_shape(style.face, text)):
+            if cl != last:
+                starts.append((j, pen, cl))
+                last = cl
             gl.append((gid, pen + dx * scale, dy * scale, cl))
             pen += adv * scale + style.letter
-        hit = (tuple(gl), pen)
-        if len(_ATOMS) > _CACHE_MAX:
-            _ATOMS.clear()
-        _ATOMS[k] = hit
-    return _Atom(run, style, text, space, hit[0], hit[1])
+        hit = (tuple(gl), pen, tuple(starts))
+        _ATOMS.put(k, hit, len(gl) + len(starts))
+    return _Atom(run, style, text, space, hit[0], hit[1], hit[2])
 
 
-def _cut(atom: _Atom, n_groups: int) -> tuple[_Atom, _Atom | None]:
-    """Split a word after its first `n_groups` cluster groups."""
-    gl = atom.glyphs
-    starts = [i for i in range(len(gl)) if i == 0 or gl[i][3] != gl[i - 1][3]]
-    if n_groups >= len(starts):
-        return atom, None
-    j = starts[n_groups]
-    c = gl[j][3]
-    # the shift is the pen where glyph j began (offsets excluded): recover it
-    scale = atom.style.size / atom.style.face.upem
-    pen_j = _pen_start(atom, j, scale)
-    head = _Atom(atom.run, atom.style, atom.text[:c], False, gl[:j], pen_j)
-    tail_gl = tuple((g, p - pen_j, dy, cl - c) for g, p, dy, cl in gl[j:])
-    tail = _Atom(atom.run, atom.style, atom.text[c:], False, tail_gl, atom.w - pen_j)
-    return head, tail
+def _piece(atom: _Atom, g0: int, g1: int) -> _Atom:
+    """The cluster groups [g0, g1) of a word as an atom of its own, in O(piece)."""
+    st = atom.starts
+    j0, p0, c0 = st[g0]
+    if g1 < len(st):
+        j1, p1, c1 = st[g1]
+    else:
+        j1, p1, c1 = len(atom.glyphs), atom.w, len(atom.text)
+    gl = tuple((g, x - p0, dy, cl - c0) for g, x, dy, cl in atom.glyphs[j0:j1])
+    starts = tuple((j - j0, p - p0, c - c0) for j, p, c in st[g0:g1])
+    return _Atom(atom.run, atom.style, atom.text[c0:c1], False, gl, p1 - p0, starts)
 
 
-def _pen_start(atom: _Atom, j: int, scale: float) -> float:
-    # pen position of glyph j = sum of advances before it; reshaping is
-    # avoided by using the stored (pen + dx) and the shaped dx
-    sh = _shape(atom.style.face, atom.text)
-    return atom.glyphs[j][1] - sh[j][3] * scale
+def _split_word(atom: _Atom, max_w: float) -> list[_Atom]:
+    """Break a word wider than `max_w` between cluster groups, in one linear
+    pass: every piece but the last fills the width (at least one group); the
+    last piece is returned too so following atoms can join it."""
+    st = atom.starts
+    out: list[_Atom] = []
+    g0 = 0
+    p0 = 0.0
+    g = 1
+    n = len(st)
+    while g < n:
+        # the piece [g0, g) fits while the pen at group g stays within width
+        if st[g][1] - p0 > max_w + _EPS:
+            cut = g - 1 if g - 1 > g0 else g0 + 1     # at least one group per piece
+            out.append(_piece(atom, g0, cut))
+            g0, p0 = cut, st[cut][1]
+            g = cut + 1
+            continue
+        g += 1
+    if atom.w - p0 > max_w + _EPS and n - g0 > 1:   # the last group alone is what overflows
+        out.append(_piece(atom, g0, n - 1))
+        g0 = n - 1
+    out.append(_piece(atom, g0, n))
+    return out
 
 
 # --- line building -------------------------------------------------------
@@ -193,7 +245,8 @@ def _width(items: Iterable[_Atom]) -> float:
 def _lines_of(paras: list[list[_Atom]], max_w: float | None, limit: int | None
               ) -> tuple[list[list[_Atom]], bool, bool]:
     """Greedy breaking. Returns (lines as atom lists, hard_broken, more) where
-    `more` is True when the text continues past `limit` lines."""
+    `more` is True when the text continues past `limit` lines; breaking stops
+    as soon as one line more than `limit` exists."""
     lines: list[list[_Atom]] = []
     hard = False
     for atoms in paras:
@@ -214,24 +267,14 @@ def _lines_of(paras: list[list[_Atom]], max_w: float | None, limit: int | None
                 if limit is not None and len(lines) > limit:
                     return lines, hard, True
                 cur, cur_w, first = [], 0.0, False
-            if max_w is not None and a.w > max_w + _EPS:
-                # alone on the line and still too wide: break between clusters
-                groups = len({g[3] for g in a.glyphs})
-                best = 1
-                for n in range(2, groups):
-                    if _cut(a, n)[0].w > max_w + _EPS:
-                        break
-                    best = n
-                head, tail = _cut(a, best)
-                if tail is not None:
-                    hard = True
-                    cur.append(head)
-                    lines.append(cur)
+            if max_w is not None and a.w > max_w + _EPS and len(a.starts) > 1:
+                pieces = _split_word(a, max_w)
+                hard = True
+                for piece in pieces[:-1]:
+                    lines.append([piece])
                     if limit is not None and len(lines) > limit:
                         return lines, hard, True
-                    cur, cur_w, first = [], 0.0, False
-                    queue.append(tail)
-                    continue
+                a = pieces[-1]
             cur.append(a)
             cur_w += a.w
         _trim(cur)
@@ -270,19 +313,36 @@ def _ellipsize(items: list[_Atom], max_w: float | None, base: Style) -> list[_At
     if ell.glyphs and ell.glyphs[0][0] == 0:   # no glyph for it in this face
         ell = _atom(run, style, "...", False)
     if max_w is not None:
-        while items and _width(items) + ell.w > max_w + _EPS:
+        total = _width(items)
+        while items and total + ell.w > max_w + _EPS:
             a = items[-1]
-            if a.space:
-                items.pop()
-                continue
-            starts = {g[3] for g in a.glyphs}
-            if len(starts) <= 1:
-                items.pop()
-            else:
-                head, _ = _cut(a, len(starts) - 1)
-                items[-1] = head
+            total -= a.w
+            if not a.space:
+                head = _prefix(a, max_w - ell.w - total)
+                if head is not None:
+                    items[-1] = head
+                    break
+            items.pop()
     items.append(ell)
     return items
+
+
+def _prefix(atom: _Atom, budget: float) -> _Atom | None:
+    """The longest run of leading cluster groups of a word that fits in
+    `budget` px (binary search over the stored pen positions), or None."""
+    st = atom.starts
+    lo, hi = 0, len(st)         # largest n in [0, len(st)) with pen(group n) <= budget
+    if atom.w <= budget + _EPS:
+        return atom
+    lo = 0
+    hi = len(st) - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if st[mid][1] <= budget + _EPS:
+            lo = mid
+        else:
+            hi = mid - 1
+    return _piece(atom, 0, lo) if lo > 0 else None
 
 
 def _frags(items: list[_Atom]) -> list[Frag]:
@@ -298,9 +358,6 @@ def _frags(items: list[_Atom]) -> list[Frag]:
         f.text += a.text
         x += a.w
     return frags
-
-
-_LAYOUTS: dict[tuple, TextLayout] = {}
 
 
 def _build(runs: list[tuple[str, Style]], max_w: float | None, max_lines: int | None) -> TextLayout:
@@ -339,19 +396,19 @@ def layout_text(runs: list[tuple[str, Style]], max_w: float | None = None,
     natural = _LAYOUTS.get((key, None, max_lines))
     if natural is None:
         natural = _build(runs, None, max_lines)
-        if len(_LAYOUTS) > _CACHE_MAX:
-            _LAYOUTS.clear()
-        _LAYOUTS[(key, None, max_lines)] = natural
+        _LAYOUTS.put((key, None, max_lines), natural, _cost(natural))
     if max_w is None or natural.w <= max_w + _EPS:
         return natural
     k = (key, round(max_w, 3), max_lines)
     hit = _LAYOUTS.get(k)
     if hit is None:
         hit = _build(runs, max_w, max_lines)
-        if len(_LAYOUTS) > _CACHE_MAX:
-            _LAYOUTS.clear()
-        _LAYOUTS[k] = hit
+        _LAYOUTS.put(k, hit, _cost(hit))
     return hit
+
+
+def _cost(tl: TextLayout) -> int:
+    return sum(len(f.glyphs) for ln in tl.lines for f in ln.frags) + len(tl.lines)
 
 
 def plain_text(spec: Any) -> str:
