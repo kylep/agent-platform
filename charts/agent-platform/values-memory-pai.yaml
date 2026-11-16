@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: bk-bc1479f
+    tag: bk-060c04a
   web:
     tag: bk-9900ff4
   runner:
