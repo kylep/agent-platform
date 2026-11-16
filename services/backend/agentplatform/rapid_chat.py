@@ -152,6 +152,12 @@ def _pick(areas, agent, participants, avail, integrated_pass, busy_areas, busy_r
             return None
         return Job("map", agent, None, 0)
     pass_no = current_pass(areas)
+    # Once everything is reviewed, integrated and advocated for this pass, no work
+    # is left that could raise an area's turns: the round advances virtually.
+    if all(a["status"] == "reviewed" for a in areas):
+        while (integrated_pass >= pass_no
+               and all(a.get("advocated_pass", -1) >= pass_no for a in areas)):
+            pass_no += 1
     limit = AREA_CAP * (pass_no + 1)
     pending = [a for a in areas if a["status"] != "reviewed"]
     if pending and not busy_areas and all(a["turns"] >= limit for a in pending):
@@ -191,7 +197,9 @@ def _pick(areas, agent, participants, avail, integrated_pass, busy_areas, busy_r
         if designated not in avail:
             designated = avail[0]
         return Job("integrator", agent, None, pass_no) if agent == designated else None
-    stale = [(i, a) for i, a in eligible if ok("advocate", a)]
+    # One advocate per area per pass is its own cap, so the turn cap does not apply.
+    stale = [(i, a) for i, a in enumerate(areas) if a["key"] not in busy_areas
+             and ok("advocate", a) and a.get("advocated_pass", -1) < pass_no]
     if stale:
         area = min(stale, key=lambda r: (r[1]["updated_seq"], r[0]))[1]
         return Job("advocate", agent, area["key"], pass_no)
@@ -265,10 +273,16 @@ def _options(proposal: str) -> list[dict]:
 
 
 def _labels(rest: str) -> list[str]:
+    rest = re.sub(r"[*_`]", "", rest)
     rest = re.split(r"[—(:.;]| - ", rest, maxsplit=1)[0]
     rest = re.sub(r"(?i)\boptions?\b", " ", rest)
     parts = [p.strip() for p in re.split(r"[+&,/]|\band\b", rest, flags=re.I)]
-    return [p.upper() for p in parts if re.fullmatch(r"[A-Za-z0-9]{1,3}", p)]
+    found = [p.upper() for p in parts if re.fullmatch(r"[A-Za-z0-9]{1,3}", p)]
+    if found:
+        return found
+    # "Option B because A is flat": the first labelled option, else a bare leading label.
+    m = re.search(r"(?i)\boption\s+([A-Za-z0-9])\b", rest) or re.match(r"\s*([A-Za-z0-9])\b", rest)
+    return [m.group(1).upper()] if m else []
 
 
 def parse_result(text: str | None, role: str, *, converge: bool = False,
@@ -320,7 +334,7 @@ def parse_result(text: str | None, role: str, *, converge: bool = False,
             return Parsed("malformed", "missing Critique")
         data["critique"] = body[:CRITIQUE_CAP]
     elif role == "critic":
-        crit = secs.get("critique", "")
+        crit = secs.get("critique", "") or (secs.get("proposal", "") if converge else "")
         if not crit:
             return Parsed("malformed", "missing Critique")
         if converge:
@@ -329,16 +343,17 @@ def parse_result(text: str | None, role: str, *, converge: bool = False,
             if not m:
                 return Parsed("malformed", "pass-0 critique must start with Pick: or Merge:")
             labels = _labels(m.group(2))
-            if m.group(1).lower() == "pick":
-                labels = labels[:1]
             known = [x.upper() for x in (option_labels or [])]
             if not labels or any(label not in known for label in labels):
                 return Parsed("malformed", "pass-0 pick names an unknown option")
-            merged = "\n".join(lines[1:]).strip()
-            if m.group(1).lower() == "merge" and not merged:
-                return Parsed("malformed", "Merge needs the merged text")
-            data.update(pick={"kind": m.group(1).lower(), "labels": labels},
-                        critique=lines[0].strip(), proposal=merged[:PROPOSAL_CAP])
+            rest = "\n".join(lines[1:]).strip()
+            kind = m.group(1).lower()
+            # Pick: the option text IS the proposal and anything after the first
+            # line is the critic's remarks. Merge: the text after it is the merge
+            # (or, under `## Proposal`, the section); `merge()` falls back to the
+            # named options when that text is short or missing.
+            data.update(pick={"kind": kind, "labels": labels}, critique=crit[:CRITIQUE_CAP],
+                        proposal=(rest or secs.get("proposal", ""))[:PROPOSAL_CAP] if kind == "merge" else "")
         else:
             data["critique"] = crit[:CRITIQUE_CAP]
     elif role == "integrator":
@@ -409,8 +424,12 @@ def merge(areas: list[dict], job: Job | tuple, agent: str, parsed: Parsed,
             elif role == "critic" and "pick" in d:
                 picked = d["pick"]["labels"]
                 options = area["options"]
-                area["proposal"] = d["proposal"] or "\n\n".join(
-                    o["text"] for o in options if o["label"] in picked)
+                texts = "\n\n".join(o["text"] for o in options if o["label"] in picked)
+                merged = d["proposal"]
+                # A merge keeps its own text unless it is too short to stand alone,
+                # in which case the merged options are the proposal it refines.
+                area["proposal"] = ((texts + "\n\n" + merged).strip() if len(merged) < 60
+                                    else merged)[:PROPOSAL_CAP] or texts
                 _append_unique(area["alternatives"], [
                     f"Option {o['label']}: {o['text'][:300]}" for o in options
                     if o["label"] not in picked])
@@ -430,11 +449,13 @@ def merge(areas: list[dict], job: Job | tuple, agent: str, parsed: Parsed,
             weight = 2 if info["reason"] else 1
         area["turns"] += weight
     elif parsed.outcome == "noreply" and role == "advocate" and area is not None:
+        area["advocated_pass"] = getattr(job, "pass_no", current_pass(areas))
         area["updated_seq"] = seq          # rotate: a decline must not repeat the same area
     elif parsed.outcome == "ok" and role == "advocate" and area is not None:
         d = parsed.data
         area.update(critique=d["critique"], critic=agent, status="critiqued",
-                    summary=d["summary"], updated_seq=seq)
+                    summary=d["summary"], updated_seq=seq,
+                    advocated_pass=getattr(job, "pass_no", current_pass(areas)))
         _append_unique(area["alternatives"], d["alternatives"])
         _append_unique(area["open"], d["open"])
     elif parsed.outcome == "ok" and role == "integrator":
@@ -521,25 +542,55 @@ def _flat(text: str) -> str:
                      for ln in (text or "").splitlines())
 
 
-def _body(chat, *, final: bool, section: bool, per_area: int) -> str:
+TRIM_NOTE = "\u2026(trimmed; full text in the rapid-chat log)"
+_BOUNDARY = re.compile(r"(?<=[.!?])[\"')\]]*(?=\s)|\n\s*\n")
+
+
+def _trim(text: str, n: int) -> str:
+    """Cut at a sentence or paragraph boundary, never mid-sentence, and say so."""
+    text = (text or "").strip()
+    if len(text) <= n:
+        return text
+    cut = 0
+    for m in _BOUNDARY.finditer(text[:n]):
+        cut = m.end()
+    if cut < n // 4:                        # no usable boundary: fall back to a word
+        cut = text.rfind(" ", 0, n)
+        cut = cut if cut > 0 else n
+    return text[:cut].rstrip() + " " + TRIM_NOTE
+
+
+# Trim levels, cheapest loss first: older critique, then alternatives and open
+# questions, then (last resort) the proposals themselves at a sentence boundary.
+# Each is (proposal cap, critique cap, alternatives kept, open kept).
+_LEVELS = ((PROPOSAL_CAP, 1500, 99, 99), (PROPOSAL_CAP, 600, 5, 5), (PROPOSAL_CAP, 250, 2, 3),
+           (PROPOSAL_CAP, 0, 0, 0), (4500, 0, 0, 0), (3000, 0, 0, 0), (2000, 0, 0, 0),
+           (1200, 0, 0, 0), (600, 0, 0, 0))
+
+
+def _body(chat, *, final: bool, section: bool, level: tuple) -> str:
+    prop_cap, crit_cap, alt_n, open_n = level
     head = _flat_header(chat, section)
     parts: list[str] = []
     for a in chat.areas:
-        parts.append(f"## {a['title']}\n*{a['status']} · {a['turns']} turns*")
+        parts.append(f"## {a['title']}\n*{a['status']} \u00b7 {a['turns']} turns*")
         if a["proposal"]:
-            parts.append(_flat(a["proposal"][:per_area]))
+            parts.append(_flat(_trim(a["proposal"], prop_cap)))
         elif a["options"]:
             parts.append("### Options\n" + "\n".join(
-                f"- **Option {o['label']}** {_flat(o['text'][:per_area // 3])}" for o in a["options"]))
+                f"- **Option {o['label']}** {_flat(_trim(o['text'], max(prop_cap // 3, 200)))}"
+                for o in a["options"]))
         else:
             parts.append("_Not started._")
-        if a["critique"]:
+        if a["critique"] and crit_cap:
             who = a["critic"] or "unknown"
-            parts.append(f"### Critique\n*{who}*\n{_flat(a['critique'][:per_area // 2])}")
-        if a["alternatives"]:
-            parts.append("### Alternatives considered\n" + "\n".join(f"- {x}" for x in a["alternatives"]))
-        if a["open"]:
-            parts.append("### Open questions\n" + "\n".join(f"- {x}" for x in a["open"]))
+            parts.append(f"### Critique\n*{who}*\n{_flat(_trim(a['critique'], crit_cap))}")
+        if a["alternatives"] and alt_n:
+            parts.append("### Alternatives considered\n" + "\n".join(
+                f"- {_trim(x, 300) if alt_n < 99 else x}" for x in a["alternatives"][:alt_n]))
+        if a["open"] and open_n:
+            parts.append("### Open questions\n" + "\n".join(
+                f"- {_trim(x, 300) if open_n < 99 else x}" for x in a["open"][:open_n]))
     if final:
         parts.append("## Session summary\n" + (chat.summary or "_No summary._"))
     text = "\n\n".join(parts) + "\n"
@@ -561,15 +612,16 @@ def _flat_header(chat, section: bool) -> list[str]:
 
 def assemble_body(chat, *, final: bool = False, section: bool = False,
                   max_bytes: int = 60000) -> str:
-    """The page, assembled deterministically (no LLM). Proposals shrink
-    uniformly until the body fits the wiki's size cap."""
-    per_area = PROPOSAL_CAP
-    while True:
-        text = _body(chat, final=final, section=section, per_area=per_area)
-        if len(text.encode()) <= max_bytes or per_area <= 150:
-            return text if len(text.encode()) <= max_bytes else text.encode()[:max_bytes].decode(
-                "utf-8", "ignore")
-        per_area //= 2
+    """The page, assembled deterministically (no LLM). Each area keeps its full
+    current proposal; to fit the wiki's size cap, older critique, alternatives
+    and open questions are trimmed first and proposals only as a last resort,
+    always at a sentence boundary."""
+    text = ""
+    for level in _LEVELS:
+        text = _body(chat, final=final, section=section, level=level)
+        if len(text.encode()) <= max_bytes:
+            return text
+    return text.encode()[:max_bytes].decode("utf-8", "ignore").rsplit("\n", 1)[0] + "\n"
 
 
 def _data(text: str) -> str:
@@ -606,11 +658,15 @@ _ROLE = {
                "## Critique\n(your objections and fixes)"),
     "critic0": ("Converge: the colleague offered options. Pick one or merge several.",
                 "## Critique\n(first line exactly `Pick: Option B` or `Merge: A+C`, then the merged text)"),
-    "reviser": ("Revise the proposal to answer the critique. Propose; untested is fine, say so in one word.",
+    "reviser": ("Revise the proposal to answer the critique. Keep what works and fold in "
+                "additions; do not shrink the design unless something replaces what you drop. "
+                "Propose; untested is fine, say so in one word.",
                 "## Proposal\n(the full revised text for this area)"),
-    "advocate": ("Devil's advocate: argue this area is wrong or boring for a spectator, "
-                 "propose the opposite design and what it would cost.",
-                 "## Critique\n(your case against the area and the opposite design)"),
+    "advocate": ("Devil's advocate, constructive: propose a materially different ADDITION or "
+                 "alternative design for this area: what to add to it, or what to replace it with, "
+                 "and what that costs. Do not merely argue for cutting; a removal is acceptable only "
+                 "paired with its replacement.",
+                 "## Critique\n(the addition or alternative design, concrete enough to adopt)"),
     "integrator": ("Cross-check every area against the others. List contradictions and gaps.",
                    "## Critique\n(one bullet per contradiction, each starting with the area key in "
                    "brackets, e.g. `- [world-evolution] clashes with ...`)"),
@@ -913,7 +969,7 @@ async def checkpoint(sf, producer, settings, chat: RapidChat, *, now: datetime,
                 try:
                     page = await wiki_store.write_page(
                         ws, producer, slug, actor=actor, base_version=sink.get("version"),
-                        body=assemble_body(chat, final=final, max_bytes=cap - 2000),
+                        body=assemble_body(chat, final=final, max_bytes=cap - 500),
                         reason=reason, max_body_bytes=cap)
                 except wiki_store.WikiConflictError:
                     sink.update(mode="append", conflict=True)
@@ -927,7 +983,7 @@ async def checkpoint(sf, producer, settings, chat: RapidChat, *, now: datetime,
             if mode == "append":
                 page = await wiki_store.append_page(
                     ws, producer, slug, actor=actor, reason=reason, max_body_bytes=cap,
-                    body=assemble_body(chat, final=True, section=True, max_bytes=cap - 2000))
+                    body=assemble_body(chat, final=True, section=True, max_bytes=cap - 500))
     except Exception as exc:
         chat.last_error = f"sink write failed: {exc}"[:500]
         log.warning("rapid-chat %s: sink write failed", chat.id, exc_info=True)

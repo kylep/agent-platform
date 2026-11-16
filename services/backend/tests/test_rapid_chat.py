@@ -161,7 +161,6 @@ def test_merge_pick_needs_known_labels_and_text():
     kw = dict(converge=True, option_labels=["A", "B"])
     assert rc.parse_result(base.format("Pick: Option Z"), "critic", **kw).outcome == "malformed"
     assert rc.parse_result(base.format("just words"), "critic", **kw).outcome == "malformed"
-    assert rc.parse_result(base.format("Merge: A+B"), "critic", **kw).outcome == "malformed"
     ok = rc.parse_result(base.format("Merge: A+B\nBoth."), "critic", **kw)
     assert ok.outcome == "ok" and ok.data["pick"]["labels"] == ["A", "B"]
     assert ok.data["proposal"] == "Both."
@@ -821,3 +820,85 @@ def test_a_job_is_always_available_across_passes_with_seeds_declines_and_reopens
         if picked.role == "integrator":
             ip = max(ip, picked.pass_no)
     assert max(passes) >= 3
+
+
+# --- sprint 1 fixes ----------------------------------------------------------
+
+def test_the_page_keeps_full_proposals_and_trims_the_rest_first():
+    sentence = "The economy pays out gold at dawn. "
+    areas = []
+    for i in range(12):
+        a = rc.new_area(f"a{i}", f"Area {i}")
+        a.update(status="reviewed", turns=3, proposal=sentence * 130, critic="kai",
+                 critique="Old objection. " * 400, alternatives=["alt " * 60] * 10,
+                 open=["q?"] * 10)
+        areas.append(a)
+    chat = SimpleNamespace(id="i", title="T", goal="g", state="running", turns_total=0,
+                           participants=["pai"], end_reason=None, areas=areas, summary="")
+    body = rc.assemble_body(chat, max_bytes=65536 - 500)
+    assert len(body.encode()) <= 65536 - 500
+    assert body.count(sentence.strip()) >= 12 * 130          # every proposal in full
+    assert body.count("Old objection.") < 12 * 400          # critique went first
+
+
+def test_trimming_never_cuts_mid_sentence():
+    text = "First sentence here. Second sentence follows. Third one is long and runs on"
+    got = rc._trim(text, 50)
+    assert got == "First sentence here. Second sentence follows. " + rc.TRIM_NOTE
+    huge = SimpleNamespace(id="i", title="T", goal="g", state="running", turns_total=0,
+                           participants=["pai"], end_reason=None, summary="",
+                           areas=[{**rc.new_area("a", "A"), "proposal": "Alpha beta. " * 4000}] * 12)
+    body = rc.assemble_body(huge, max_bytes=20000)
+    assert len(body.encode()) <= 20000
+    lines = [ln for ln in body.splitlines() if ln.startswith("Alpha")]
+    assert lines and all(ln.endswith(("beta.", rc.TRIM_NOTE)) for ln in lines)
+
+
+@pytest.mark.parametrize("line,picked", [("Pick: B", ["B"]), ("Pick: Option B", ["B"]),
+                                         ("pick: option b", ["B"]), ("**Pick: Option B**", ["B"]),
+                                         ("Pick: Option B because A is flat", ["B"]),
+                                         ("Pick: B+C", ["B", "C"]), ("Merge: A+C", ["A", "C"]),
+                                         ("Merge: Option A and Option C", ["A", "C"])])
+def test_a_pick_only_critique_makes_the_option_text_the_proposal(line, picked):
+    areas = [area("a", "drafted", 1, author="pai",
+                  options=[{"label": x, "text": f"design {x} in full"} for x in "ABC"])]
+    text = f"## Summary\ns\n## Critique\n{line}\n## Alternatives\n- x\n"
+    parsed = rc.parse_result(text, "critic", converge=True, option_labels=["A", "B", "C"])
+    assert parsed.outcome == "ok" and parsed.data["pick"]["labels"] == picked
+    out, _ = rc.merge(areas, ("critic", "a"), "kai", parsed, 2)
+    for x in "ABC":
+        assert (f"design {x} in full" in out[0]["proposal"]) == (x in picked)
+    chat = SimpleNamespace(id="c", goal="g")
+    prompt = rc.build_prompt(chat, rc.Job("reviser", "pai", "a", 0), out, [])
+    assert f"design {picked[0]} in full" in prompt
+
+
+def test_pick_remarks_do_not_replace_the_picked_text():
+    areas = [area("a", "drafted", 1, author="pai",
+                  options=[{"label": x, "text": f"design {x}"} for x in "AB"])]
+    text = "## Summary\ns\n## Critique\nPick: B\nThe pricing is thin.\n## Alternatives\n- x\n"
+    parsed = rc.parse_result(text, "critic", converge=True, option_labels=["A", "B"])
+    out, _ = rc.merge(areas, ("critic", "a"), "kai", parsed, 2)
+    assert out[0]["proposal"] == "design B" and "pricing is thin" in out[0]["critique"]
+
+
+def test_advocate_is_capped_per_area_per_pass_and_asks_for_additions():
+    areas = [area("a", "reviewed", 3, seq=1), area("b", "reviewed", 3, seq=2)]
+    j = job(areas, "pai", integrated_pass=1)
+    assert j.role == "advocate" and j.area_key == "a"
+    areas[0]["advocated_pass"] = 1
+    assert job(areas, "pai", integrated_pass=1).area_key == "b"
+    areas[1]["advocated_pass"] = 1
+    nxt = [job(areas, p, integrated_pass=1) for p in PERSONAS]  # the round advances, no stall
+    assert [n.role for n in nxt if n] == ["integrator"] and [n for n in nxt if n][0].pass_no == 2
+    prompt = rc.build_prompt(SimpleNamespace(id="c", goal="g"), rc.Job("advocate", "pai", "a", 1),
+                             areas, [])
+    assert "ADDITION or alternative design" in prompt and "Do not merely argue for cutting" in prompt
+
+
+def test_an_advocate_turn_records_its_pass():
+    areas = [area("a", "reviewed", 3)]
+    parsed = rc.parse_result("## Summary\ns\n## Critique\nAdd a market.\n## Alternatives\n- y\n",
+                             "advocate")
+    out, _ = rc.merge(areas, rc.Job("advocate", "pai", "a", 1), "pai", parsed, 4)
+    assert out[0]["advocated_pass"] == 1 and out[0]["status"] == "critiqued"
