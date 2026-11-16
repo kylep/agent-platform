@@ -3,18 +3,21 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: bk-a72e7d7
+    tag: ud-b1e4039
   web:
-    tag: bk-9900ff4
+    tag: ud-b1e4039
   runner:
     tag: bk-1383a26
   runnerDev:
     tag: bk-edf7a44
   mcpFacade:
-    tag: dream-d0a546f
+    tag: ud-b1e4039
 mcpBroker:
   image:
-    tag: gd-5de8c83
+    tag: ud-b1e4039
+uiRenderer:
+  image:
+    tag: ud-b1e4039
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"
