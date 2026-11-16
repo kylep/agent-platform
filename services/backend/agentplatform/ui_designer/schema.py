@@ -8,6 +8,7 @@ expansion budget (`UD-EXPANSION`), then image placements (`UD-ASSET-UNKNOWN`).
 from __future__ import annotations
 
 import copy
+import difflib
 import json
 import math
 import re
@@ -258,14 +259,32 @@ def _tokref(c: _Ctx, v: str, path: str, groups: tuple[str, ...]) -> None:
         c.add("UD-TOKEN-UNKNOWN", path, f"no token {v}", v)
 
 
+# Spellings agents reach for first; difflib alone would not find these.
+_KEY_ALIASES = {"width": "w", "height": "h", "padding": "pad", "direction": "dir",
+                "font_size": "size", "fontsize": "size", "font": "family",
+                "background": "fill", "bg": "fill", "border": "stroke",
+                "corner_radius": "radius", "border_radius": "radius", "content": "text",
+                "kids": "children", "items": "children", "spacing": "gap"}
+
+
+def _closest_key(key: str, allowed: set[str]) -> str | None:
+    alias = _KEY_ALIASES.get(key.lower())
+    if alias in allowed:
+        return alias
+    near = difflib.get_close_matches(key, sorted(allowed), n=1, cutoff=0.6)
+    return near[0] if near else None
+
+
 def _obj(c: _Ctx, v: Any, path: str, allowed: set[str], required: tuple[str, ...] = ()) -> bool:
     if not isinstance(v, dict):
         c.add("UD-TYPE", path, "expected an object", v)
         return False
     for k in v:
         if k not in allowed:
+            guess = _closest_key(k, allowed)
+            hint = f"Did you mean {guess!r}? " if guess else ""
             c.add("UD-UNKNOWN-KEY", join_path(path, k), f"unknown key {k!r}",
-                  fix=f"Allowed keys: {', '.join(sorted(allowed))}.")
+                  fix=f"{hint}Allowed keys: {', '.join(sorted(allowed))}.")
     for k in required:
         if k not in v:
             c.add("UD-MISSING", join_path(path, k), f"missing required key {k!r}")

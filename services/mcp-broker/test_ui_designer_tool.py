@@ -102,10 +102,10 @@ def test_snapshot_refusal_is_text(api):
 def test_history_and_restore(api):
     api.replies[f"{DOCS}/hud/versions"] = (200, json.dumps({
         "slug": "hud", "version": 5, "next_before": 2,
-        "versions": [{"first_version": 3, "last_version": 5, "author": "agent:pai",
+        "versions": [{"first_version": 3, "version": 5, "author": "agent:pai",
                       "reasons": ["a", "b"]}]}))
     out = ud(action="history", slug="hud")
-    assert "hud is at v5" in out and "v3-v5 · agent:pai · a / b" in out and "before=2" in out
+    assert "hud is at v5" in out and "v3\u2013v5 (3 writes) · agent:pai · a / b" in out and "before=2" in out
     api.replies[f"{DOCS}/hud/restore"] = (200, json.dumps({"slug": "hud", "version": 6}))
     assert ud(action="restore", slug="hud", version=2, expected_version=5,
               request_id="r-3").startswith("restored v2 as hud v6")
@@ -139,3 +139,21 @@ def test_audit_row_and_signature(api, published):
     data = published[-1][1]["data"]
     assert (data["tool"], data["action"], data["decision"]) == ("ui_designer", "outline", "allow")
     assert list(inspect.signature(broker.ui_designer).parameters)[:2] == ["action", "slug"]
+
+
+def test_history_folded_row_shows_range_and_never_a_bare_slash(api):
+    api.replies[f"{DOCS}/hud/versions"] = (200, json.dumps({
+        "slug": "hud", "version": 3, "next_before": None,
+        "versions": [{"first_version": 2, "version": 3, "author": "agent:pai",
+                      "label": None, "reasons": ["", ""]},
+                     {"first_version": 1, "version": 1, "author": "agent:pai", "reasons": [""]}]}))
+    lines = ud(action="history", slug="hud").splitlines()
+    assert lines[0] == "hud is at v3"
+    assert lines[1] == "v2\u2013v3 (2 writes) \u00b7 agent:pai"
+    assert lines[2] == "v1 \u00b7 agent:pai"
+    assert all(" / " not in line and not line.endswith("/") for line in lines)
+
+
+def test_docstring_carries_the_cheat_sheet():
+    doc = inspect.getdoc(broker.ui_designer)
+    assert "set_doc" in doc and "there is no add_page op" in doc and "layout is an OBJECT" in doc

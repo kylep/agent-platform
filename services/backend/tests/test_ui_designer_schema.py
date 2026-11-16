@@ -430,3 +430,14 @@ def test_ids_and_shas_reject_trailing_newline():
     assert schema.ID_RE.fullmatch("abc\n") is None
     assert schema.SHA_RE.fullmatch("a" * 64 + "\n") is None
     assert "asset" in schema._NO_OVERRIDE
+
+
+def test_unknown_key_suggests_the_closest_valid_key():
+    from agentplatform.ui_designer.schema import collect_issues
+    doc = {"schema": 1, "pages": [{"id": "p", "children": [
+        {"id": "a", "type": "frame", "width": 10, "layot": {}},
+        {"id": "b", "type": "text", "text": "x", "style": {"font_size": 12}}]}]}
+    fixes = {i.path: i.fix for i in collect_issues(doc)}
+    assert "Did you mean 'w'?" in fixes["$.pages[0].children[0].width"]
+    assert "Did you mean 'layout'?" in fixes["$.pages[0].children[0].layot"]
+    assert "Did you mean 'size'?" in fixes["$.pages[0].children[1].style.font_size"]
