@@ -117,6 +117,10 @@ async def overview(request: Request):
     out["runs_7d"] = len(week)
     out["dlq"] = out["by_state"].get(RunState.DLQ, 0)
     out["window"] = _WINDOW
+    from pathlib import Path
+    from agentplatform.api.backups import backup_status
+    out["backups"] = backup_status(Path(request.app.state.settings.backup_output_dir),
+                                   now.timestamp())
     return out
 
 

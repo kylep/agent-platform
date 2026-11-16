@@ -137,6 +137,41 @@ def _local_backups(directory: Path) -> list[dict]:
     return sorted(result, key=lambda item: item["name"], reverse=True)
 
 
+STALE_AFTER_HOURS = 26     # nightly at 08:30 UTC, plus slack for a slow run
+SHRINK_RATIO = 0.9         # a bundle under 90% of the previous one is suspicious
+
+
+def backup_status(directory: Path, now: float) -> dict | None:
+    """Freshness of the nightly backups, for the health worker. None when this
+    install has no backup directory (backups disabled): unknown, not healthy.
+
+    `stale`: the newest uploaded cloud bundle (or, with cloud backups off, the
+    newest local dump) is older than STALE_AFTER_HOURS. `shrunk`: the newest
+    uploaded bundle is under SHRINK_RATIO of the one before it. Leftover `.tmp`
+    files are a failed run's trace."""
+    if not directory.is_dir():
+        return None
+    uploaded = [b for b in _local_backups(directory) if b["uploaded"]]
+    dumps = sorted((p for p in directory.glob("*.sql.gz") if p.is_file()),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    newest = uploaded[0] if uploaded else None
+    newest_at = newest["created_at"] if newest else (dumps[0].stat().st_mtime if dumps else None)
+    age = None if newest_at is None else round((now - newest_at) / 3600, 1)
+    previous = uploaded[1] if len(uploaded) > 1 else None
+    return {
+        "newest": newest["name"] if newest else (dumps[0].name if dumps else None),
+        "newest_age_hours": age,
+        "newest_bytes": newest["bytes"] if newest else None,
+        "previous_bytes": previous["bytes"] if previous else None,
+        "uploaded_count": len(uploaded),
+        "local_dump_age_hours": round((now - dumps[0].stat().st_mtime) / 3600, 1) if dumps else None,
+        "failed_leftovers": sorted(p.name for p in directory.glob("*.tmp"))[:10],
+        "stale": age is None or age > STALE_AFTER_HOURS,
+        "shrunk": bool(newest and previous and newest["bytes"] < SHRINK_RATIO * previous["bytes"]),
+        "stale_after_hours": STALE_AFTER_HOURS,
+    }
+
+
 @router.get("")
 async def list_backups(request: Request):
     return _local_backups(Path(request.app.state.settings.backup_output_dir))

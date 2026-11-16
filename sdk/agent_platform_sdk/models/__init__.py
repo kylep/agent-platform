@@ -32,6 +32,7 @@ from .artifact_view import ArtifactView
 from .artifact_view_meta import ArtifactViewMeta
 from .backlog import Backlog
 from .backup_connection_in import BackupConnectionIn
+from .backup_status import BackupStatus
 from .body_inspect_import import BodyInspectImport
 from .call_in import CallIn
 from .capture_in import CaptureIn
@@ -438,6 +439,7 @@ __all__ = (
     "ArtifactViewMeta",
     "Backlog",
     "BackupConnectionIn",
+    "BackupStatus",
     "BodyInspectImport",
     "CallIn",
     "CaptureIn",

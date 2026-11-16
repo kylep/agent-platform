@@ -28,11 +28,13 @@ metadata:
 spec:
   schedule: {{ .Values.backup.schedule | quote }}
   concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 21600
   successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      backoffLimit: 2
+      backoffLimit: 3
+      ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
@@ -62,6 +64,8 @@ spec:
                   TS="$(date -u +%Y%m%dT%H%M%SZ)"
                   OUT="/backups/{{ .Release.Name }}-${TS}.sql.gz"
                   TMP="${OUT}.tmp"
+                  # Outlast a Postgres restart (Nov 15, 2026: refused within 25 s, three times).
+                  for i in $(seq 1 60); do pg_isready -q && break; echo "postgres not ready ($i/60)"; sleep 10; done
                   echo "pg_dump ${PGDATABASE}@${PGHOST} -> ${OUT}"
                   # The UI Designer render cache is derivable: dump its definition, not its rows.
                   pg_dump --exclude-table-data=public.ui_designer_renders | gzip > "${TMP}"
@@ -69,6 +73,8 @@ spec:
                   echo "dump ok: $(du -h "${OUT}" | cut -f1)"
                   echo "retention: keeping newest ${BACKUP_KEEP} dump(s)"
                   cd /backups
+                  # A failed run's partial dump; the health check reports any left behind.
+                  find . -maxdepth 1 -name '{{ .Release.Name }}-*.sql.gz.tmp' -mmin +120 -print -delete
                   ls -1t {{ .Release.Name }}-*.sql.gz 2>/dev/null | tail -n "+$((BACKUP_KEEP + 1))" | while IFS= read -r f; do
                     echo "removing old dump: ${f}"
                     rm -f -- "${f}"

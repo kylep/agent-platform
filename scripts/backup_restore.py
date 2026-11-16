@@ -16,9 +16,9 @@ import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "backend"))
-from agentplatform.backup_export import append_restore_marker, inspect_archive
+from agentplatform.backup_export import DEPLOYMENT_MEMBER, append_restore_marker, inspect_archive
 
-MEMBERS = {"manifest.json", "database.sql.gz", "secrets.json"}
+MEMBERS = {"manifest.json", "database.sql.gz", "secrets.json", DEPLOYMENT_MEMBER}
 GENERATED_EXACT = {"ap-internal", "ap-kafka-kraft", "ap-kafka-user-passwords",
                    "ap-postgresql", "qa-web-login", "run-jwt-key"}
 GENERATED_PREFIXES = ("app-", "tool-")

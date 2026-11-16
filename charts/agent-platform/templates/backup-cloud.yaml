@@ -1,6 +1,7 @@
 {{- if and .Values.backup.enabled .Values.backup.cloud.enabled }}
 # The cloud backup is a separate Job from the legacy local pg_dump. It captures
-# the database and namespace Opaque Secrets, encrypts one portable archive,
+# the database, namespace Opaque Secrets and the Helm values + running images
+# (deployment.json), encrypts one portable archive,
 # then uploads ciphertext using a write-only Cloud Storage credential.
 apiVersion: v1
 kind: ServiceAccount
@@ -17,7 +18,8 @@ metadata:
     {{- include "agent-platform.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: ["secrets"]
+    # pods: the deployment record lists the running images (names and tags only).
+    resources: ["secrets", "pods"]
     verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -44,12 +46,16 @@ metadata:
 spec:
   schedule: {{ .Values.backup.cloud.schedule | quote }}
   concurrencyPolicy: Forbid
+  # A run the scheduler missed (node or control plane down) still starts
+  # within six hours instead of silently waiting for tomorrow.
+  startingDeadlineSeconds: 21600
   successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      backoffLimit: 1
-      ttlSecondsAfterFinished: 86400
+      backoffLimit: 3
+      # A week, so a failed run's pods and logs outlive a long weekend.
+      ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
@@ -68,6 +74,8 @@ spec:
               args:
                 - |
                   set -euo pipefail
+                  # Outlast a Postgres restart (Nov 15, 2026: refused within 25 s, three times).
+                  for i in $(seq 1 60); do pg_isready -q && break; echo "postgres not ready ($i/60)"; sleep 10; done
                   # The UI Designer render cache is derivable: dump its definition, not its rows.
                   pg_dump --no-owner --no-acl --exclude-table-data=public.ui_designer_renders | gzip > /work/database.sql.gz.tmp
                   gzip -t /work/database.sql.gz.tmp

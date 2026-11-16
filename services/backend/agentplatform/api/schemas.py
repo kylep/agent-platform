@@ -617,11 +617,25 @@ class _Agg(BaseModel):
     last_run_at: str | None
 
 
+class BackupStatus(BaseModel):
+    newest: str | None = None
+    newest_age_hours: float | None = None
+    newest_bytes: int | None = None
+    previous_bytes: int | None = None
+    uploaded_count: int = 0
+    local_dump_age_hours: float | None = None
+    failed_leftovers: list[str] = []
+    stale: bool
+    shrunk: bool
+    stale_after_hours: int
+
+
 class MetricsOverview(_Agg):
     runs_24h: int
     runs_7d: int
     dlq: int
     window: int
+    backups: BackupStatus | None = None
 
 
 class AgentMetrics(_Agg):
