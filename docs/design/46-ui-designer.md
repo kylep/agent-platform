@@ -325,6 +325,15 @@ or on an `absolute` child, and `outline` flags the rest.
 
 ### 3.1 Images for models
 
+**T0 result (2026-11-16):** both runtimes see an `ImageContent` block
+returned by a platform tool. In real in-cluster runs, Kai (codex,
+gpt-6-astra, run 62db359e) and Pai (claude-code, claude-opus-5-5, run
+6529f273) were each asked to `artifacts get` the paperclip-robot artifact
+and describe the pixels while ignoring the metadata. Both reported details
+that appear only in the image: inverted-U eyes, the right arm waving, the
+left arm hanging, round joints, a black background. The image path needs
+no fallback for Phase 0.
+
 Snapshots are MCP **image content blocks** in the tool result
 (`ImageContent`, as `_with_picture` builds for `artifacts get`,
 `broker.py:2246`). That helper attaches exactly one image; the tool uses a
