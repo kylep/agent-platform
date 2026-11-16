@@ -32,6 +32,11 @@ spec:
               drop: ["ALL"]
           env:
             {{- include "agent-platform.backendEnv" . | nindent 12 }}
+            {{- if or (and .Values.claudeProxy.enabled .Values.claudeProxy.quota.enabled) .Values.codexProxy.enabled }}
+            # A rapid-chat's quota gate probes the proxies (docs/design/45).
+            - name: AP_INTERNAL_SECRET
+              value: {{ required "env.AP_INTERNAL_SECRET is required when an OAuth/quota broker is enabled (e.g. --set env.AP_INTERNAL_SECRET=...)" .Values.env.AP_INTERNAL_SECRET | quote }}
+            {{- end }}
           volumeMounts:
             - name: agent-definitions
               mountPath: /agents
