@@ -147,3 +147,63 @@ wishlist file.
 
 Then propose (don't build) designs for P2 items 6–8 in the same file.
 ```
+
+## Implementation status — Codex, 2026-11-16
+
+- **P1.1 Status:** implemented and pushed in `e00134b`; deployment pending an
+  explicit live-rollout approval required by automatic approval review. Pinned
+  images `ud-import-20261116` are built and transferred to pai. Resumable page,
+  image and reference checkpoints; Figma retry delays; administrator API/web;
+  typed SDK; REST shared styles; bounded reports; `#design` completion card.
+  Existing documents remain unchanged. A real Figma acceptance import still
+  needs a configured `figma-token` connection. Reference artifacts are provided;
+  automatic side-by-side comparison artifacts are not generated in this chunk.
+  Checks: backend full run 3,657 passed / 20 skipped plus its corrected catalog
+  expectation passing separately; 378 browser, 465 broker, 39 facade, 91 executor
+  tests; 29 fetch tests; render/effects goldens; build, Storybook, tokens,
+  SDK regeneration, Helm lint and secret checks.
+- **Quota:** 17% weekly Codex used at the pre-deployment checkpoint. Stop opening
+  work at 75%; finish and record the current chunk without consuming the final
+  20% reserved for other work.
+- **P1.2–P1.5 Status:** not started. Inspector editing has a read-only technical
+  outline; no implementation is left in the tree.
+
+## P2 proposals (design only)
+
+### 6. Visual diff
+
+Compare two explicit immutable document versions with the same node, mode,
+scale and renderer version. The renderer produces a bounded heatmap and changed
+bounding boxes from the pixel difference; the server joins those boxes to
+resolved node IDs. Return the image plus a compact count/box summary from
+`history op=visual_diff`, and add an opacity slider to Compare. Reuse render
+cache and pixel budgets; refuse incompatible or oversized renders. Keep glyph
+and effect differences visible, with an optional user-selected tolerance rather
+than silently ignoring them. Test unchanged renders, moved nodes, text edits,
+mode mismatches and transparent edges. No new document properties are needed.
+
+### 7. Design lint
+
+Add a read-only `lint` action with node/mode filters and pagination. Reuse the
+existing layout warnings, then add contrast with alpha compositing, clipping,
+spacing-grid checks, duplicate raw colours matching a token and unused tokens.
+Each finding has a stable code, severity, node ID, mode and a suggested change.
+Distinguish definite findings from approximations where images/gradients make
+contrast uncertain; do not claim WCAG compliance from a single heuristic.
+Keep lint advisory, cache by document hash/rules version, and run it in the
+renderer for layout-dependent checks. Test concrete positive and negative
+fixtures, with no document mutation or new grants.
+
+### 8. Cross-document libraries
+
+Use explicit pinned library imports: a consumer records a source document ID,
+retained version, selected component/token IDs and a local namespace. On import,
+copy the resolved definitions and required assets into the consumer so it renders
+without a network dependency and backups remain self-contained. A read-only
+update preview compares the pin to a new source version; accepting it is one
+CAS edit batch with a receipt. Never follow a moving library head implicitly.
+Reject dependency cycles, namespace collisions and expansion/asset-budget
+violations. Apply both source-read and destination-write checks server-side;
+future per-document access must not widen through library reuse. Tests cover
+source deletion, offline rendering, safe upgrades, conflicting local overrides,
+cyclic components and retained-version restore.
