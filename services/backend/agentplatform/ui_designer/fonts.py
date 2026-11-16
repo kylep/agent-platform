@@ -1,7 +1,7 @@
 """The bundled font allowlist and glyph access (design 46 §5).
 
 Fonts are SIL OFL static TrueType files kept next to this module in
-`fonts/` (Inter, JetBrains Mono, Noto Sans; Regular/Medium/SemiBold/Bold
+`fonts/` (Inter, JetBrains Mono, Noto Sans, Nunito, Fredoka; Regular/Medium/SemiBold/Bold
 each). A requested weight snaps to the nearest bundled one. Adding a family
 is a reviewed change: a font file, one line in `_FILES`, and a
 `renderer_version` bump.
@@ -34,6 +34,8 @@ _FILES = {
     "Inter": "Inter-{w}.ttf",
     "JetBrains Mono": "JetBrainsMono-{w}.ttf",
     "Noto Sans": "NotoSans-{w}.ttf",
+    "Nunito": "Nunito-{w}.ttf",
+    "Fredoka": "Fredoka-{w}.ttf",
 }
 _WEIGHT_NAMES = {400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold"}
 

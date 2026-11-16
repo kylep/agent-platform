@@ -24,13 +24,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import select
 
@@ -45,7 +46,13 @@ from agentplatform.api.relay import READ, WRITE, Caller, require_relay_access
 from agentplatform.api.tickets import _run_of
 from agentplatform.appdata import artifacts as app_artifacts
 from agentplatform.db import Conversation, Run, UiDesignerAsset, utcnow
-from agentplatform.relay import is_open_channel, room_home
+from agentplatform.events import TOPIC_UI_DESIGNER_EVENTS
+from agentplatform.relay import SYSTEM_AUTHOR, is_open_channel, room_home
+from agentplatform.relay_feed import OVERFLOW, TopicFeed
+from agentplatform.relay_store import (channel_by_name, outbound_for_message,
+                                       post_relay_message, publish_relay_message)
+from agentplatform.tickets import one_line, participant_label
+from agentplatform.api.auth import still_signed_in, stream_cookie
 from agentplatform.ui_designer import errors as ud_errors
 from agentplatform.ui_designer import render_client, store, views
 from agentplatform.ui_designer.errors import UiDesignerError, invalid, issue
@@ -372,6 +379,103 @@ async def place_ui_asset(slug: str, body: S.UiDocPlaceIn, request: Request,
     return out
 
 
+
+# --- events and the #design room ---------------------------------------------------
+
+log = logging.getLogger("ui_designer")
+STREAM = "ui_designer"
+STREAM_RECHECK_SECONDS = 60.0   # module global: a test turns it down
+DESIGN_CHANNEL = "design"
+
+
+def ui_designer_feed(session_factory=None) -> TopicFeed:
+    """The API's live designer fan-out: `ui_designer.events` as `design` frames
+    (`{type: version|comment|deleted|exported, slug, version, author, run_id}`)."""
+    return TopicFeed(TOPIC_UI_DESIGNER_EVENTS, event="design",
+                     frame_of=lambda data: ((STREAM, data) if data.get("slug") else None),
+                     session_factory=session_factory)
+
+
+async def _emit(request: Request, caller: Caller, type_: str, slug: str, version: int,
+                run_id: str | None, **extra: Any) -> None:
+    """Best-effort, after the commit: the row is the record, a broker that is down
+    costs the live view an update and never the write."""
+    producer = getattr(request.app.state, "producer", None)
+    if producer is None:
+        return
+    try:
+        await producer.publish(TOPIC_UI_DESIGNER_EVENTS, slug,
+                               {"type": type_, "slug": slug, "version": version,
+                                "author": caller.participant, "run_id": run_id, **extra},
+                               type="ui_designer.event")
+    except Exception:
+        log.warning("ui_designer.events publish failed for %s %s", slug, type_, exc_info=True)
+
+
+async def _design_card(request: Request, *, body: str, card: dict) -> bool:
+    """A card in `#design`. An EVENT row, so a frame titled "@all look" summons
+    nobody (the router reads mentions only from text rows). A missing room costs
+    the audience only, never the response."""
+    try:
+        async with request.app.state.session_factory() as s:
+            conv = await channel_by_name(s, DESIGN_CHANNEL)
+            if conv is None:
+                log.warning("no live #%s channel; no card", DESIGN_CHANNEL)
+                return False
+            msg = await post_relay_message(s, conv, author=SYSTEM_AUTHOR, kind="event",
+                                           mentions=[], body=body, card=card)
+            await s.commit()
+            outbound = await outbound_for_message(s, conv, msg)
+        await publish_relay_message(getattr(request.app.state, "producer", None), conv, msg,
+                                    outbound=outbound)
+        return True
+    except Exception:
+        log.warning("no #%s card", DESIGN_CHANNEL, exc_info=True)
+        return False
+
+
+@router.get(PREFIX + "/events", response_class=StreamingResponse)
+async def ui_designer_stream(request: Request,
+                             caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """The designer, live: a `design` frame per write, a heartbeat, and an
+    `overflow` marker for a reader that fell too far behind (re-list to catch up).
+    Unfiltered: a document is not room-scoped. Kafka-fed only."""
+    feed = request.app.state.ui_designer_feed
+    queue = feed.subscribe(STREAM)
+    cookie = stream_cookie(request)
+    recheck = require_ui_designer_access(*READ)
+    last_check = time.monotonic()
+
+    async def stream():
+        nonlocal last_check
+        try:
+            while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
+                if time.monotonic() - last_check >= STREAM_RECHECK_SECONDS:
+                    # The same door the GET routes use: a revoked key, a disabled or
+                    # quarantined agent or a lost grant ends the stream.
+                    last_check = time.monotonic()
+                    try:
+                        await recheck(request)
+                    except HTTPException:
+                        return
+                try:
+                    event, data = await asyncio.wait_for(queue.get(), relay_api.HEARTBEAT_SECONDS)
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                if event == OVERFLOW:
+                    yield relay_api._frame(OVERFLOW, {})
+                    continue
+                yield relay_api._frame(event, data)
+        finally:
+            feed.unsubscribe(STREAM, queue)
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 # --- documents ------------------------------------------------------------------
 
 def _write_out(out: dict, slug: str) -> S.UiDocWriteOut:
@@ -409,6 +513,8 @@ async def create_ui_document(body: S.UiDocCreateIn, request: Request,
             raise ud_http(e)
         await s.commit()
     out.setdefault("text", "created")
+    if not out.get("replayed"):
+        await _emit(request, caller, "version", body.slug, out["version"], run_id)
     return _write_out(out, body.slug)
 
 
@@ -500,6 +606,8 @@ async def edit_ui_document(slug: str, body: S.UiDocEditIn, request: Request,
             raise ud_http(e)
         await s.commit()
     out = _write_out(res, slug)
+    if not res.get("replayed"):
+        await _emit(request, caller, "version", slug, res["version"], run_id)
     if nodes and not res.get("replayed"):
         await _attach_snapshots(request, caller, out, slug, res["doc"], nodes, body)
     return out
@@ -584,7 +692,198 @@ async def restore_ui_document(slug: str, body: S.UiDocRestoreIn, request: Reques
         except UiDesignerError as e:
             raise ud_http(e)
         await s.commit()
+    if not res.get("replayed"):
+        await _emit(request, caller, "version", slug, res["version"], run_id, restored=body.version)
     return _write_out(res, slug)
+
+
+# --- inspect, diff, comments, label, export (Phase 1) --------------------------------
+
+@router.get(PREFIX + "/docs/{slug}/inspect", response_model=S.UiDocInspectOut)
+async def inspect_ui_document(slug: str, request: Request, node: str = Query(min_length=1, max_length=96),
+                              mode: str | None = None, version: int | None = Query(None, ge=1),
+                              caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """Resolved geometry of the node and its children, resolved colours and
+    typography per mode (every mode of the document, or just `mode`), the tokens
+    its properties name, its text, the component it instances."""
+    async with request.app.state.session_factory() as s:
+        try:
+            view = await store.get_document(s, slug, reader=caller.participant, version=version)
+        except UiDesignerError as e:
+            raise ud_http(e)
+        await s.commit()
+    doc = view["doc"]
+    doc_modes = list(doc.get("modes") or [])
+    if mode is not None and doc_modes and mode not in doc_modes:
+        raise ud_http(invalid([issue("UD-MODE", "$.mode", f"mode is one of {', '.join(doc_modes)}", mode)]))
+    wanted: list[str | None] = [mode] if mode is not None else (doc_modes or [None])
+    trees: dict[str | None, dict] = {}
+    try:
+        for m in wanted:
+            trees[m] = await _renderer(request).resolved(doc=doc, mode=m)
+        out = views.inspect_node(doc, node, trees)
+    except UiDesignerError as e:
+        raise ud_http(e)
+    return S.UiDocInspectOut(slug=slug, version=view["at_version"] if "at_version" in view else view["version"],
+                             **out)
+
+
+@router.get(PREFIX + "/docs/{slug}/diff", response_model=S.UiDocDiffOut)
+async def diff_ui_document(slug: str, request: Request, from_: int = Query(alias="from", ge=0),
+                           to: int = Query(ge=1),
+                           caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """The writes between two version numbers (`from` exclusive, `to` inclusive),
+    ops as applied. Every number is resolvable, folded or not (design 46 section 10)."""
+    async with request.app.state.session_factory() as s:
+        try:
+            current = (await store.get_document(s, slug))["version"]
+            if to > current:
+                raise store._not_found(f"version {to} of {slug!r}")
+            chunks = await store.history_diff(s, slug, from_, to)
+        except UiDesignerError as e:
+            raise ud_http(e)
+    cap = _text_cap(request)
+    text, cut = views.diff_text(chunks, cap=cap // 2)
+    kept: list[dict] = []
+    used = 0
+    for c in chunks:
+        used += views.size(c)
+        if used > cap // 2 and kept:
+            cut = True
+            break
+        kept.append(c)
+    return S.UiDocDiffOut(slug=slug, version=current, from_version=from_, to_version=to, chunks=kept,
+                          text=text, truncated=cut)
+
+
+@router.get(PREFIX + "/docs/{slug}/comments", response_model=S.UiCommentList)
+async def list_ui_comments(slug: str, request: Request, node: str | None = None,
+                           resolved: bool = True, limit: int = Query(200, ge=1, le=500),
+                           before: str | None = Query(None, pattern=r"^[0-9a-f]{32}$"),
+                           caller: Caller = Depends(require_ui_designer_access(*READ))):
+    async with request.app.state.session_factory() as s:
+        try:
+            rows, nxt = await store.list_comments(s, slug, include_resolved=resolved, node=node,
+                                                  limit=limit, before=before)
+        except UiDesignerError as e:
+            raise ud_http(e)
+    return S.UiCommentList(slug=slug, comments=rows, next_before=nxt)
+
+
+@router.post(PREFIX + "/docs/{slug}/comments", response_model=S.UiCommentOut)
+async def add_ui_comment(slug: str, body: S.UiCommentIn, request: Request,
+                         caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    run_id = await caller_run_id(request, caller)
+    await _check_write_budget(request, caller)
+    async with request.app.state.session_factory() as s:
+        try:
+            out = await store.add_comment(
+                s, slug, body=body.body, author=caller.participant, run_id=run_id,
+                node_id=body.node_id, x=body.x, y=body.y, parent_id=body.parent_id,
+                request_id=body.request_id, scope=_scope(caller, run_id), caps=caps(request))
+            version = (await store.get_document(s, slug))["version"]
+        except UiDesignerError as e:
+            raise ud_http(e)
+        await s.commit()
+    if not out["replayed"]:
+        await _emit(request, caller, "comment", slug, version, run_id, comment_id=out["id"],
+                    node_id=body.node_id)
+    return S.UiCommentOut(slug=slug, id=out["id"], comment=out["comment"], replayed=out["replayed"])
+
+
+@router.post(PREFIX + "/docs/{slug}/comments/{comment_id}/resolve", response_model=S.UiCommentOut)
+async def resolve_ui_comment(slug: str, request: Request,
+                             comment_id: str = Path(pattern=r"^[0-9a-f]{32}$"), reopen: bool = False,
+                             caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    run_id = await caller_run_id(request, caller)
+    async with request.app.state.session_factory() as s:
+        try:
+            out = await store.resolve_comment(s, slug, comment_id, by=caller.participant,
+                                              resolved=not reopen)
+            version = (await store.get_document(s, slug))["version"]
+        except UiDesignerError as e:
+            raise ud_http(e)
+        await s.commit()
+    await _emit(request, caller, "comment", slug, version, run_id, comment_id=out["id"],
+                resolved=out["resolved"])
+    return S.UiCommentOut(slug=slug, id=out["id"], comment=out["comment"], resolved=out["resolved"])
+
+
+@router.post(PREFIX + "/docs/{slug}/label", response_model=S.UiDocLabelOut)
+async def label_ui_document(slug: str, body: S.UiDocLabelIn, request: Request,
+                            caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    """Name a version (default: the current one). A label protects its row from
+    folding and prune, and a named version is announced in `#design`."""
+    run_id = await caller_run_id(request, caller)
+    async with request.app.state.session_factory() as s:
+        try:
+            view = await store.get_document(s, slug)
+            n = body.version or view["version"]
+            await store.set_label(s, slug, body.label, n)
+        except UiDesignerError as e:
+            raise ud_http(e)
+        await s.commit()
+    await _emit(request, caller, "version", slug, n, run_id, label=body.label)
+    if body.label:
+        await _design_card(
+            request,
+            body=f"{view['title'] or slug} v{n} named \"{one_line(body.label, 64)}\" "
+                 f"by {participant_label(caller.participant)}",
+            card={"type": "ui_design", "event": "labeled", "slug": slug, "version": n,
+                  "label": one_line(body.label, 64), "author": caller.participant})
+    return S.UiDocLabelOut(slug=slug, version=n, label=body.label)
+
+
+@router.post(PREFIX + "/docs/{slug}/export", response_model=S.UiDocExportOut)
+async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
+                             caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    """Render a frame at full size to a PNG artifact owned by the caller, and put a
+    card in `#design`. PNG only: the artifacts store serves an SVG as an attachment."""
+    _check_scale(body.scale)
+    if caller.agent is not None:
+        granted = await agents_api._caller_platform_tools(request, caller.agent)
+        if TOOL_ARTIFACTS not in granted:
+            raise HTTPException(403, "exporting makes an artifact; it needs the artifacts tool")
+    run_id = await caller_run_id(request, caller)
+    view, sha, _cc = await _doc_at(request, caller, slug, body.version)
+    _check_pixel_budget(request, caller)
+    async with request.app.state.session_factory() as s:
+        try:
+            images = await _renderer(request).render(
+                s, document_id=view["id"], doc=view["doc"], doc_sha256=sha, mode=body.mode,
+                nodes=[body.node], scale=body.scale, max_edge=4096)
+            await s.commit()
+            _check_megapixels(request, images)
+        except UiDesignerError as e:
+            raise ud_http(e)
+    _charge_pixels(request, caller, images)
+    img = images[0]
+    version = view.get("at_version") or view["version"]
+    name = (body.name or f"{slug}-{body.node or 'page'}-v{version}").strip()
+    if not name.lower().endswith(".png"):
+        name += ".png"
+    async with request.app.state.session_factory() as s:
+        try:
+            art = await artifact_store.create(
+                s, data=img.png, owner=caller.participant, name=name, claimed_mime="image/png",
+                source="tool", run_id=run_id, producer=getattr(request.app.state, "producer", None),
+                settings=request.app.state.settings,
+                meta={"ui_designer": {"slug": slug, "node": body.node, "version": version}},
+                tags=["ui-designer"])
+        except artifact_store.ArtifactRuleError as e:
+            raise HTTPException(e.status, str(e)) from e
+    chip = f"[[artifact:{art.id}]]"
+    posted = await _design_card(
+        request,
+        body=f"{chip}\n{view['title'] or slug} v{version}"
+             f"{' · ' + body.node if body.node else ''} exported by {participant_label(caller.participant)}",
+        card={"type": "ui_design", "event": "exported", "slug": slug, "node": body.node,
+              "version": version, "artifact_id": art.id, "author": caller.participant})
+    await _emit(request, caller, "exported", slug, version, run_id, artifact_id=art.id,
+                node=body.node)
+    return S.UiDocExportOut(slug=slug, version=version, artifact_id=art.id, name=art.name,
+                            mime=art.mime, width=img.width, height=img.height, size=art.size,
+                            url=f"/artifacts/{art.id}", card=chip, card_posted=posted)
 
 
 # --- delete and reclaim (Kyle's session) ------------------------------------------
@@ -601,6 +900,7 @@ async def delete_ui_document(slug: str, request: Request, hard: bool = False,
                 _session_admin(request, caller)
                 out = await store.hard_delete(s, slug)
                 await s.commit()
+                await _emit(request, caller, "deleted", slug, 0, None, hard=True)
                 return S.UiDocDeleteOut(hard=True, assets_removed=out["assets_removed"],
                                         bytes_freed=out["bytes_freed"])
             view = await store.get_document(s, slug)
@@ -609,6 +909,7 @@ async def delete_ui_document(slug: str, request: Request, hard: bool = False,
             await s.commit()
         except UiDesignerError as e:
             raise ud_http(e)
+    await _emit(request, caller, "deleted", slug, view["version"], None)
     return S.UiDocDeleteOut()
 
 

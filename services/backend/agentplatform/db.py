@@ -1858,6 +1858,12 @@ WIKI_SEED_CHANNEL = ("wiki", "every edit, as a diff card")
 ART_SEED_CHANNEL = ("art", "every generated image, as a card")
 ART_WELCOME_BODY = "Summon @artist with a brief, or make images yourself in the Studio"
 
+# The UI Designer's room (docs/design/46 section 6): every exported design
+# frame and every labeled version, as a card. The art room's twin.
+UI_DESIGN_CHANNEL_MARK = "ui-design-channel-v1"
+UI_DESIGN_SEED_CHANNEL = ("design", "every exported design frame, as a card")
+UI_DESIGN_WELCOME_BODY = "Exported design frames and named versions land here as cards"
+
 # The one page the wiki ships with. It is the wiki explaining itself, so it is
 # also the worked example of the two things a writer has to know: `[[slug]]`
 # links, and that a link to a page nobody has written is an invitation. The two
@@ -2637,6 +2643,30 @@ def _ensure_art_channel(conn) -> None:
         welcome = _relay_message(channel_id, "system:relay", ART_WELCOME_BODY, now)
         conn.execute(RelayMessage.__table__.insert().values(**{**welcome, "kind": "system"}))
     conn.execute(mark_t.insert().values(name=ART_CHANNEL_MARK, applied_at=utcnow()))
+
+
+def _ensure_design_channel(conn) -> None:
+    """Ship `#design` and its welcome row, `_ensure_art_channel`'s shape and
+    bargain: gated on the mark, an existing room adopted without a second
+    welcome, a system row written straight to the table."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == UI_DESIGN_CHANNEL_MARK)).first():
+        return
+    conv_t = Conversation.__table__
+    name, topic = UI_DESIGN_SEED_CHANNEL
+    if not conn.execute(select(conv_t.c.id).where(conv_t.c.kind == "channel",
+                                                  conv_t.c.name == name)).first():
+        channel_id = uuid.uuid4().hex
+        now = utcnow()
+        conn.execute(conv_t.insert().values(
+            id=channel_id, connector="web", external_ref=None, agent=None,
+            kind="channel", name=name, topic=topic, open=True, archived_at=None,
+            ticket_prefix=None, ticket_seq=0, title=f"#{name}", status="active",
+            claude_session_id="", session_blob=None, created_at=now, updated_at=now))
+        welcome = _relay_message(channel_id, "system:relay", UI_DESIGN_WELCOME_BODY, now)
+        conn.execute(RelayMessage.__table__.insert().values(**{**welcome, "kind": "system"}))
+    conn.execute(mark_t.insert().values(name=UI_DESIGN_CHANNEL_MARK, applied_at=utcnow()))
 
 
 def _ensure_wiki_agent(conn) -> None:
@@ -4253,6 +4283,7 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_wiki_ddl)
         await conn.run_sync(_ensure_wiki_seed)
         await conn.run_sync(_ensure_art_channel)
+        await conn.run_sync(_ensure_design_channel)
         await conn.run_sync(_ensure_wiki_default_grant, wiki_grant)
         await conn.run_sync(_ensure_quota_default_grant, quota_grant)
         await conn.run_sync(_ensure_artifacts_default_grant, artifacts_grant)

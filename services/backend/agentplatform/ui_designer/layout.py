@@ -49,7 +49,8 @@ Resolved tree (JSON-able, the painter's input)::
             "bounds"?: [x, y, w, h],  # axis-aligned box of the node after its
                                       # own and its ancestors' rotation; present
                                       # only inside a rotated subtree
-            "fill"?, "stroke"?, "radius"?, "opacity"?, "shadow"?, "clip"?,
+            "fill"?, "stroke"?, "radius"?, "opacity"?, "shadow"?, "blur"?, "backdrop_blur"?,
+            "blend"?, "clip"?,
             "mask"?, "d"?, "asset"?, "fit"?,   # resolved literals (tokens gone)
             "children"?: [Node, ...],          # source order = paint order
             "text"?: {"align", "truncated", "lines": [Line, ...]}}  # text nodes
@@ -80,9 +81,10 @@ from .text import Style, layout_text, make_style, plain_text
 
 INF = math.inf
 CONTRAST_MIN = 3.0
-_STYLE_KEYS = ("fill", "stroke", "radius", "opacity", "shadow", "clip", "mask", "d", "asset", "fit")
+_STYLE_KEYS = ("fill", "stroke", "radius", "opacity", "shadow", "blur", "backdrop_blur", "blend", "clip",
+               "mask", "d", "asset", "fit")
 _INSTANCE_KEYS = ("w", "h", "x", "y", "absolute", "rotate", "fill", "stroke", "radius", "opacity",
-                  "visible", "clip", "shadow")
+                  "visible", "clip", "shadow", "blur", "backdrop_blur", "blend")
 _LEAF = ("rect", "ellipse", "line", "path", "image")
 
 
@@ -636,16 +638,30 @@ def _over(c: tuple, bg: tuple | None) -> tuple | None:
 
 def _fill_color(fill: Any, bg: tuple | None) -> tuple | None:
     """The effective opaque colour a fill leaves behind (a gradient averages
-    its stops); None when it is unknown or the fill is absent."""
+    its stops, a list of paints composites bottom to top); None when it is
+    unknown, an image, or the fill is absent."""
+    if isinstance(fill, list):
+        got = False
+        for p in fill:
+            nb = _fill_color(p, bg)
+            if nb is not None:
+                bg, got = nb, True
+        return bg if got else None
+    op = 1.0
     if isinstance(fill, dict):
-        cols = [x for x in (_rgba(s[1]) for s in fill.get("stops", [])) if x]
-        if not cols:
-            return None
-        n = len(cols)
-        return _over((sum(c[0] for c in cols) / n, sum(c[1] for c in cols) / n,
-                      sum(c[2] for c in cols) / n, sum(c[3] for c in cols) / n), bg)
+        o = fill.get("opacity")
+        op = float(o) if isinstance(o, (int, float)) and not isinstance(o, bool) else 1.0
+        if "color" in fill:
+            fill = fill["color"]
+        else:
+            cols = [x for x in (_rgba(s[1]) for s in fill.get("stops", [])) if x]
+            if not cols:
+                return None
+            n = len(cols)
+            return _over((sum(c[0] for c in cols) / n, sum(c[1] for c in cols) / n,
+                          sum(c[2] for c in cols) / n, sum(c[3] for c in cols) / n * op), bg)
     c = _rgba(fill)
-    return _over(c, bg) if c else None
+    return _over((c[0], c[1], c[2], c[3] * op), bg) if c else None
 
 
 def _path(it: Item) -> str:

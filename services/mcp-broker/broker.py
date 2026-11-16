@@ -2426,7 +2426,7 @@ async def image_gen(action: str, prompt: str | None = None, model: str | None = 
 # for the artifacts reason: the author of every write is the forwarded bearer,
 # and the answer to `edit`/`snapshot` is PICTURES (`_with_pictures`).
 UI_DESIGNER_ACTIONS = ("list", "create", "get", "outline", "edit", "snapshot",
-                       "history", "restore", "place")
+                       "history", "restore", "place", "inspect", "comments", "export")
 _UI_DESIGNER = "/api/ui-designer"
 # Inside it the API commits first and renders under its own 15 s deadline.
 _UI_DESIGNER_TIMEOUT = 45
@@ -2507,10 +2507,15 @@ async def ui_designer(action: str, slug: str | None = None, title: str | None = 
                       mode: str | None = None, resolve: bool = False,
                       version: int | None = None, scale: float = 1, annotate: bool = False,
                       as_: str = "image", q: str | None = None, limit: int = 50,
-                      before: int | None = None, artifact_id: str | None = None):
+                      before: int | None = None, artifact_id: str | None = None,
+                      op: str | None = None, body: str | None = None,
+                      comment_id: str | None = None, x: float | None = None,
+                      y: float | None = None, parent_id: str | None = None,
+                      from_version: int | None = None, to_version: int | None = None,
+                      name: str | None = None):
     """Design documents: UI frames you edit as ops and look at as pictures.
     Actions: list · create · get · outline · edit · snapshot · history ·
-    restore · place. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
+    restore · place · inspect · comments · export. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
     batch of `ops`, `expected_version` and `snapshot=[node ids]` (up to 4; you
     get the picture back) -> next batch. `create` and `edit` and `restore` need
     a fresh `request_id`; after "unreachable" retry with the SAME one, the
@@ -2523,14 +2528,25 @@ Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
   doc: {schema:1, title?, tokens?, modes?, components?: {id: node}, pages: [{id, title?, children: [node]}]}
   node = {id, type, ...props}; type is frame|text|rect|ellipse|line|path|image|instance.
   All nodes: title w h (number|"fill"|"hug") x y absolute rotate fill stroke radius
-    opacity(0-1) visible clip shadow meta. fill = "#rrggbb"|"$color.name"|gradient
-    {gradient:linear|radial, stops:[[0-1,color],..], angle?}; stroke = {color, width?,
-    align?: inside|center|outside}; radius = n or [tl,tr,br,bl]; shadow = {x?,y?,blur?,color}.
+    opacity(0-1) visible clip shadow blur backdrop_blur blend meta.
+    fill = paint or a LIST of paints stacked bottom to top (max 8). paint = "#rrggbb"|"$color.name"
+    |{color, opacity?}|{gradient: linear|radial|angular|diamond, stops: [[0-1,color],..], angle?,
+    opacity?}|{image: sha256 from `place`, fit?, opacity?}. angular/diamond are stepped
+    approximations (angle 0 = up, clockwise). Image paints: frame/rect/ellipse only.
+    stroke = {color, width?, align?: inside|center|outside, dash?: [n,..], cap?: butt|round|square,
+    join?: miter|round|bevel, sides?: n|[t,r,b,l] per-side widths (frame/rect, inside)};
+    radius = n or [tl,tr,br,bl].
+    shadow = {x?,y?,blur?,spread?,color,inset?} or a list of them (drop shadows under the node,
+    inset ones over it; first listed paints first; 32 per doc). blur = layer blur px (max 64,
+    32 nodes). backdrop_blur = px; blurs what is painted behind the node, clipped to its shape
+    (approximate; max 8 nodes; skipped inside masks). blend = normal|darken|multiply|color-burn|
+    lighten|screen|color-dodge|plus-lighter(drawn as screen)|overlay|soft-light|hard-light|
+    difference|exclusion|hue|saturation|color|luminosity.
   frame: layout, children, mask. layout is an OBJECT: {dir: row|column, gap, pad, align:
     start|center|end|stretch, justify: start|center|end|space-between, wrap}; pad is
     n, [v,h] or [t,r,b,l].
   text: text (string or runs [{text, style?, color?}]), style, color, align: left|center|right,
-    max_lines. style = {family: Inter|JetBrains Mono|Noto Sans, size, weight, line, letter}
+    max_lines. style = {family: Inter|JetBrains Mono|Noto Sans|Nunito|Fredoka, size, weight, line, letter}
     or "$type.name". Text colour is `color`, not `fill`.
   path: d. image: asset (sha256 from `place`), fit: cover|contain|fill.
   instance: of (component id), overrides {"child-id.prop": value}.
@@ -2545,6 +2561,11 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update cannot set id/type/children; a page only takes title.
+Other actions: inspect {node, mode?} (resolved box, colours, tokens, component of one node);
+  comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
+  {op: diff, from_version, to_version} (the writes between two versions); export {node?, scale?, name?}
+  (full-size PNG artifact + a card in #design). Check comments before editing and resolve
+  what you fix.
 Example edit ops (new page: a frame, a text and a row of two cards):
   [{"op":"set_doc","doc":{"schema":1,"title":"Demo","tokens":{"color":{"bg":"#0f172a","card":"#1e293b","ink":"#f8fafc"}},"pages":[{"id":"home","title":"Home","children":[{"id":"root","type":"frame","w":800,"h":400,"fill":"$color.bg","layout":{"dir":"column","gap":16,"pad":24},"children":[{"id":"hello","type":"text","text":"Hello","style":{"size":28,"weight":700},"color":"$color.ink"},{"id":"cards","type":"frame","w":"fill","h":"hug","layout":{"dir":"row","gap":16},"children":[{"id":"card-1","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12},{"id":"card-2","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12}]}]}]}]}}]"""
     if action not in UI_DESIGNER_ACTIONS:
@@ -2603,6 +2624,39 @@ Example edit ops (new page: a frame, a text and a row of two cards):
                      annotate=annotate if snapshot else None)},
             timeout=_UI_DESIGNER_TIMEOUT)
         return _ud_write(out, "edited")
+    if action == "history" and op == "diff":
+        if from_version is None or to_version is None:
+            return "error: history op='diff' requires from_version and to_version"
+        out = await _artifact_call("GET", f"{base}/diff", {"from": from_version, "to": to_version},
+                                   timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        if not isinstance(r, dict) or "text" not in r:
+            return out
+        more = "\n… cut; narrow from_version/to_version" if r.get("truncated") else ""
+        return f"{slug} v{r.get('from_version')} -> v{r.get('to_version')}\n" + r["text"] + more
+    if action == "inspect":
+        if not node:
+            return "error: action='inspect' requires node"
+        out = await _artifact_call("GET", f"{base}/inspect", {"node": node, "mode": mode,
+                                                              "version": version},
+                                   timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        return _json.dumps(r, separators=(",", ":")) if isinstance(r, dict) and "id" in r else out
+    if action == "comments":
+        return await _ud_comments(base, op, slug, body=body, node=node, x=x, y=y,
+                                  parent_id=parent_id, comment_id=comment_id,
+                                  request_id=request_id)
+    if action == "export":
+        out = await _artifact_call("POST", f"{base}/export", json={
+            **_given(node=node, mode=mode, name=name, version=version),
+            "scale": scale}, timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        if not isinstance(r, dict) or not r.get("artifact_id"):
+            return out
+        return (f"exported {slug} v{r.get('version')} {node or 'page'} as {r.get('name')} "
+                f"{r.get('width')}×{r.get('height')} · {_size_text(r.get('size'))}\n"
+                f"card: {r['card']}  open: {r.get('url')}"
+                + ("\nposted to #design" if r.get("card_posted") else ""))
     if action == "history":
         out = await _artifact_call("GET", f"{base}/versions", {
             "limit": _clamp(limit, 100, 50), "before": before}, timeout=_UI_DESIGNER_TIMEOUT)
@@ -2656,6 +2710,46 @@ Example edit ops (new page: a frame, a text and a row of two cards):
             continue
         pictures.append((r.content, mime, f"snapshot {t}" + (f" {mode}" if mode else "")))
     return _with_pictures(lines, pictures)
+
+
+async def _ud_comments(base: str, op: str | None, slug: str, *, body, node, x, y, parent_id,
+                       comment_id, request_id):
+    op = op or "list"
+    if op == "list":
+        out = await _artifact_call("GET", f"{base}/comments", {"node": node},
+                                   timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        if not isinstance(r, dict):
+            return out
+        rows = r.get("comments") or []
+        if not rows:
+            return f"no comments on {slug}"
+        lines = []
+        for c in rows:
+            where = (f"@{c['node_id']}" if c.get("node_id") else "") + (
+                f" ({c['x']:g},{c['y']:g})" if c.get("x") is not None and c.get("y") is not None else "")
+            reply = f" reply-to {c['parent_id']}" if c.get("parent_id") else ""
+            state = " [resolved]" if c.get("resolved_at") else ""
+            lines.append(f"{c['id']} {_flat(c.get('author'))}{where}{reply}{state}: {_flat(c.get('body'))}")
+        return "\n".join(lines)
+    if op == "add":
+        if not (body or "").strip():
+            return "error: comments op='add' requires body"
+        out = await _artifact_call("POST", f"{base}/comments", json=_given(
+            body=body, node_id=node, x=x, y=y, parent_id=parent_id, request_id=request_id),
+            timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        if not isinstance(r, dict) or not r.get("id"):
+            return out
+        return f"comment {r['id']} added to {slug}" + (" (replayed)" if r.get("replayed") else "")
+    if op == "resolve":
+        if not comment_id or not re.fullmatch(r"[0-9a-f]{32}", comment_id):
+            return "error: comments op='resolve' requires comment_id (32 hex characters)"
+        out = await _artifact_call("POST", f"{base}/comments/{comment_id}/resolve",
+                                   timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        return f"resolved thread {r['id']}" if isinstance(r, dict) and r.get("id") else out
+    return "error: comments op must be list|add|resolve"
 
 
 def _flat_boxes(r: dict) -> str:

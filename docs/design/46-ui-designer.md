@@ -230,16 +230,23 @@ in the document, `^[a-z0-9][a-z0-9-]{0,47}$`, server-generated from
 `x`/`y` (under a frame with no layout, or with `absolute: true` under a
 laid-out frame — Figma's "absolute position" children, which the HUD
 overlays need), `rotate` (degrees about the node's centre), `fill`
-(a colour, or `{"gradient": "linear"|"radial", "stops": [[0, "#…"],
-[1, "#…"]], "angle"?: 90}`; one paint per node in v1 — Figma's stacked
-fill arrays collapse to the topmost visible paint and the import reports
-that as an approximation), `stroke` `{color, width, align}` (same rule), `radius`
+(a paint or a list of up to 8 stacked bottom to top; a paint is a colour,
+`{"color", "opacity"?}`, `{"gradient": "linear"|"radial"|"angular"|"diamond",
+"stops": [[0, "#…"], [1, "#…"]], "angle"?: 90, "opacity"?}` or `{"image": sha256,
+"fit"?, "opacity"?}`; `angular`/`diamond` are stepped approximations, since
+resvg has no conic gradient), `stroke` `{color, width, align, dash?, cap?,
+join?, sides?}` (`sides` = per-side widths on frames and rects), `radius`
 (number | 4-tuple), `opacity`, `visible`, `clip`, `mask`
 (`alpha|vector|luminance`: a frame's first child masks its siblings —
 `alpha` by the child's alpha, `vector` by its fill and stroke regions
 regardless of paint alpha, `luminance` by its luminance; Figma's three
 `maskType`s), `shadow`
-`{x, y, blur ≤ 64, color}`, `meta` (free JSON ≤ 2 KiB, where the Figma
+(one or a list of `{x, y, blur ≤ 64, spread, color, inset}`: drop shadows
+under the node, inner shadows over it), `blur` (layer blur ≤ 64),
+`backdrop_blur` (background blur: the painter re-paints what is already behind
+the node, blurs it and clips it to the node's shape; resvg has no
+BackgroundImage, so this is an approximation), `blend` (Figma's blend modes as
+CSS `mix-blend-mode` names; `plus-lighter` paints as `screen`), `meta` (free JSON ≤ 2 KiB, where the Figma
 importer keeps `figma.id`). `layout`: `dir` (`row|column`), `gap`, `pad`
 (number | [v,h] | [t,r,b,l]), `align` (`start|center|end|stretch`),
 `justify` (`start|center|end|space-between`), `wrap` (bool). `text`:
@@ -256,8 +263,9 @@ Limits, checked at validation: document ≤ 1 MiB, ≤ 5,000 authored nodes,
 expanded nodes** after instance expansion (`UD-EXPANSION`; the validator
 expands with a counter and stops at the cap, so a component that contains
 itself or a 10×10×10 nesting is refused before layout), text ≤ 4 KiB,
-`path.d` ≤ 32 KiB per node and ≤ 1 MiB per document, ≤ 32 shadows per
-document, blur ≤ 64 px, gradients ≤ 8 stops, font families from the
+`path.d` ≤ 32 KiB per node and ≤ 1 MiB per document, ≤ 32 shadows, ≤ 32
+blurred nodes and ≤ 8 backdrop blurs per document, ≤ 8 paints per fill, blur
+and spread ≤ 64 px, gradients ≤ 8 stops, font families from the
 bundled allowlist only (§5), colours `#rgb|#rrggbb|#rrggbbaa`, numbers
 finite and within ±100,000. Everything an agent writes is data: the
 painter XML-escapes, the web shows the server's own output, and nothing in

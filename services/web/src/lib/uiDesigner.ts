@@ -34,3 +34,19 @@ export function flatten(nodes: RNode[], out: RNode[] = []): RNode[] {
   for (const n of nodes) { out.push(n); flatten(n.children ?? [], out); }
   return out;
 }
+
+// Phase 1 shapes (api/schemas.py UiComment*, UiDocDiffOut, export).
+export type UiComment = {
+  id: string; node_id: string | null; parent_id: string | null; body: string; author: string;
+  resolved_at: string | null; resolved_by: string | null; created_at: string | null;
+};
+export type UiDiffChunk = { version: number; ops: Record<string, unknown>[]; reason?: string; at?: string };
+export type UiDiff = {
+  slug: string; version: number; from_version: number; to_version: number;
+  chunks: UiDiffChunk[]; text: string; truncated: boolean;
+};
+export type UiExport = { artifact_id: string; name: string; url: string; width: number; height: number };
+export type UiEvent = { type: string; slug: string; version?: number; author?: string };
+
+export const opSummary = (o: Record<string, unknown>) =>
+  [o.op, o.id ?? o.node ?? o.parent].filter(Boolean).join(" ");

@@ -157,3 +157,49 @@ def test_history_folded_row_shows_range_and_never_a_bare_slash(api):
 def test_docstring_carries_the_cheat_sheet():
     doc = inspect.getdoc(broker.ui_designer)
     assert "set_doc" in doc and "there is no add_page op" in doc and "layout is an OBJECT" in doc
+
+
+def test_inspect_forwards_node_and_mode(api):
+    api.replies[f"{DOCS}/hud/inspect"] = (200, json.dumps(
+        {"id": "t1", "type": "text", "text": "hi", "tokens": ["$color.ink"]}))
+    out = ud(action="inspect", slug="hud", node="t1", mode="dark")
+    assert json.loads(out)["tokens"] == ["$color.ink"]
+    assert api[-1][:3] == ("GET", f"{DOCS}/hud/inspect", {"node": "t1", "mode": "dark", "version": None})
+    assert ud(action="inspect", slug="hud").startswith("error: action='inspect' requires node")
+
+
+def test_comments_list_add_resolve(api):
+    cid = "c" * 32
+    api.replies[f"{DOCS}/hud/comments"] = (200, json.dumps({"comments": [
+        {"id": cid, "author": "user:kyle", "node_id": "t1", "x": 1, "y": 2, "body": "bigger",
+         "resolved_at": None}]}))
+    out = ud(action="comments", slug="hud", op="list")
+    assert out == f"{cid} user:kyle@t1 (1,2): bigger"
+    api.replies[f"{DOCS}/hud/comments"] = (200, json.dumps({"id": cid, "replayed": False}))
+    out = ud(action="comments", slug="hud", op="add", body="ok", node="t1", request_id="r9")
+    assert out == f"comment {cid} added to hud"
+    assert api[-1][3] == {"body": "ok", "node_id": "t1", "request_id": "r9"}
+    api.replies[f"{DOCS}/hud/comments/{cid}/resolve"] = (200, json.dumps({"id": cid, "resolved": True}))
+    assert ud(action="comments", slug="hud", op="resolve", comment_id=cid) == f"resolved thread {cid}"
+    assert "requires body" in ud(action="comments", slug="hud", op="add")
+    assert "requires comment_id" in ud(action="comments", slug="hud", op="resolve", comment_id="x")
+    assert "list|add|resolve" in ud(action="comments", slug="hud", op="zap")
+
+
+def test_history_diff(api):
+    api.replies[f"{DOCS}/hud/diff"] = (200, json.dumps(
+        {"from_version": 1, "to_version": 3, "text": "v2 r: insert(root)", "truncated": False}))
+    out = ud(action="history", slug="hud", op="diff", from_version=1, to_version=3)
+    assert out == "hud v1 -> v3\nv2 r: insert(root)"
+    assert api[-1][2] == {"from": 1, "to": 3}
+    assert "requires from_version" in ud(action="history", slug="hud", op="diff")
+
+
+def test_export_reports_the_card(api):
+    api.replies[f"{DOCS}/hud/export"] = (200, json.dumps({
+        "version": 2, "name": "hud.png", "width": 400, "height": 300, "size": 2048,
+        "artifact_id": ART, "card": f"[[artifact:{ART}]]", "url": f"/artifacts/{ART}",
+        "card_posted": True}))
+    out = ud(action="export", slug="hud", node="root", scale=2, name="hud")
+    assert f"[[artifact:{ART}]]" in out and "posted to #design" in out and "hud.png" in out
+    assert api[-1][3] == {"node": "root", "name": "hud", "scale": 2}

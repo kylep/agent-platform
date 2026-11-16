@@ -33,13 +33,24 @@ MAX_PATH_TOTAL_BYTES = 1 << 20
 MAX_SHADOWS = 32
 MAX_BLUR = 64
 MAX_STOPS = 8
+MAX_PAINTS = 8        # paints stacked in one `fill`
+MAX_BLURS = 32        # nodes with a layer `blur`
+MAX_BACKDROPS = 8     # nodes with `backdrop_blur` (each re-paints what is behind it)
+MAX_DASH = 8
+MAX_STEPPED = 64      # angular/diamond paints in the expanded tree (each is ~50-100 shapes)
+GRADIENT_KINDS = ("linear", "radial", "angular", "diamond")
+# Figma's blend modes under their CSS mix-blend-mode names. Figma's "pass through"
+# is the default (omit `blend`); "plus darker" has no CSS name and is not offered.
+BLEND_MODES = ("normal", "darken", "multiply", "color-burn", "lighten", "screen", "color-dodge",
+               "plus-lighter", "overlay", "soft-light", "hard-light", "difference", "exclusion",
+               "hue", "saturation", "color", "luminosity")
 MAX_META_BYTES = 2048
 MAX_NUMBER = 100_000
 MAX_FRAME_DEPTH = 64  # guards the recursive walkers; not a design limit a document should near
 
 # The bundled allowlist (§5). T2's fonts.py owns the files; the names live here
 # so validation needs no font code.
-FONT_FAMILIES = ("Inter", "JetBrains Mono", "Noto Sans")
+FONT_FAMILIES = ("Inter", "JetBrains Mono", "Noto Sans", "Nunito", "Fredoka")
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
@@ -53,7 +64,8 @@ TOKEN_GROUPS = ("color", "space", "radius", "type")
 NODE_TYPES = ("frame", "text", "rect", "ellipse", "line", "path", "image", "instance")
 
 _SHARED = {"id", "type", "title", "w", "h", "x", "y", "absolute", "rotate", "fill", "stroke",
-           "radius", "opacity", "visible", "clip", "shadow", "meta"}
+           "radius", "opacity", "visible", "clip", "shadow", "blur", "backdrop_blur", "blend",
+           "meta"}
 TYPE_KEYS: dict[str, set[str]] = {
     "frame": _SHARED | {"layout", "children", "mask"},
     "text": _SHARED | {"text", "style", "color", "align", "max_lines"},
@@ -70,7 +82,7 @@ TYPE_KEYS: dict[str, set[str]] = {
 _NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset"}
 
 # Value positions that are text, not token references (resolution skips them).
-_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of"}
+_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image"}
 
 
 # --- ids -----------------------------------------------------------------
@@ -227,6 +239,8 @@ class _Ctx:
     ids: dict[str, str] = field(default_factory=dict)
     nodes: int = 0
     shadows: int = 0
+    blurs: int = 0
+    backdrops: int = 0
     path_bytes: int = 0
     instances: list[tuple[str, dict, str]] = field(default_factory=list)  # path, node, scope
     comp_nodes: dict[str, dict[str, dict]] = field(default_factory=dict)
@@ -325,12 +339,41 @@ def _size(c: _Ctx, v: Any, path: str) -> None:
 
 
 def _fill(c: _Ctx, v: Any, path: str) -> None:
+    """One paint, or a list of paints stacked bottom to top."""
+    if isinstance(v, list):
+        if not 1 <= len(v) <= MAX_PAINTS:
+            c.add("UD-BOUNDS", path, f"a fill list holds 1 to {MAX_PAINTS} paints", v)
+            return
+        for i, p in enumerate(v):
+            _paint(c, p, join_path(path, i))
+    else:
+        _paint(c, v, path)
+
+
+def _paint(c: _Ctx, v: Any, path: str) -> None:
     if not isinstance(v, dict):
         return _color(c, v, path)
-    if not _obj(c, v, path, {"gradient", "stops", "angle"}, ("gradient", "stops")):
+    kind = next((k for k in ("color", "image") if k in v), "gradient")
+    if sum(k in v for k in ("color", "gradient", "image")) > 1:
+        c.add("UD-VALUE", path, "a paint is one of `color`, `gradient` or `image`")
+    allowed = {"color": {"color", "opacity"}, "image": {"image", "fit", "opacity"},
+               "gradient": {"gradient", "stops", "angle", "opacity"}}[kind]
+    required = {"color": ("color",), "image": ("image",), "gradient": ("gradient", "stops")}[kind]
+    if not _obj(c, v, path, allowed, required):
+        return
+    if "opacity" in v:
+        _num(c, v["opacity"], join_path(path, "opacity"), 0, 1, groups=())
+    if kind == "color":
+        _color(c, v["color"], join_path(path, "color"))
+        return
+    if kind == "image":
+        if "image" in v:
+            _asset(c, v["image"], join_path(path, "image"))
+        if "fit" in v:
+            _enum(c, v["fit"], join_path(path, "fit"), ("cover", "contain", "fill"))
         return
     if "gradient" in v:
-        _enum(c, v["gradient"], join_path(path, "gradient"), ("linear", "radial"))
+        _enum(c, v["gradient"], join_path(path, "gradient"), GRADIENT_KINDS)
     if "angle" in v:
         _num(c, v["angle"], join_path(path, "angle"), groups=())
     stops = v.get("stops")
@@ -349,14 +392,44 @@ def _fill(c: _Ctx, v: Any, path: str) -> None:
             _color(c, s[1], join_path(p, 1))
 
 
+def paints_of(fill: Any) -> list:
+    """The paints of a `fill` value (a single paint or a list), bottom to top."""
+    return list(fill) if isinstance(fill, list) else ([] if fill is None else [fill])
+
+
 def _stroke(c: _Ctx, v: Any, path: str) -> None:
-    if _obj(c, v, path, {"color", "width", "align"}, ("color",)):
+    if _obj(c, v, path, {"color", "width", "align", "dash", "cap", "join", "sides"}, ("color",)):
         if "color" in v:
             _color(c, v["color"], join_path(path, "color"))
         if "width" in v:
             _num(c, v["width"], join_path(path, "width"), 0, MAX_NUMBER)
         if "align" in v:
             _enum(c, v["align"], join_path(path, "align"), ("inside", "center", "outside"))
+        if "cap" in v:
+            _enum(c, v["cap"], join_path(path, "cap"), ("butt", "round", "square"))
+        if "join" in v:
+            _enum(c, v["join"], join_path(path, "join"), ("miter", "round", "bevel"))
+        if "dash" in v:
+            d = v["dash"]
+            dp = join_path(path, "dash")
+            if not isinstance(d, list) or not 1 <= len(d) <= MAX_DASH:
+                c.add("UD-BOUNDS", dp, f"dash is a list of 1 to {MAX_DASH} lengths", d)
+            else:
+                for i, x in enumerate(d):
+                    _num(c, x, join_path(dp, i), 0, MAX_NUMBER, groups=())
+                if all(_isnum(x) and x == 0 for x in d):
+                    c.add("UD-BOUNDS", dp, "dash needs at least one length above 0", d)
+        if "sides" in v:
+            sd = v["sides"]
+            sp = join_path(path, "sides")
+            if isinstance(sd, list):
+                if len(sd) != 4:
+                    c.add("UD-BOUNDS", sp, "sides is a width or [top, right, bottom, left]", sd)
+                else:
+                    for i, x in enumerate(sd):
+                        _num(c, x, join_path(sp, i), 0, MAX_NUMBER)
+            else:
+                _num(c, sd, sp, 0, MAX_NUMBER)
 
 
 def _radius(c: _Ctx, v: Any, path: str) -> None:
@@ -371,15 +444,41 @@ def _radius(c: _Ctx, v: Any, path: str) -> None:
 
 
 def _shadow(c: _Ctx, v: Any, path: str) -> None:
+    """One shadow or a list of them (drop and `inset`), painted first to last."""
+    if isinstance(v, list):
+        if not 1 <= len(v) <= MAX_SHADOWS:
+            c.add("UD-BOUNDS", path, f"a shadow list holds 1 to {MAX_SHADOWS} shadows", v)
+            return
+        for i, sh in enumerate(v):
+            _shadow1(c, sh, join_path(path, i))
+    else:
+        _shadow1(c, v, path)
+
+
+def _shadow1(c: _Ctx, v: Any, path: str) -> None:
     c.shadows += 1
-    if _obj(c, v, path, {"x", "y", "blur", "color"}, ("color",)):
+    if _obj(c, v, path, {"x", "y", "blur", "spread", "color", "inset"}, ("color",)):
         for k in ("x", "y"):
             if k in v:
                 _num(c, v[k], join_path(path, k))
         if "blur" in v:
             _num(c, v["blur"], join_path(path, "blur"), 0, MAX_BLUR, groups=())
+        if "spread" in v:
+            _num(c, v["spread"], join_path(path, "spread"), -MAX_BLUR, MAX_BLUR, groups=())
+        if "inset" in v:
+            _bool(c, v["inset"], join_path(path, "inset"))
         if "color" in v:
             _color(c, v["color"], join_path(path, "color"))
+
+
+def _blur(c: _Ctx, v: Any, path: str) -> None:
+    c.blurs += 1
+    _num(c, v, path, 0, MAX_BLUR, groups=())
+
+
+def _backdrop(c: _Ctx, v: Any, path: str) -> None:
+    c.backdrops += 1
+    _num(c, v, path, 0, MAX_BLUR, groups=())
 
 
 def _layout(c: _Ctx, v: Any, path: str) -> None:
@@ -496,6 +595,8 @@ PROP_CHECKS = {
     "absolute": _bool, "clip": _bool, "visible": _bool,
     "rotate": lambda c, v, p: _num(c, v, p, groups=()),
     "fill": _fill, "stroke": _stroke, "radius": _radius, "shadow": _shadow, "meta": _meta,
+    "blur": _blur, "backdrop_blur": _backdrop,
+    "blend": lambda c, v, p: _enum(c, v, p, BLEND_MODES),
     "opacity": lambda c, v, p: _num(c, v, p, 0, 1, groups=()),
     "mask": lambda c, v, p: _enum(c, v, p, ("alpha", "vector", "luminance")),
     "layout": _layout,
@@ -541,6 +642,11 @@ def _node(c: _Ctx, n: Any, path: str, depth: int, scope: str, root_key: str | No
     for k, v in n.items():
         if k in PROP_CHECKS and k in allowed:
             PROP_CHECKS[k](c, v, join_path(path, k))
+    if t not in ("frame", "rect", "ellipse") and any(
+            isinstance(x, dict) and "image" in x for x in paints_of(n.get("fill"))):
+        c.add("UD-VALUE", join_path(path, "fill"),
+              f"image fills go on frame, rect or ellipse nodes, not {t}",
+              fix="Use an `image` node for a picture inside a path or text.")
     if t == "instance":
         if "of" not in n:
             c.add("UD-MISSING", join_path(path, "of"), "an instance needs `of`")
@@ -659,6 +765,10 @@ def collect_issues(doc: Any) -> list[Issue]:
         c.add("UD-LIMIT", "$", f"{c.nodes} authored nodes; the limit is {MAX_NODES}")
     if c.shadows > MAX_SHADOWS:
         c.add("UD-LIMIT", "$", f"{c.shadows} shadows; the limit is {MAX_SHADOWS}")
+    if c.blurs > MAX_BLURS:
+        c.add("UD-LIMIT", "$", f"{c.blurs} blurred layers; the limit is {MAX_BLURS}")
+    if c.backdrops > MAX_BACKDROPS:
+        c.add("UD-LIMIT", "$", f"{c.backdrops} backdrop blurs; the limit is {MAX_BACKDROPS}")
     if c.path_bytes > MAX_PATH_TOTAL_BYTES:
         c.add("UD-LIMIT", "$", f"path data totals {c.path_bytes} bytes; the limit is {MAX_PATH_TOTAL_BYTES}")
     return c.issues
@@ -693,10 +803,22 @@ def _check_instance(c: _Ctx, path: str, n: dict, scope: str) -> None:
         if ttype not in TYPE_KEYS or prop in _NO_OVERRIDE or prop not in TYPE_KEYS[ttype]:
             c.add("UD-OVERRIDE", p, f"{ttype!r} nodes have no overridable property {prop!r}", key)
             continue
+        if prop == "fill" and any(isinstance(x, dict) and "image" in x for x in paints_of(val)):
+            c.add("UD-OVERRIDE", p, "an image fill cannot be an override; put it on the node", key)
+            continue
         PROP_CHECKS[prop](c, val, p)
 
 
 # --- expansion budget ----------------------------------------------------
+
+def effect_counts(n: dict) -> tuple[int, int, int, int]:
+    """(shadows, blurs, backdrop blurs, stepped gradients) one node paints."""
+    sh = n.get("shadow")
+    stepped = sum(1 for x in paints_of(n.get("fill"))
+                  if isinstance(x, dict) and x.get("gradient") in ("angular", "diamond"))
+    return ((len(sh) if isinstance(sh, list) else 1 if sh else 0),
+            1 if n.get("blur") else 0, 1 if n.get("backdrop_blur") else 0, stepped)
+
 
 def check_expansion(doc: dict) -> int:
     """Expand instances with a counter; raise UD-EXPANSION past depth 6 or
@@ -720,6 +842,13 @@ def check_expansion(doc: dict) -> int:
                 expand(root, depth + 1, state, at)
             return
         state[0] += 1
+        for i, k in enumerate(effect_counts(n)):
+            eff[i] += k
+        if eff[0] > MAX_SHADOWS or eff[1] > MAX_BLURS or eff[2] > MAX_BACKDROPS or eff[3] > MAX_STEPPED:
+            raise UiDesignerError("UD-EXPANSION", f"effects over the limit after instance expansion "
+                                  f"(shadows {eff[0]}/{MAX_SHADOWS}, blurs {eff[1]}/{MAX_BLURS}, "
+                                  f"backdrop blurs {eff[2]}/{MAX_BACKDROPS}, angular/diamond fills "
+                                  f"{eff[3]}/{MAX_STEPPED})", detail={"reason": "effects", "at": at})
         if state[0] > MAX_EXPANDED_NODES:
             raise UiDesignerError("UD-EXPANSION", f"more than {MAX_EXPANDED_NODES} expanded nodes "
                                   f"under {at!r}", detail={"reason": "nodes",
@@ -728,11 +857,14 @@ def check_expansion(doc: dict) -> int:
             expand(k, depth, state, at)
 
     state = [0]
+    eff = [0, 0, 0, 0]
     for page in doc.get("pages") or []:
         for n in page.get("children") or []:
             expand(n, 0, state, page.get("id"))
     for key, root in comps.items():  # a component nobody instances must still be bounded
+        saved = list(eff)
         expand(root, 0, [0], key)
+        eff[:] = saved
     return state[0]
 
 
@@ -745,6 +877,10 @@ def image_assets(doc: dict) -> list[tuple[str, str]]:
             return
         if n.get("type") == "image" and isinstance(n.get("asset"), str):
             found.append((join_path(path, "asset"), n["asset"]))
+        for i, pnt in enumerate(paints_of(n.get("fill"))):
+            if isinstance(pnt, dict) and isinstance(pnt.get("image"), str):
+                found.append((join_path(path, "fill", i, "image") if isinstance(n["fill"], list)
+                              else join_path(path, "fill", "image"), pnt["image"]))
         for i, k in enumerate(n.get("children") or []):
             walk(k, join_path(path, "children", i))
     for i, page in enumerate(doc.get("pages") or []):

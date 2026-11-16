@@ -21,7 +21,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   agent run), and memory's history and restore, persona commitments and
   dreams (design 44), memory guards (ENG-13), rapid-chats (design 45) and the UI
   Designer's text routes (design 46: list, create, get, outline, edit, history,
-  restore). Always tools. 172 of them.
+  restore). Always tools. 179 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
@@ -35,8 +35,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 102 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 351 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 103 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 359 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -147,6 +147,7 @@ EXCLUDED_PATHS = (
     # artifact to every holder of the tool. Facade callers get text.
     (("GET",),  r"^/api/ui-designer/docs/\{slug\}/(?:render|svg|resolved)$"),
     (("GET",),  r"^/api/ui-designer/assets/\{sha256\}$"),
+    (("GET",),  r"^/api/ui-designer/events$"),
     (("POST",), r"^/api/ui-designer/docs/\{slug\}/place$"),
     # An artifact's two byte routes (design/23): a PNG has no place in an MCP
     # text result, and a client that wants the bytes has both URLs from the

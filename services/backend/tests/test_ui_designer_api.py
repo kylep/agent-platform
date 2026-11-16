@@ -432,3 +432,177 @@ async def test_get_text_cap_holds_with_many_components_and_tokens(admin_client):
     node, after = got["cursor"]["node"], got["cursor"].get("after")
     q = f"?node={node}" + (f"&after={after}" if after else "")
     assert (await admin_client.get(f"{P}/docs/{SLUG}{q}")).status_code == 200
+
+
+# --- Phase 1 (T10): inspect, diff, comments, label, export, events -----------------------
+
+async def test_inspect_node(admin_client, renderer):
+    doc = base_doc()
+    doc["tokens"] = {"color": {"ink": "#112233"}}
+    await admin_client.post(f"{P}/docs", json={"slug": SLUG, "doc": doc})
+    await edit(admin_client, 1, [ins("hello", id="greet", w=50, h=10, color="$color.ink")])
+    r = await admin_client.get(f"{P}/docs/{SLUG}/inspect?node=greet")
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["id"] == "greet" and out["type"] == "text" and out["text"] == "hello"
+    assert out["tokens"] == ["$color.ink"] and out["geometry"]["id"] == "greet"
+    assert out["modes"]["default"]["color"] == "#112233" and out["component"] is None
+    assert (await admin_client.get(f"{P}/docs/{SLUG}/inspect?node=zzz")).status_code in (404, 422)
+
+
+async def test_diff_between_versions(admin_client):
+    await mk(admin_client)
+    await edit(admin_client, 1, [ins("a", id="a1")], reason="first")
+    await edit(admin_client, 2, [ins("b", id="b1")], reason="second")
+    r = await admin_client.get(f"{P}/docs/{SLUG}/diff", params={"from": 1, "to": 3})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert [c["version"] for c in out["chunks"]] == [2, 3] and "second" in out["text"]
+    assert "insert" in out["text"] and out["from_version"] == 1 and out["to_version"] == 3
+    assert (await admin_client.get(f"{P}/docs/{SLUG}/diff", params={"from": 3, "to": 2})).status_code == 422
+    assert (await admin_client.get(f"{P}/docs/{SLUG}/diff", params={"from": 1, "to": 99})).status_code == 404
+
+
+async def test_comments_thread_and_resolve(admin_client, producer):
+    await mk(admin_client)
+    r = await admin_client.post(f"{P}/docs/{SLUG}/comments", json={
+        "body": "tighten this", "node_id": "root", "x": 4, "y": 5, "request_id": "c1"})
+    assert r.status_code == 200, r.text
+    root = r.json()["id"]
+    again = await admin_client.post(f"{P}/docs/{SLUG}/comments", json={
+        "body": "tighten this", "node_id": "root", "x": 4, "y": 5, "request_id": "c1"})
+    assert again.json()["replayed"] is True and again.json()["id"] == root
+    reply = (await admin_client.post(f"{P}/docs/{SLUG}/comments", json={
+        "body": "done", "parent_id": root})).json()["comment"]
+    assert reply["parent_id"] == root
+    assert (await admin_client.post(f"{P}/docs/{SLUG}/comments", json={"body": "x", "node_id": "nope"})
+            ).status_code == 422
+    assert (await admin_client.post(f"{P}/docs/{SLUG}/comments", json={"body": "x", "x": 1})
+            ).status_code == 422
+    r = await admin_client.post(f"{P}/docs/{SLUG}/comments/{reply['id']}/resolve")
+    assert r.status_code == 200 and r.json()["id"] == root and r.json()["resolved"] is True
+    rows = (await admin_client.get(f"{P}/docs/{SLUG}/comments")).json()["comments"]
+    assert len(rows) == 2 and all(c["resolved_at"] for c in rows)
+    assert (await admin_client.get(f"{P}/docs/{SLUG}/comments?resolved=false")).json()["comments"] == []
+    await admin_client.post(f"{P}/docs/{SLUG}/comments/{root}/resolve?reopen=true")
+    assert len((await admin_client.get(f"{P}/docs/{SLUG}/comments?resolved=false")).json()["comments"]) == 2
+    assert (await admin_client.post(f"{P}/docs/{SLUG}/comments/{'0' * 32}/resolve")).status_code == 404
+    kinds = [p[2].get("type") for p in producer.published if p[0] == "ui_designer.events"]
+    assert kinds.count("comment") >= 3
+
+
+async def test_events_published_on_writes(admin_client, producer):
+    await mk(admin_client)
+    await edit(admin_client, 1)
+    ev = [p[2] for p in producer.published if p[0] == "ui_designer.events"]
+    assert [e["type"] for e in ev] == ["version", "version"] and ev[1]["version"] == 2
+    assert ev[1]["slug"] == SLUG and ev[1]["author"]
+
+
+async def _design_cards(sf):
+    from agentplatform.db import Conversation, RelayMessage
+    async with sf() as s:
+        conv = (await s.execute(select(Conversation).where(Conversation.name == "design"))).scalars().first()
+        assert conv is not None, "the #design channel is seeded"
+        return list((await s.execute(select(RelayMessage).where(
+            RelayMessage.channel_id == conv.id, RelayMessage.kind == "event"))).scalars())
+
+
+async def test_label_posts_a_card(sf, admin_client, producer):
+    await mk(admin_client)
+    r = await admin_client.post(f"{P}/docs/{SLUG}/label", json={"label": "ship @all it"})
+    assert r.status_code == 200 and r.json() == {"ok": True, "slug": SLUG, "version": 1, "label": "ship @all it"}
+    cards = await _design_cards(sf)
+    assert len(cards) == 1 and cards[0].card["event"] == "labeled" and cards[0].mentions == []
+    assert (await admin_client.post(f"{P}/docs/{SLUG}/label", json={"label": "x" * 65})).status_code == 422
+    assert (await admin_client.post(f"{P}/docs/nope/label", json={"label": "a"})).status_code == 404
+    await edit(admin_client, 1)
+    assert len(await _design_cards(sf)) == 1              # a plain edit posts no card
+
+
+async def test_export_makes_an_artifact_and_a_card(sf, admin_client, renderer, producer):
+    await mk(admin_client)
+    r = await admin_client.post(f"{P}/docs/{SLUG}/export", json={"node": "root", "scale": 2, "name": "hud"})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["name"] == "hud.png" and out["mime"] == "image/png" and out["card_posted"] is True
+    assert out["card"] == f"[[artifact:{out['artifact_id']}]]" and out["url"] == f"/artifacts/{out['artifact_id']}"
+    art = await admin_client.get(f"/api/artifacts/{out['artifact_id']}")
+    assert art.status_code == 200 and art.json()["meta"]["ui_designer"]["slug"] == SLUG
+    assert renderer.calls[-1][1]["scale"] == 2 and renderer.calls[-1][1]["max_edge"] == 4096
+    cards = await _design_cards(sf)
+    assert cards[-1].card["artifact_id"] == out["artifact_id"] and out["card"] in cards[-1].body
+    assert "exported" in [p[2].get("type") for p in producer.published if p[0] == "ui_designer.events"]
+    assert (await admin_client.post(f"{P}/docs/{SLUG}/export", json={"scale": 7})).status_code == 422
+
+
+async def test_phase1_routes_need_the_grant(sf, seed_agent, agent_store, token_client, admin_client, renderer):
+    await mk(admin_client)
+    h = await _agent(sf, seed_agent, agent_store, "nogrant", grants=(RELAY,))
+    for method, path, kw in (("GET", "inspect?node=root", {}), ("GET", "comments", {}),
+                             ("GET", "diff?from=1&to=2", {}), ("POST", "comments", {"json": {"body": "x"}}),
+                             ("POST", "export", {"json": {}}), ("POST", "label", {"json": {"label": "a"}})):
+        r = await token_client.request(method, f"{P}/docs/{SLUG}/{path}", headers=h, **kw)
+        assert r.status_code == 403, (path, r.text)
+
+
+# --- review fixes: comment budgets, comment paging, stream revocation ---------------------
+
+async def test_comments_count_in_the_hourly_write_budget(sf, seed_agent, agent_store, admin_client, token_client):
+    await mk(admin_client)
+    h = await _agent(sf, seed_agent, agent_store, "chatty")
+    settings(admin_client).ui_designer_writes_per_hour = 2
+    for i in range(2):
+        r = await token_client.post(f"{P}/docs/{SLUG}/comments", headers=h, json={"body": f"n{i}"})
+        assert r.status_code == 200, r.text
+    r = await token_client.post(f"{P}/docs/{SLUG}/comments", headers=h, json={"body": "n2"})
+    assert r.status_code == 429 and r.json()["detail"]["code"] == "UD-BUDGET-WRITES"
+
+
+async def test_comment_caps_per_document_and_total_bytes(admin_client, monkeypatch):
+    await mk(admin_client)
+    monkeypatch.setattr(store, "MAX_COMMENTS_PER_DOC", 2)
+    for i in range(2):
+        assert (await admin_client.post(f"{P}/docs/{SLUG}/comments", json={"body": "x"})).status_code == 200
+    r = await admin_client.post(f"{P}/docs/{SLUG}/comments", json={"body": "x"})
+    assert r.status_code == 507 and r.json()["detail"]["cap"] == "max_comments_per_doc"
+    monkeypatch.setattr(store, "MAX_COMMENTS_PER_DOC", 1000)
+    s = settings(admin_client)
+    async with admin_client._transport.app.state.session_factory() as sess:
+        used = (await store.usage(sess))["total"]
+    assert used > 0
+    s.ui_designer_max_total_bytes = used + 1
+    r = await admin_client.post(f"{P}/docs/{SLUG}/comments", json={"body": "xyz"})
+    assert r.status_code == 507 and r.json()["detail"]["cap"] == "max_total_bytes"
+
+
+async def test_comment_listing_filters_before_the_limit_and_pages(admin_client):
+    await mk(admin_client)
+    ids = []
+    for i in range(5):
+        ids.append((await admin_client.post(f"{P}/docs/{SLUG}/comments", json={"body": f"c{i}"})).json()["id"])
+    for cid in ids[:4]:
+        await admin_client.post(f"{P}/docs/{SLUG}/comments/{cid}/resolve")
+    r = (await admin_client.get(f"{P}/docs/{SLUG}/comments?resolved=false&limit=1")).json()
+    assert [c["id"] for c in r["comments"]] == [ids[4]] and r["next_before"] is None
+    p1 = (await admin_client.get(f"{P}/docs/{SLUG}/comments?limit=2")).json()
+    assert [c["id"] for c in p1["comments"]] == ids[3:] and p1["next_before"] == ids[3]
+    p2 = (await admin_client.get(f"{P}/docs/{SLUG}/comments?limit=2&before={p1['next_before']}")).json()
+    assert [c["id"] for c in p2["comments"]] == ids[1:3]
+
+
+async def test_stream_closes_when_access_is_lost(sf, seed_agent, agent_store, admin_client, token_client,
+                                                 monkeypatch):
+    from agentplatform.api import relay as relay_api
+    from agentplatform.api import ui_designer as ud_api
+    from .test_relay_api import _revoke
+    from .test_relay_sse import sse
+    monkeypatch.setattr(relay_api, "HEARTBEAT_SECONDS", 0.05)
+    monkeypatch.setattr(ud_api, "STREAM_RECHECK_SECONDS", 0.0)
+    h = await _agent(sf, seed_agent, agent_store, "watcher")
+    async with sse(token_client, f"{P}/events", headers=h) as (resp, stream):
+        assert resp["status"] == 200
+        await _revoke(sf, "run:watcher")
+        with pytest.raises(Exception):         # the stream ends: no further frame ever comes
+            for _ in range(40):
+                await stream.frame(0.5)

@@ -2006,3 +2006,106 @@ class UiDocPruneOut(BaseModel):
 class UiAssetGcOut(BaseModel):
     assets_removed: int
     bytes_freed: int
+
+
+class UiDocInspectOut(BaseModel):
+    slug: str
+    version: int
+    id: str
+    type: str | None = None
+    title: str | None = None
+    # The node's resolved box and its direct children's (`x y w h`, document space).
+    geometry: Any = None
+    # mode (or `default`) -> resolved fill/color/stroke/radius/opacity/shadow/style.
+    modes: dict[str, dict[str, Any]] = {}
+    tokens: list[str] = []
+    text: str | None = None
+    component: str | None = None
+    authored: Any = None
+    warnings: list[dict[str, Any]] = []
+
+
+class UiCommentIn(BaseModel):
+    body: str = Field(max_length=8192)
+    node_id: str | None = Field(default=None, max_length=48)
+    x: float | None = None
+    y: float | None = None
+    parent_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    request_id: str | None = Field(default=None, max_length=128)
+
+
+class UiComment(BaseModel):
+    id: str
+    node_id: str | None = None
+    x: float | None = None
+    y: float | None = None
+    parent_id: str | None = None
+    author: str
+    run_id: str | None = None
+    body: str
+    resolved_by: str | None = None
+    resolved_at: str | None = None
+    created_at: str | None = None
+
+
+class UiCommentList(BaseModel):
+    slug: str
+    comments: list[UiComment]
+    # Pass as `before` for the next page of older comments; None at the end.
+    next_before: str | None = None
+
+
+class UiCommentOut(BaseModel):
+    ok: bool = True
+    slug: str
+    id: str | None = None
+    comment: UiComment | None = None
+    replayed: bool = False
+    resolved: bool | None = None
+
+
+class UiDocDiffOut(BaseModel):
+    slug: str
+    version: int
+    from_version: int
+    to_version: int
+    # One entry per accepted write after `from_version` up to `to_version`:
+    # {version, ops, reason, at}, ops as applied.
+    chunks: list[dict[str, Any]]
+    text: str
+    truncated: bool = False
+
+
+class UiDocLabelIn(BaseModel):
+    label: str | None = Field(default=None, max_length=64)
+    version: int | None = Field(default=None, ge=1)
+
+
+class UiDocLabelOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    label: str | None = None
+
+
+class UiDocExportIn(BaseModel):
+    node: str | None = None
+    scale: float = 1
+    mode: str | None = None
+    name: str | None = Field(default=None, max_length=120)
+    version: int | None = Field(default=None, ge=1)
+
+
+class UiDocExportOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    artifact_id: str
+    name: str
+    mime: str
+    width: int
+    height: int
+    size: int
+    url: str                     # `/artifacts/<id>`, where Kyle opens it
+    card: str                    # `[[artifact:<id>]]`, works in any message
+    card_posted: bool = False

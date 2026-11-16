@@ -5,9 +5,10 @@ import { UD, flatten, pageBounds, type RNode, type RPage } from "../../lib/uiDes
  * The browser paints nothing itself (the server is the only painter, so the picture
  * matches what an agent sees); the overlay only selects. An <img> cannot load the SVG
  * route's external asset URLs, so the canvas uses the raster route. */
-export function Canvas({ slug, page, version, mode, selected, onSelect }: {
+export function Canvas({ slug, page, version, mode, selected, onSelect, highlight, rev }: {
   slug: string; page: RPage; version: number | null; mode: "dark" | "light";
   selected: string | null; onSelect: (n: RNode | null) => void;
+  highlight?: string | null; rev?: number;
 }) {
   const b = pageBounds(page);
   const [view, setView] = useState({ s: 1, x: 20, y: 20 });
@@ -16,6 +17,7 @@ export function Canvas({ slug, page, version, mode, selected, onSelect }: {
   const scale = typeof window !== "undefined" && window.devicePixelRatio > 1.25 ? 2 : 1;
   const q = new URLSearchParams({ mode, node: page.id, scale: String(scale) });
   if (version) q.set("version", String(version));
+  if (rev) q.set("rev", String(rev));
   useEffect(() => setView({ s: 1, x: 20, y: 20 }), [page.id]);
 
   function onWheel(e: WheelEvent) {
@@ -58,6 +60,7 @@ export function Canvas({ slug, page, version, mode, selected, onSelect }: {
           {boxes.map((n) => (
             <rect key={n.id} x={n.x ?? 0} y={n.y ?? 0} width={n.w ?? 0} height={n.h ?? 0}
                   className="ud-hit" data-selected={n.id === selected ? "" : undefined}
+                  data-highlight={n.id === highlight ? "" : undefined}
                   onClick={(e) => { e.stopPropagation(); if (!drag.current?.moved) onSelect(n); }} />
           ))}
         </svg>

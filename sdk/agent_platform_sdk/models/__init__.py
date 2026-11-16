@@ -329,13 +329,29 @@ from .typed_block import TypedBlock
 from .typed_block_kind import TypedBlockKind
 from .typed_definition import TypedDefinition
 from .ui_asset_gc_out import UiAssetGcOut
+from .ui_comment import UiComment
+from .ui_comment_in import UiCommentIn
+from .ui_comment_list import UiCommentList
+from .ui_comment_out import UiCommentOut
 from .ui_doc_create_in import UiDocCreateIn
 from .ui_doc_create_in_doc_type_0 import UiDocCreateInDocType0
 from .ui_doc_delete_out import UiDocDeleteOut
+from .ui_doc_diff_out import UiDocDiffOut
+from .ui_doc_diff_out_chunks_item import UiDocDiffOutChunksItem
 from .ui_doc_edit_in import UiDocEditIn
 from .ui_doc_edit_in_ops_item import UiDocEditInOpsItem
+from .ui_doc_export_in import UiDocExportIn
+from .ui_doc_export_out import UiDocExportOut
 from .ui_doc_get_out import UiDocGetOut
 from .ui_doc_get_out_cursor_type_0 import UiDocGetOutCursorType0
+from .ui_doc_inspect_out import UiDocInspectOut
+from .ui_doc_inspect_out_modes import UiDocInspectOutModes
+from .ui_doc_inspect_out_modes_additional_property import (
+    UiDocInspectOutModesAdditionalProperty,
+)
+from .ui_doc_inspect_out_warnings_item import UiDocInspectOutWarningsItem
+from .ui_doc_label_in import UiDocLabelIn
+from .ui_doc_label_out import UiDocLabelOut
 from .ui_doc_list import UiDocList
 from .ui_doc_outline import UiDocOutline
 from .ui_doc_place_in import UiDocPlaceIn
@@ -708,13 +724,27 @@ __all__ = (
     "TypedBlockKind",
     "TypedDefinition",
     "UiAssetGcOut",
+    "UiComment",
+    "UiCommentIn",
+    "UiCommentList",
+    "UiCommentOut",
     "UiDocCreateIn",
     "UiDocCreateInDocType0",
     "UiDocDeleteOut",
+    "UiDocDiffOut",
+    "UiDocDiffOutChunksItem",
     "UiDocEditIn",
     "UiDocEditInOpsItem",
+    "UiDocExportIn",
+    "UiDocExportOut",
     "UiDocGetOut",
     "UiDocGetOutCursorType0",
+    "UiDocInspectOut",
+    "UiDocInspectOutModes",
+    "UiDocInspectOutModesAdditionalProperty",
+    "UiDocInspectOutWarningsItem",
+    "UiDocLabelIn",
+    "UiDocLabelOut",
     "UiDocList",
     "UiDocOutline",
     "UiDocPlaceIn",

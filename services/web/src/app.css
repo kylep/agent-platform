@@ -1873,4 +1873,13 @@ a.relay-action { color: var(--ds-link); }
 .ud-hit { fill: transparent; stroke: transparent; pointer-events: all; }
 .ud-hit:hover { stroke: var(--ds-accent); stroke-opacity: .5; }
 .ud-hit[data-selected] { stroke: var(--ds-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.ud-hit[data-highlight] { stroke: var(--ds-warning); stroke-width: 3; stroke-dasharray: 6 3; vector-effect: non-scaling-stroke; }
+.ud-comments { margin-top: 12px; } .ud-comments ul { list-style: none; margin: 0; padding: 0; }
+.ud-comment { border-top: 1px solid var(--ds-border); padding: 6px 0; cursor: pointer; }
+.ud-comment[data-resolved] { opacity: .55; } .ud-comment p { margin: 2px 0; }
+.ud-comments textarea { width: 100%; box-sizing: border-box; }
+.ud-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+@media (max-width: 800px) { .ud-compare { grid-template-columns: 1fr; } }
+.ud-compare img { max-width: 100%; border: 1px solid var(--ds-border); border-radius: var(--radius-md); }
+.ud-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .ud-zoom { position: absolute; top: 8px; right: 8px; z-index: 1; display: flex; gap: 4px; }

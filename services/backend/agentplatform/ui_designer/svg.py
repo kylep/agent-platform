@@ -41,12 +41,12 @@ from typing import Any, Callable, Mapping
 
 from .errors import UD_OP_TARGET, UD_RENDER_FAILED, UiDesignerError
 from .fonts import FONT_DIR, face_by_key, get_face
-from .schema import (COLOR_RE, MAX_BLUR, MAX_PATH_TOTAL_BYTES, MAX_SHADOWS, MAX_STOPS, PATH_D_RE,
-                     SHA_RE)
+from .schema import (BLEND_MODES, COLOR_RE, MAX_BACKDROPS, MAX_BLUR, MAX_BLURS, MAX_PATH_TOTAL_BYTES,
+                     MAX_SHADOWS, MAX_STEPPED, MAX_STOPS, PATH_D_RE, SHA_RE, paints_of)
 from .text import layout_text, make_style
 
 # Bump with any change to what the painter emits; part of `renderer_version`.
-PAINTER_VERSION = 1
+PAINTER_VERSION = 2
 
 ANNOTATE_COLOR = "#ff2bd6"
 ANNOTATE_HALO = "#000000"
@@ -134,6 +134,79 @@ def _rrect(x: float, y: float, w: float, h: float, r: list[float]) -> str:
             + (f"A{_n(tl)} {_n(tl)} 0 0 1 {_n(x + tl)} {_n(y)}" if tl else "") + "Z")
 
 
+def _num_prop(v: Any) -> float:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0
+
+
+def _solid(fill: Any) -> Any:
+    """The colour of the topmost solid paint of a fill (for a `line`)."""
+    for p in reversed(paints_of(fill)):
+        if isinstance(p, str):
+            return p
+        if isinstance(p, dict) and isinstance(p.get("color"), str):
+            return p["color"]
+    return None
+
+
+def _stroke_extras(st: Any) -> str:
+    """` stroke-dasharray`, `-linecap`, `-linejoin` attributes from a stroke."""
+    if not isinstance(st, dict):
+        return ""
+    out = ""
+    dash = st.get("dash")
+    if isinstance(dash, list) and dash and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 for v in dash):
+        out += f' stroke-dasharray="{" ".join(_n(v) for v in dash)}"'
+    if st.get("cap") in ("round", "square"):
+        out += f' stroke-linecap="{st["cap"]}"'
+    if st.get("join") in ("round", "bevel"):
+        out += f' stroke-linejoin="{st["join"]}"'
+    return out
+
+
+def _sample(stops: list, t: float) -> tuple[str, float] | None:
+    """(`#rrggbb`, alpha) of a gradient at offset `t` (linear in sRGB, not
+    premultiplied); None when no stop has a usable colour."""
+    pts = []
+    for st in stops:
+        c = _color(st[1])
+        if c is not None:
+            pts.append((min(1.0, max(0.0, float(st[0]))), [int(c[0][i:i + 2], 16) for i in (1, 3, 5)], c[1]))
+    if not pts:
+        return None
+    pts.sort(key=lambda p: p[0])
+    if t <= pts[0][0]:
+        lo = hi = pts[0]
+    elif t >= pts[-1][0]:
+        lo = hi = pts[-1]
+    else:
+        i = next(i for i, p in enumerate(pts) if p[0] >= t)
+        lo, hi = pts[i - 1], pts[i]
+    f = 0.0 if hi[0] == lo[0] else (t - lo[0]) / (hi[0] - lo[0])
+    rgb = [round(lo[1][k] + (hi[1][k] - lo[1][k]) * f) for k in range(3)]
+    return "#%02x%02x%02x" % tuple(rgb), lo[2] + (hi[2] - lo[2]) * f
+
+
+def _shape_d(n: dict) -> str:
+    """The node's outline as path data (an ellipse, else its rounded box)."""
+    x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
+    if n.get("type") == "ellipse":
+        rx, ry = w / 2, h / 2
+        return (f"M{_n(x)} {_n(y + ry)}A{_n(rx)} {_n(ry)} 0 1 0 {_n(x + w)} {_n(y + ry)}"
+                f"A{_n(rx)} {_n(ry)} 0 1 0 {_n(x)} {_n(y + ry)}Z")
+    return _rrect(x, y, w, h, _radii(n.get("radius"), w, h))
+
+
+def _extent(n: dict) -> tuple[float, float, float, float]:
+    """x0, y0, x1, y1 of a node and all its descendants (children may overflow)."""
+    x, y = n.get("x", 0), n.get("y", 0)
+    x0, y0, x1, y1 = x, y, x + n.get("w", 0), y + n.get("h", 0)
+    for c in n.get("children") or []:
+        a, b, c1, d = _extent(c)
+        x0, y0, x1, y1 = min(x0, a), min(y0, b), max(x1, c1), max(y1, d)
+    return x0, y0, x1, y1
+
+
 class _Painter:
     def __init__(self, assets: Mapping[str, AssetInfo] | None,
                  href: Callable[[str], str | None] | None):
@@ -145,7 +218,14 @@ class _Painter:
         self.grads: dict[str, str] = {}
         self.image_defs: dict[str, str] = {}
         self.shadows = 0
+        self.blurs = 0
+        self.backdrops = 0
+        self.stepped = 0
+        self.stepped_ids: dict = {}
         self.path_bytes = 0
+        self.root: list[str] | None = None  # the page-level output, for backdrop blur
+        self.backdrop_at: set[int] = set()
+        self.rots: list[tuple[float, float, float]] = []  # open rotated ancestors
 
     def uid(self, prefix: str) -> str:
         self.n += 1
@@ -155,23 +235,42 @@ class _Painter:
 
     def paint_attr(self, kind: str, v: Any, box: tuple[float, float, float, float],
                    white: bool) -> str:
-        """` fill="…" fill-opacity="…"` (or stroke) for a colour or gradient."""
-        if isinstance(v, dict) and "gradient" in v:
-            if white:
-                return f' {kind}="#ffffff"'
-            return f' {kind}="url(#{self.gradient(v, box)})"'
+        """` fill="…" fill-opacity="…"` (or stroke) for a colour or gradient
+        paint (a paint object may carry its own `opacity`)."""
+        op = 1.0
+        if isinstance(v, dict):
+            po = v.get("opacity")
+            if isinstance(po, (int, float)) and not isinstance(po, bool):
+                op = min(1.0, max(0.0, float(po)))
+            if "gradient" in v:
+                if white:
+                    return f' {kind}="#ffffff"'
+                return (f' {kind}="url(#{self.gradient(v, box)})"'
+                        + (f' {kind}-opacity="{_n(op)}"' if op < 1 else ""))
+            v = v.get("color")
         c = _color(v, white)
         if c is None:
             return f' {kind}="none"'
+        a = c[1] * (1.0 if white else op)
         out = f' {kind}="{c[0]}"'
-        return out + (f' {kind}-opacity="{_n(c[1])}"' if c[1] < 1 else "")
+        return out + (f' {kind}-opacity="{_n(a)}"' if a < 1 else "")
 
     def gradient(self, g: dict, box: tuple[float, float, float, float]) -> str:
         stops = g.get("stops") or []
         if len(stops) > MAX_STOPS:
             raise UiDesignerError(UD_RENDER_FAILED, f"a gradient has {len(stops)} stops (max {MAX_STOPS})")
         x, y, w, h = box
-        if g.get("gradient") == "radial":
+        kind = g.get("gradient")
+        if kind in ("angular", "diamond"):
+            self.stepped += 1
+            if self.stepped > MAX_STEPPED:
+                raise UiDesignerError(UD_RENDER_FAILED, f"more than {MAX_STEPPED} angular/diamond paints")
+            skey = (kind, g.get("angle", 0), tuple((float(a), str(b)) for a, b in stops), box)
+            gid = self.stepped_ids.get(skey)
+            if gid is not None:
+                return gid
+            head, body, tail = self.stepped_gradient(kind, g, stops, box)
+        elif kind == "radial":
             head = (f'<radialGradient id="@" gradientUnits="userSpaceOnUse" cx="{_n(x + w / 2)}" '
                     f'cy="{_n(y + h / 2)}" r="{_n(max(w, h) / 2 or 1)}"'
                     + (f' gradientTransform="translate({_n(x + w / 2)} {_n(y + h / 2)}) '
@@ -179,6 +278,7 @@ class _Painter:
                        f'translate({_n(-(x + w / 2))} {_n(-(y + h / 2))})"' if w and h and w != h else "")
                     + ">")
             tail = "</radialGradient>"
+            body = self.stop_tags(stops)
         else:
             ang = math.radians(float(g.get("angle", 180)))
             dx, dy = math.sin(ang), -math.cos(ang)
@@ -187,6 +287,18 @@ class _Painter:
             head = (f'<linearGradient id="@" gradientUnits="userSpaceOnUse" x1="{_n(cx - dx * half)}" '
                     f'y1="{_n(cy - dy * half)}" x2="{_n(cx + dx * half)}" y2="{_n(cy + dy * half)}">')
             tail = "</linearGradient>"
+            body = self.stop_tags(stops)
+        key = head + body + tail
+        gid = self.grads.get(key)
+        if gid is None:
+            gid = self.grads[key] = self.uid("gr")
+            self.defs.append(key.replace('id="@"', f'id="{gid}"', 1))
+        if kind in ("angular", "diamond"):
+            self.stepped_ids[skey] = gid
+        return gid
+
+    @staticmethod
+    def stop_tags(stops: list) -> str:
         body = ""
         for st in stops:
             off, col = st[0], _color(st[1])
@@ -194,12 +306,70 @@ class _Painter:
                 continue
             body += (f'<stop offset="{_n(min(1.0, max(0.0, float(off))))}" stop-color="{col[0]}"'
                      + (f' stop-opacity="{_n(col[1])}"' if col[1] < 1 else "") + "/>")
-        key = head + body + tail
-        gid = self.grads.get(key)
-        if gid is None:
-            gid = self.grads[key] = self.uid("gr")
-            self.defs.append(key.replace('id="@"', f'id="{gid}"', 1))
-        return gid
+        return body
+
+    def stepped_gradient(self, kind: str, g: dict, stops: list,
+                         box: tuple[float, float, float, float]) -> tuple[str, str, str]:
+        """resvg has no conic or L1-radial gradient, so these are a `<pattern>`
+        over the node's box built from flat-colour steps: 72 wedges (angular,
+        from `angle`, 0 = up, clockwise) or 48 nested diamonds (diamond, touching
+        the box's edge midpoints; the corners take the last stop)."""
+        x, y, w, h = box
+        w, h = max(w, 1.0), max(h, 1.0)
+        cx, cy = x + w / 2, y + h / 2
+        head = (f'<pattern id="@" patternUnits="userSpaceOnUse" x="{_n(x)}" y="{_n(y)}" '
+                f'width="{_n(w)}" height="{_n(h)}">')
+        parts: list[str] = []
+
+        def fill(s: tuple[str, float]) -> str:
+            return f'fill="{s[0]}"' + (f' fill-opacity="{_n(s[1])}"' if s[1] < 0.999 else "")
+
+        if kind == "angular":
+            n = 72
+            start = float(g.get("angle", 0))
+            samples = [_sample(stops, (i + 0.5) / n) for i in range(n)]
+            eps = 0.6 if all(s and s[1] >= 0.999 for s in samples) else 0.0  # overlap hides seams
+            r = math.hypot(w, h)
+
+            def pt(a: float) -> str:
+                t = math.radians(a)
+                return f"{_n(cx + r * math.sin(t))} {_n(cy - r * math.cos(t))}"
+            for i, s in enumerate(samples):
+                if s:
+                    parts.append(f'<path d="M{_n(cx)} {_n(cy)}L{pt(start + 360 * i / n)}'
+                                 f'L{pt(start + 360 * (i + 1) / n + eps)}Z" {fill(s)}/>')
+        else:
+            n = 48
+
+            def rh(s: float) -> str:
+                return (f"M{_n(cx)} {_n(cy - s * h / 2)}L{_n(cx + s * w / 2)} {_n(cy)}"
+                        f"L{_n(cx)} {_n(cy + s * h / 2)}L{_n(cx - s * w / 2)} {_n(cy)}Z")
+            last = _sample(stops, 1.0)
+            if last:
+                parts.append(f'<path fill-rule="evenodd" d="M{_n(x)} {_n(y)}h{_n(w)}v{_n(h)}h{_n(-w)}Z{rh(1)}" '
+                             f'{fill(last)}/>')
+            for j in range(n - 1, -1, -1):
+                s = _sample(stops, (j + 0.5) / n)
+                if s:
+                    d = rh((j + 1) / n) + (rh(j / n) if j else "")
+                    parts.append(f'<path fill-rule="evenodd" d="{d}" {fill(s)}/>')
+        return head, "".join(parts), "</pattern>"
+
+    def fill_layers(self, fill: Any, box: tuple[float, float, float, float], white: bool,
+                    geom: Callable[[str], str], shape_d: str | None, o: list[str]) -> None:
+        """One element per paint (bottom to top). `geom(attrs)` builds the shape;
+        an image paint is clipped to `shape_d` (None: the shape cannot hold one)."""
+        paints = paints_of(fill)
+        if white:
+            if paints:
+                o.append(geom(' fill="#ffffff"'))
+            return
+        for p in paints:
+            if isinstance(p, dict) and "image" in p:
+                if shape_d:
+                    self.image_fill(p, box, shape_d, o)
+            else:
+                o.append(geom(self.paint_attr("fill", p, box, False)))
 
     # --- nodes --------------------------------------------------------------
 
@@ -208,13 +378,37 @@ class _Painter:
             return
         x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
         closers = 0
+        if not white and _num_prop(n.get("backdrop_blur")) > 0:
+            self.backdrop(n, o)
+        blend = n.get("blend")
+        if blend in BLEND_MODES and blend != "normal" and not white:
+            # resvg has no plus-lighter; screen is the closest it paints.
+            o.append(f'<g style="mix-blend-mode:{"screen" if blend == "plus-lighter" else blend}">')
+            closers += 1
         rot = n.get("rotate")
         if rot:
             o.append(f'<g transform="rotate({_n(rot)} {_n(x + w / 2)} {_n(y + h / 2)})">')
             closers += 1
+            self.rots.append((float(rot), x + w / 2, y + h / 2))
         op = n.get("opacity")
         if isinstance(op, (int, float)) and not isinstance(op, bool) and op < 1:
             o.append(f'<g opacity="{_n(max(0.0, op))}">')
+            closers += 1
+        blur = _num_prop(n.get("blur"))
+        if blur > 0 and not white:
+            self.blurs += 1
+            if self.blurs > MAX_BLURS:
+                raise UiDesignerError(UD_RENDER_FAILED, f"more than {MAX_BLURS} blurred layers")
+            if blur > MAX_BLUR:
+                raise UiDesignerError(UD_RENDER_FAILED, f"blur above {MAX_BLUR}px")
+            fx0, fy0, fx1, fy1 = _extent(n)
+            pad = blur * 1.5 * 2 + 2  # 4 sigma
+            fid = self.uid("bl")
+            self.defs.append(
+                f'<filter id="{fid}" filterUnits="userSpaceOnUse" x="{_n(fx0 - pad)}" y="{_n(fy0 - pad)}" '
+                f'width="{_n(fx1 - fx0 + 2 * pad)}" height="{_n(fy1 - fy0 + 2 * pad)}">'
+                f'<feGaussianBlur stdDeviation="{_n(blur / 2)}"/></filter>')
+            o.append(f'<g filter="url(#{fid})">')
             closers += 1
         t = n.get("type")
         if n.get("shadow") and t in _SHAPES + ("path", "image") and not white:
@@ -225,28 +419,118 @@ class _Painter:
         if kids:
             self.children(n, kids, o, white)
         o.append("</g>" * closers)
+        if rot:
+            self.rots.pop()
+
+    def backdrop(self, n: dict, o: list[str]) -> None:
+        """Approximate background blur: re-paint everything already painted at
+        this level, blur it, and clip it to the node's shape; the node paints
+        over it. resvg has no BackgroundImage, so this is the only way. Not
+        done inside a mask; ancestors' opacity also scales the copy."""
+        if o is not self.root:
+            return
+        self.backdrops += 1
+        if self.backdrops > MAX_BACKDROPS:
+            raise UiDesignerError(UD_RENDER_FAILED, f"more than {MAX_BACKDROPS} backdrop blurs")
+        r = _num_prop(n.get("backdrop_blur"))
+        if r > MAX_BLUR:
+            raise UiDesignerError(UD_RENDER_FAILED, f"backdrop blur above {MAX_BLUR}px")
+        x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
+        if w <= 0 or h <= 0:
+            return
+        s = "".join(p for i, p in enumerate(o) if i not in self.backdrop_at)
+        s += "</g>" * max(0, len(re.findall(r"<g[\s>]", s)) - s.count("</g>"))
+        undo = " ".join(f"rotate({_n(-a)} {_n(cx)} {_n(cy)})" for a, cx, cy in reversed(self.rots))
+        if undo:
+            s = f'<g transform="{undo}">{s}</g>'
+        rot = n.get("rotate")
+        tr = f' transform="rotate({_n(rot)} {_n(x + w / 2)} {_n(y + h / 2)})"' if rot else ""
+        cid, fid = self.uid("bc"), self.uid("bf")
+        self.defs.append(f'<clipPath id="{cid}"><path{tr} d="{_shape_d(n)}"/></clipPath>')
+        grow = (math.hypot(w, h) - min(w, h)) / 2 if rot else 0.0
+        pad = r * 3 + 2 + grow
+        self.defs.append(
+            f'<filter id="{fid}" filterUnits="userSpaceOnUse" x="{_n(x - pad)}" y="{_n(y - pad)}" '
+            f'width="{_n(w + 2 * pad)}" height="{_n(h + 2 * pad)}">'
+            f'<feGaussianBlur stdDeviation="{_n(r / 2)}"/></filter>')
+        op = n.get("opacity")
+        wrap = isinstance(op, (int, float)) and not isinstance(op, bool) and op < 1
+        self.backdrop_at.add(len(o))
+        o.append((f'<g opacity="{_n(max(0.0, op))}">' if wrap else "")
+                 + f'<g clip-path="url(#{cid})"><g filter="url(#{fid})">{s}</g></g>'
+                 + ("</g>" if wrap else ""))
 
     def shadow(self, n: dict, o: list[str]) -> None:
-        sh = n["shadow"]
-        self.shadows += 1
-        if self.shadows > MAX_SHADOWS:
-            raise UiDesignerError(UD_RENDER_FAILED, f"more than {MAX_SHADOWS} shadows")
-        blur = float(sh.get("blur", 0))
-        if blur > MAX_BLUR:
-            raise UiDesignerError(UD_RENDER_FAILED, f"shadow blur above {MAX_BLUR}px")
-        col = _color(sh.get("color", "#000000")) or ("#000000", 1.0)
-        dx, dy = float(sh.get("x", 0)), float(sh.get("y", 0))
+        shadows = [s for s in (n["shadow"] if isinstance(n["shadow"], list) else [n["shadow"]])
+                   if isinstance(s, dict)]
+        for _ in shadows:
+            self.shadows += 1
+            if self.shadows > MAX_SHADOWS:
+                raise UiDesignerError(UD_RENDER_FAILED, f"more than {MAX_SHADOWS} shadows")
+        for sh in shadows:
+            if float(sh.get("blur", 0)) > MAX_BLUR:
+                raise UiDesignerError(UD_RENDER_FAILED, f"shadow blur above {MAX_BLUR}px")
         x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
-        pad = blur * 3 + 2
+        if len(shadows) == 1 and not shadows[0].get("inset") and not shadows[0].get("spread"):
+            sh = shadows[0]
+            blur = float(sh.get("blur", 0))
+            col = _color(sh.get("color", "#000000")) or ("#000000", 1.0)
+            dx, dy = float(sh.get("x", 0)), float(sh.get("y", 0))
+            pad = blur * 3 + 2
+            fid = self.uid("sh")
+            self.defs.append(
+                f'<filter id="{fid}" filterUnits="userSpaceOnUse" x="{_n(x + min(dx, 0) - pad)}" '
+                f'y="{_n(y + min(dy, 0) - pad)}" width="{_n(w + abs(dx) + 2 * pad)}" '
+                f'height="{_n(h + abs(dy) + 2 * pad)}"><feDropShadow dx="{_n(dx)}" dy="{_n(dy)}" '
+                f'stdDeviation="{_n(blur / 2)}" flood-color="{col[0]}" flood-opacity="{_n(col[1])}"/></filter>')
+            o.append(f'<g filter="url(#{fid})">')
+            self.body(n, o, False)
+            o.append("</g>")
+            return
+        # Several shadows: each is a filter that outputs only the shadow, applied to
+        # a copy of the body; drops go under the body, inner shadows over it.
+        buf: list[str] = []
+        self.body(n, buf, False)
+        body = "".join(buf)
+        inner = [s for s in shadows if s.get("inset")]
+        for sh in [s for s in shadows if not s.get("inset")]:
+            o.append(f'<g filter="url(#{self.shadow_filter(sh, x, y, w, h, False)})">{body}</g>')
+        o.append(body)
+        for sh in inner:
+            o.append(f'<g filter="url(#{self.shadow_filter(sh, x, y, w, h, True)})">{body}</g>')
+
+    def shadow_filter(self, sh: dict, x: float, y: float, w: float, h: float, inset: bool) -> str:
+        blur, spread = float(sh.get("blur", 0)), float(sh.get("spread", 0))
+        dx, dy = float(sh.get("x", 0)), float(sh.get("y", 0))
+        col = _color(sh.get("color", "#000000")) or ("#000000", 1.0)
+        # a positive spread grows a drop shadow and shrinks an inner shadow's hole
+        grow = -spread if inset else spread
+        steps, src = [], "SourceAlpha"
+        if grow:
+            steps.append(f'<feMorphology in="{src}" operator="{"dilate" if grow > 0 else "erode"}" '
+                         f'radius="{_n(abs(grow))}" result="a"/>')
+            src = "a"
+        if inset:
+            steps.append(f'<feOffset in="{src}" dx="{_n(dx)}" dy="{_n(dy)}" result="o"/>')
+            src = "o"
+            if blur:
+                steps.append(f'<feGaussianBlur in="{src}" stdDeviation="{_n(blur / 2)}" result="b"/>')
+                src = "b"
+            steps.append(f'<feComposite in="SourceAlpha" in2="{src}" operator="out" result="s"/>')
+        else:
+            if blur:
+                steps.append(f'<feGaussianBlur in="{src}" stdDeviation="{_n(blur / 2)}" result="b"/>')
+                src = "b"
+            steps.append(f'<feOffset in="{src}" dx="{_n(dx)}" dy="{_n(dy)}" result="s"/>')
+        steps.append(f'<feFlood flood-color="{col[0]}" flood-opacity="{_n(col[1])}" result="c"/>'
+                     f'<feComposite in="c" in2="s" operator="in"/>')
+        pad = blur * 3 + abs(spread) + 2
         fid = self.uid("sh")
         self.defs.append(
             f'<filter id="{fid}" filterUnits="userSpaceOnUse" x="{_n(x + min(dx, 0) - pad)}" '
             f'y="{_n(y + min(dy, 0) - pad)}" width="{_n(w + abs(dx) + 2 * pad)}" '
-            f'height="{_n(h + abs(dy) + 2 * pad)}"><feDropShadow dx="{_n(dx)}" dy="{_n(dy)}" '
-            f'stdDeviation="{_n(blur / 2)}" flood-color="{col[0]}" flood-opacity="{_n(col[1])}"/></filter>')
-        o.append(f'<g filter="url(#{fid})">')
-        self.body(n, o, False)
-        o.append("</g>")
+            f'height="{_n(h + abs(dy) + 2 * pad)}">{"".join(steps)}</filter>')
+        return fid
 
     def body(self, n: dict, o: list[str], white: bool) -> None:
         t = n.get("type")
@@ -256,23 +540,27 @@ class _Painter:
         if t in ("frame", "rect"):
             r = _radii(n.get("radius"), w, h)
             if fill is not None and w > 0 and h > 0:
-                o.append(self.shape("rect", x, y, w, h, r, self.paint_attr("fill", fill, box, white)
-                                    + ' stroke="none"'))
+                self.fill_layers(fill, box, white,
+                                 lambda a: self.shape("rect", x, y, w, h, r, a + ' stroke="none"'),
+                                 _rrect(x, y, w, h, r), o)
             self.stroke_shape("rect", n, o, white)
         elif t == "ellipse":
             if fill is not None and w > 0 and h > 0:
-                o.append(f'<ellipse cx="{_n(x + w / 2)}" cy="{_n(y + h / 2)}" rx="{_n(w / 2)}" '
-                         f'ry="{_n(h / 2)}"{self.paint_attr("fill", fill, box, white)}/>')
+                self.fill_layers(fill, box, white,
+                                 lambda a: (f'<ellipse cx="{_n(x + w / 2)}" cy="{_n(y + h / 2)}" '
+                                            f'rx="{_n(w / 2)}" ry="{_n(h / 2)}"{a}/>'),
+                                 _shape_d(n), o)
             self.stroke_shape("ellipse", n, o, white)
         elif t == "line":
             src = stroke if isinstance(stroke, dict) else None
-            color = (src or {}).get("color", fill if isinstance(fill, str) else None)
+            color = (src or {}).get("color", _solid(fill))
             sw = float((src or {}).get("width", 1))
             c = _color(color, white)
             if c is not None:
                 o.append(f'<line x1="{_n(x)}" y1="{_n(y)}" x2="{_n(x + w)}" y2="{_n(y + h)}" '
                          f'stroke="{c[0]}" stroke-width="{_n(sw)}"'
-                         + (f' stroke-opacity="{_n(c[1])}"' if c[1] < 1 else "") + "/>")
+                         + (f' stroke-opacity="{_n(c[1])}"' if c[1] < 1 else "")
+                         + _stroke_extras(src) + "/>")
         elif t == "path":
             d = n.get("d")
             if isinstance(d, str) and d and PATH_D_RE.fullmatch(d):
@@ -282,10 +570,18 @@ class _Painter:
                 sattr = ""
                 if isinstance(stroke, dict):
                     sattr = (self.paint_attr("stroke", stroke.get("color"), box, white)
-                             + f' stroke-width="{_n(float(stroke.get("width", 1)))}"')
-                o.append(f'<path transform="translate({_n(x)} {_n(y)})" d="{_esc(d)}"'
-                         f'{self.paint_attr("fill", fill, box, white) if fill is not None else " fill=\"none\""}'
-                         f'{sattr}/>')
+                             + f' stroke-width="{_n(float(stroke.get("width", 1)))}"'
+                             + _stroke_extras(stroke))
+                tr = f'transform="translate({_n(x)} {_n(y)})" d="{_esc(d)}"'
+                paints = paints_of(fill)
+                if len(paints) <= 1 and not (paints and isinstance(paints[0], dict) and "image" in paints[0]):
+                    o.append(f'<path {tr}'
+                             f'{self.paint_attr("fill", paints[0], box, white) if paints else " fill=\"none\""}'
+                             f'{sattr}/>')
+                else:  # stacked paints: one path each, the stroke on its own path on top
+                    self.fill_layers(fill, box, white, lambda a: f'<path {tr}{a} stroke="none"/>', None, o)
+                    if sattr:
+                        o.append(f'<path {tr} fill="none"{sattr}/>')
         elif t == "image":
             self.image(n, o, white)
         elif t == "text":
@@ -305,6 +601,8 @@ class _Painter:
         if not isinstance(st, dict):
             return
         x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
+        if kind == "rect" and st.get("sides") is not None:
+            return self.stroke_sides(n, st, o, white)
         sw = float(st.get("width", 1))
         if sw <= 0:
             return
@@ -313,12 +611,31 @@ class _Painter:
         if sw_ <= 0 or sh_ <= 0:
             return
         attrs = (' fill="none"' + self.paint_attr("stroke", st.get("color"), (x, y, w, h), white)
-                 + f' stroke-width="{_n(sw)}"')
+                 + f' stroke-width="{_n(sw)}"' + _stroke_extras(st))
         if kind == "ellipse":
             o.append(f'<ellipse cx="{_n(x + w / 2)}" cy="{_n(y + h / 2)}" rx="{_n(sw_ / 2)}" '
                      f'ry="{_n(sh_ / 2)}"{attrs}/>')
         else:
             o.append(self.shape("rect", sx, sy, sw_, sh_, _radii(n.get("radius"), w, h, shift), attrs))
+
+    def stroke_sides(self, n: dict, st: dict, o: list[str], white: bool) -> None:
+        """Per-side widths: the frame between the outer shape and the same shape
+        inset by each side's width, filled (so always inside-aligned; dash, cap
+        and join do not apply)."""
+        x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
+        sd = st["sides"]
+        t, r_, b, l_ = [max(0.0, float(v)) for v in (sd if isinstance(sd, list) else [sd] * 4)]
+        if w <= 0 or h <= 0 or not (t or r_ or b or l_):
+            return
+        r = _radii(n.get("radius"), w, h)
+        d = _rrect(x, y, w, h, r)
+        iw, ih = w - l_ - r_, h - t - b
+        if iw > 0 and ih > 0:
+            ir = [max(0.0, r[0] - max(l_, t)), max(0.0, r[1] - max(r_, t)),
+                  max(0.0, r[2] - max(r_, b)), max(0.0, r[3] - max(l_, b))]
+            d += _rrect(x + l_, y + t, iw, ih, _radii(ir, iw, ih))
+        c = self.paint_attr("fill", st.get("color"), (x, y, w, h), white)
+        o.append(f'<path fill-rule="evenodd" d="{d}"{c} stroke="none"/>')
 
     def glyph(self, face: str, gid: int) -> str | None:
         key = (face, gid)
@@ -355,13 +672,35 @@ class _Painter:
                     o.append(f'<g fill="{c[0]}"' + (f' fill-opacity="{_n(c[1])}"' if c[1] < 1 else "")
                              + ">" + "".join(parts) + "</g>")
 
-    def image(self, n: dict, o: list[str], white: bool) -> None:
-        x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
-        sha = n.get("asset")
+    def asset_info(self, sha: Any) -> AssetInfo | None:
         info = self.assets.get(sha) if isinstance(sha, str) and SHA_RE.fullmatch(sha) else None
         if info is None and isinstance(sha, str) and SHA_RE.fullmatch(sha) and self.href:
             link = self.href(sha)
             info = AssetInfo(link) if link else None
+        return info
+
+    def image_markup(self, x: float, y: float, w: float, h: float, info: AssetInfo, fit: str) -> str:
+        href = _esc(info.href)
+        if info.w and info.h:
+            did = self.image_defs.get(info.href)
+            if did is None:
+                did = self.image_defs[info.href] = self.uid("im")
+                self.defs.append(f'<image id="{did}" href="{href}" width="{info.w}" height="{info.h}"/>')
+            if fit == "fill":
+                sx, sy, tx, ty = w / info.w, h / info.h, x, y
+            else:
+                s = (max if fit == "cover" else min)(w / info.w, h / info.h)
+                sx = sy = s
+                tx, ty = x + (w - info.w * s) / 2, y + (h - info.h * s) / 2
+            return (f'<use href="#{did}" transform="translate({_n(tx)} {_n(ty)}) '
+                    f'scale({sx:.6g} {sy:.6g})"/>')
+        par = {"fill": "none", "contain": "xMidYMid meet"}.get(fit, "xMidYMid slice")
+        return (f'<image href="{href}" x="{_n(x)}" y="{_n(y)}" width="{_n(w)}" '
+                f'height="{_n(h)}" preserveAspectRatio="{par}"/>')
+
+    def image(self, n: dict, o: list[str], white: bool) -> None:
+        x, y, w, h = n.get("x", 0), n.get("y", 0), n.get("w", 0), n.get("h", 0)
+        info = self.asset_info(n.get("asset"))
         if w <= 0 or h <= 0:
             return
         if info is None or white:
@@ -375,24 +714,22 @@ class _Painter:
             cid = self.uid("ic")
             self.defs.append(f'<clipPath id="{cid}"><path d="{_rrect(x, y, w, h, r)}"/></clipPath>')
             clip = f' clip-path="url(#{cid})"'
-        href = _esc(info.href)
-        if info.w and info.h:
-            did = self.image_defs.get(info.href)
-            if did is None:
-                did = self.image_defs[info.href] = self.uid("im")
-                self.defs.append(f'<image id="{did}" href="{href}" width="{info.w}" height="{info.h}"/>')
-            if fit == "fill":
-                sx, sy, tx, ty = w / info.w, h / info.h, x, y
-            else:
-                s = (max if fit == "cover" else min)(w / info.w, h / info.h)
-                sx = sy = s
-                tx, ty = x + (w - info.w * s) / 2, y + (h - info.h * s) / 2
-            o.append(f'<g{clip}><use href="#{did}" transform="translate({_n(tx)} {_n(ty)}) '
-                     f'scale({sx:.6g} {sy:.6g})"/></g>')
-        else:
-            par = {"fill": "none", "contain": "xMidYMid meet"}.get(fit, "xMidYMid slice")
-            o.append(f'<g{clip}><image href="{href}" x="{_n(x)}" y="{_n(y)}" width="{_n(w)}" '
-                     f'height="{_n(h)}" preserveAspectRatio="{par}"/></g>')
+        o.append(f'<g{clip}>{self.image_markup(x, y, w, h, info, fit)}</g>')
+
+    def image_fill(self, p: dict, box: tuple[float, float, float, float], shape_d: str,
+                   o: list[str]) -> None:
+        """An image paint: the picture (cover by default) clipped to the shape."""
+        x, y, w, h = box
+        info = self.asset_info(p.get("image"))
+        cid = self.uid("ic")
+        self.defs.append(f'<clipPath id="{cid}"><path d="{shape_d}"/></clipPath>')
+        op = _num_prop(p["opacity"]) if "opacity" in p else 1.0
+        fit = p.get("fit") if p.get("fit") in ("cover", "contain", "fill") else "cover"
+        inner = (self.image_markup(x, y, w, h, info, fit) if info else
+                 f'<rect x="{_n(x)}" y="{_n(y)}" width="{_n(w)}" height="{_n(h)}" fill="#9aa0a6" '
+                 f'fill-opacity="0.35"/>')
+        o.append(f'<g clip-path="url(#{cid})"' + (f' opacity="{_n(max(0.0, op))}"' if op < 1 else "")
+                 + f">{inner}</g>")
 
     def children(self, n: dict, kids: list[dict], o: list[str], white: bool) -> None:
         closers = 0
@@ -508,6 +845,10 @@ def assets_used(resolved: dict) -> list[str]:
         a = n.get("asset")
         if n.get("type") == "image" and isinstance(a, str) and SHA_RE.fullmatch(a):
             seen.setdefault(a)
+        for pnt in paints_of(n.get("fill")):
+            im = pnt.get("image") if isinstance(pnt, dict) else None
+            if isinstance(im, str) and SHA_RE.fullmatch(im):
+                seen.setdefault(im)
     return list(seen)
 
 
@@ -534,12 +875,14 @@ def paint(resolved: dict, node_id: str | None = None, *, annotate: bool = False,
     node, ancestors = find_node(resolved, node_id)
     p = _Painter(assets, href)
     body: list[str] = []
+    p.root = body
     closers = 0
     for a in ancestors:  # keep ancestors' rotation so the node sits where the page paints it
         if a.get("rotate"):
             ax, ay, aw, ah = a.get("x", 0), a.get("y", 0), a.get("w", 0), a.get("h", 0)
             body.append(f'<g transform="rotate({_n(a["rotate"])} {_n(ax + aw / 2)} {_n(ay + ah / 2)})">')
             closers += 1
+            p.rots.append((float(a["rotate"]), ax + aw / 2, ay + ah / 2))
     if node.get("type") == "page":
         for c in node["children"]:
             p.node(c, body)

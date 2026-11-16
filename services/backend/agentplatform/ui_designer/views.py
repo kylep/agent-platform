@@ -8,6 +8,7 @@ the outline, the resolved boxes and warnings when a renderer answered.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .errors import UD_NOT_FOUND, UiDesignerError, join_path
@@ -267,3 +268,89 @@ def cut_lines(lines: list[tuple[str, str]], *, after: str | None, cap: int) -> t
         used += n
         last = nid
     return "\n".join(out), None
+
+
+# --- inspect (design 46 section 3) ------------------------------------------------
+
+_STYLE_KEYS = ("fill", "color", "stroke", "radius", "opacity", "shadow", "style", "rotate", "clip")
+_TOKEN_RE = re.compile(r"\$(?:color|space|radius|type)\.[a-z0-9_-]+", re.I)
+
+
+def _own(node: dict) -> dict:
+    return {k: v for k, v in node.items() if k != "children"}
+
+
+def inspect_node(doc: dict, node_id: str, trees: dict[str | None, dict]) -> dict:
+    """What an agent needs to reason about one node: its resolved box and its
+    children's, the resolved colours and typography per mode, the tokens its own
+    properties name, its text and the component it instances. `trees` maps a mode
+    (None when the document has none) to that mode's resolved tree."""
+    from . import svg as _svg
+    ref = index_nodes(doc).get(node_id)
+    authored = _own(ref.node) if ref is not None else None
+    modes: dict[str, dict] = {}
+    geometry: dict | None = None
+    text: str | None = None
+    node_type = authored.get("type") if authored else None
+    warnings: list[dict] = []
+    for mode, tree in trees.items():
+        found, _anc = _svg.find_node(tree, node_id)
+        node_type = node_type or found.get("type")
+        lines = ((found.get("text") or {}).get("lines") or []) if isinstance(found.get("text"), dict) else []
+        if geometry is None:
+            geometry = _svg.boxes(found)
+            if lines:
+                text = "\n".join(str(ln.get("text", "")) for ln in lines)
+        look = {k: found[k] for k in _STYLE_KEYS if k in found}
+        runs = [r for ln in lines for r in ln.get("runs") or []]
+        if runs:                       # a text node's colour and face live on its runs
+            look.setdefault("color", runs[0].get("color"))
+            look["typography"] = [{"face": r.get("face"), "size": r.get("size")}
+                                  for r in {(r.get("face"), r.get("size")): r for r in runs}.values()]
+        modes[mode or "default"] = look
+        if not warnings:
+            warnings = [w for w in tree.get("warnings") or [] if w.get("id") == node_id]
+    if authored is None and geometry is None:
+        raise _not_found(f"node {node_id!r}")
+    own = json.dumps(authored or {}, ensure_ascii=False)
+    tokens = sorted({t.lower() for t in _TOKEN_RE.findall(own)})
+    if authored and isinstance(authored.get("text"), str):
+        text = authored["text"]
+    elif authored and isinstance(authored.get("text"), list):
+        text = "".join(str(r.get("text", "")) for r in authored["text"] if isinstance(r, dict))
+    return {"id": node_id, "type": node_type, "title": (authored or {}).get("title"),
+            "geometry": geometry, "modes": modes, "tokens": tokens, "text": text,
+            "component": (authored or {}).get("of") if node_type == "instance" else None,
+            "authored": authored, "warnings": warnings}
+
+
+# --- diff -------------------------------------------------------------------
+
+def _op_summary(op: dict) -> str:
+    name = str(op.get("op", "?"))
+    target = op.get("id") or op.get("ids") or op.get("parent") or op.get("from")
+    if isinstance(target, list):
+        target = ",".join(str(t) for t in target[:6]) + ("…" if len(target) > 6 else "")
+    keys = ""
+    if isinstance(op.get("set"), dict) and name in ("update", "tokens"):
+        keys = " {" + ",".join(list(op["set"])[:6]) + "}"
+    node = op.get("node")
+    added = f" +{node.get('id')}" if isinstance(node, dict) and node.get("id") else ""
+    return f"{name}({target}){keys}{added}" if target else f"{name}{keys}{added}"
+
+
+def diff_text(chunks: list[dict], *, cap: int) -> tuple[str, bool]:
+    """One line per write: `v8 reason: op(target) …`, cut at `cap` bytes."""
+    out: list[str] = []
+    used = 0
+    for i, c in enumerate(chunks):
+        ops = [o for o in c.get("ops") or [] if isinstance(o, dict)]
+        line = f"v{c.get('version')} {str(c.get('reason') or '')[:120]}: " + \
+               ", ".join(_op_summary(o) for o in ops[:12]) + (f" … {len(ops) - 12} more" if len(ops) > 12 else "")
+        n = len(line.encode()) + 1
+        if used + n > cap - 128 and out:
+            out.append(f"… {len(chunks) - i} more writes; narrow from/to")
+            return "\n".join(out), True
+        out.append(line)
+        used += n
+    return "\n".join(out), False

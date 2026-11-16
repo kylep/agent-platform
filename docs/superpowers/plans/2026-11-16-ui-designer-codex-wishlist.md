@@ -1,0 +1,149 @@
+# UI Designer: feature wishlist and Codex prompt
+
+Written 2026-11-16, after Phase 1 shipped. What exists today is in
+`docs/building-blocks/ui-designer.md`; the reasoning is in
+`docs/design/46-ui-designer.md`.
+
+## Where it stands
+
+Live:
+
+- **Documents:** JSON documents in Postgres, edited through batched ops with a
+  compare-and-swap version check. Versions fold, and `restore` brings one back.
+- **Rendering:** a separate ui-renderer service (resvg) turns a document into
+  PNGs, which go back to agents as MCP images.
+- **Agent tool:** `mcp__platform__ui_designer` covers create, edit, get,
+  outline, render, history, history diff, restore, inspect, comments, label,
+  place and export. Export makes a PNG artifact and posts a `#design` card.
+- **Web:** `/ui-designer` is read-only, with comments, side-by-side compare,
+  labels, export and a live SSE refresh.
+- **Paint and effects:**
+  - fills: up to 8 stacked; colour, linear, radial, angular and diamond
+    gradients, and images;
+  - shadows: several per node, drop or inset, with spread;
+  - blur: layer blur, and an approximated backdrop blur;
+  - 17 blend modes;
+  - strokes: dash, cap, join and per-side widths;
+  - also masks, rotation, clipping, auto layout, tokens with modes, and
+    components with instance overrides.
+- **Fonts:** Inter, JetBrains Mono, Noto Sans, Nunito and Fredoka.
+- **Figma converter:** `ui_designer/figma_convert.py` turns a Figma node dump
+  into a document. Its report lists every approximated or dropped node.
+  `desk-buddy` was imported this way, from a replay of the scripts that
+  built it, because the Figma Starter plan's MCP read limit ran out.
+
+## Wishlist (most valuable first)
+
+### P1: makes it a real Figma replacement for us
+
+1. **Figma REST importer (design 46 T11).** Use the `figma-token` secret,
+   the internal executor tool, a resumable dispatcher job, staged pages, a
+   status route, a web "Import from Figma" button and a `#design` card. The
+   converter already exists. This adds fetching, images and the job. The
+   Figma MCP on Starter allows only a few calls, so REST with a PAT is the
+   route to rely on.
+2. **Editing in the web inspector (T13, first half).**
+   - Select a node on the canvas, edit its props in a side panel, drag to
+     move or resize, and nudge with the arrow keys.
+   - Every change is one `edit` batch with `expected_version`, so agents and
+     Kyle never overwrite each other.
+   - Add undo and redo in the browser.
+3. **Component variants and properties.** A component set with variant axes
+   (state=hover/pressed, size=s/m/l) and typed props (text, boolean, instance
+   swap). Instances pick a variant and set props. Agents currently copy whole
+   frames for each state.
+4. **Prototyping.**
+   - `link_to` on any node: target frame, trigger (tap, hover, after-delay),
+     transition (instant, dissolve, slide).
+   - A click-through viewer at `/ui-designer/<slug>/play`.
+   - The spectator HUD and desk-buddy flows need this to be reviewable.
+5. **Export formats.** SVG as a deliberate artifact type, PDF, and an
+   HTML/CSS or React snippet export from `inspect` ("Dev Mode").
+   - Tokens become CSS custom properties.
+   - That is the path from design to the real desk-buddy and game code.
+
+### P2: better results from agents
+
+6. **Visual diff.** An overlay of two renders with changed boxes outlined,
+   available both in Compare and as a tool action. Agents should see what
+   their edit changed, not only the new picture.
+7. **Design lint as a tool action.** Contrast (WCAG), text overflow and
+   clipping, off-grid spacing, uses of raw colours where a token exists, and
+   unused tokens. The results come back as warnings with node ids.
+8. **Cross-document libraries.** A `design-system` document whose components
+   and tokens other documents `use`, with an update flow when the library
+   changes.
+9. **Templates and starter kits.** Device frames (480×320 desk-buddy, phone,
+   desktop), and a HUD kit for the persona game.
+10. **Layout gaps.**
+    - grid layout;
+    - constraints on resize (pin left/right/center/scale);
+    - min/max sizes;
+    - wrap in auto layout;
+    - vertical text alignment;
+    - justified text;
+    - text decoration and case.
+11. **Vector editing.** Boolean ops (union, subtract, intersect, exclude),
+    pen and path editing in the web inspector, and image fills on paths.
+12. **Icon set.** Bundle an open icon library (Lucide or Tabler) as built-in
+    components, so agents stop drawing icons by hand.
+
+### P3: nice to have
+
+13. Relay `[[ui:<slug>#node]]` chips that render a live thumbnail, and the
+    rapid-chat `ui_designer` sink (T13, second half).
+14. Real conic gradients and backdrop blur. This needs a renderer that
+    supports them (Skia) or a resvg patch. Today both are approximated.
+15. Motion: smart-animate between variants, exported as a short MP4 or GIF
+    through the claude-video toolkit.
+16. More fonts on request: per-document font upload, OFL only, with
+    validation.
+17. Multi-cursor presence in the web view (who's looking, who's editing).
+18. Per-document access (readers and editors) and a `design` team.
+19. A comment @mention that wakes the named agent with the node in context.
+
+## Prompt for Codex
+
+Paste this into Codex in `~/gh/agent-platform`:
+
+```
+You are extending UI Designer, the agent-first Figma replacement in this repo
+(Agent Platform). Read, in order: AGENTS.md; docs/building-blocks/ui-designer.md;
+docs/design/46-ui-designer.md (all of it — §2 schema, §5 rendering, §6 API,
+§8 Figma import, §9 permissions, §10 versioning/backups, §15 tasks);
+docs/superpowers/plans/2026-11-16-ui-designer-codex-wishlist.md (this list).
+
+Code map: services/backend/agentplatform/ui_designer/ (schema.py, ops.py,
+layout.py, svg.py, text.py, fonts.py, store.py, views.py, figma_convert.py),
+services/backend/agentplatform/api/ui_designer.py, services/ui-renderer/,
+services/mcp-broker/broker.py (`ui_designer` tool + UI_DESIGNER_CHEATSHEET
+copied from agentplatform/agentspec.py — keep them identical),
+services/mcp-facade/facade.py, services/web/src/pages/UiDesigner*.tsx,
+skills/ui-designer/SKILL.md.
+
+Goal: take the wishlist P1 items 1–5 from idea to deployed, in order. For each:
+1. Write a short design addendum (append a section to design 46: data model,
+   API, tool surface, permissions, budgets, tests). Keep the schema closed:
+   every new node type or prop gets a validator, a painter path, a layout
+   rule, budgets, a cheat-sheet line, and tests.
+2. Implement with tests. Backwards compatibility is mandatory: existing
+   documents must validate and render byte-identically (golden tests in
+   tests/test_ui_designer_render.py and tests/test_ui_designer_effects.py).
+3. Run what CI runs (read .github/workflows/): backend pytest for touched
+   files then the full suite once, broker and facade tests, SDK regeneration
+   with no drift, `npm run build` for web, `helm lint`.
+4. Ask for review before merging; deploy per docs (images built with
+   docker buildx --platform linux/amd64, imported into k3s, helm upgrade with
+   pinned tags in charts/agent-platform/values-memory-pai.yaml).
+
+Rules: never `git add -A` (add files by name; never secrets). Agent-facing
+answers stay compact (outline first, renders as images). Every write goes
+through ops with expected_version. Security seams to treat carefully:
+require_ui_designer_access, run fences, local persona routes, asset/image
+references (no external hrefs ever reach the SVG), the Figma token (read only
+by the executor tool, never logged). When done with each item, update the
+building-block doc and the cheat sheet, and append a "Status" line to the
+wishlist file.
+
+Then propose (don't build) designs for P2 items 6–8 in the same file.
+```

@@ -316,6 +316,7 @@ topics:
     - {name: quota.events, partitions: 1, retentionMs: "604800000"}         # 7d (usage snapshot changes; the row in pg is the current value)
     - {name: artifacts.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every artifact create/delete → the Studio's live strip)
     - {name: workbench.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every publish/refusal with its file list → the Changes page, the audit)
+    - {name: ui_designer.events, partitions: 3, retentionMs: "2592000000"}   # 30d (every design write → the designer SSE, #design cards)
     - {name: local-persona.events, partitions: 3, retentionMs: "604800000"}   # cursor-only fanout; history lives in pg
     # News state App (design 11): the recorder publishes the gatherer digest to inbound; the
     # state writer emits one event per accepted / freshness-rejected item. Formerly created by

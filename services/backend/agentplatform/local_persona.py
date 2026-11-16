@@ -77,7 +77,7 @@ ROUTES = (
     # UI Designer (docs/design/46 §6). Reads and writes alike sit behind the
     # grant; the API refuses a run-less snapshot and checks `artifacts` on place.
     ('GET', r'/api/ui-designer/docs(?:/[a-z0-9-]+(?:/(?:outline|render|versions(?:/[0-9]+)?|diff|inspect|comments))?)?', 'ui_designer'),
-    ('POST', r'/api/ui-designer/docs(?:/[a-z0-9-]+/(?:edit|place|restore|comments(?:/[a-f0-9]{32}/resolve)?))?', 'ui_designer'),
+    ('POST', r'/api/ui-designer/docs(?:/[a-z0-9-]+/(?:edit|place|restore|label|export|comments(?:/[a-f0-9]{32}/resolve)?))?', 'ui_designer'),
     ('GET', r'/api/quota', 'get_quota_usage'),
     ('POST', r'/api/quota/refresh', 'get_quota_usage'),
     ('GET', r'/api/quota/ok', 'quota_ok'),

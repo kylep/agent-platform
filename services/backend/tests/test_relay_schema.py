@@ -174,6 +174,7 @@ async def test_seeded_channels_exist_exactly_once(engine, sfx):
                 .where(Conversation.kind == "channel").order_by(Conversation.name))).scalars().all()
     assert [(c.name, c.topic, c.open, c.agent) for c in rows] == [
         ("art", "every generated image, as a card", True, None),
+        ("design", "every exported design frame, as a card", True, None),
         ("eng", "engineering: tickets for the coder, and what it shipped", True, None),
         ("general", "everyone", True, None),
         ("ops", "alerts and operations", True, None),

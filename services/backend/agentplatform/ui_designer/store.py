@@ -121,7 +121,9 @@ async def usage(s) -> dict:
         return int((await s.execute(select(func.coalesce(func.sum(col), 0)))).scalar_one())
     versions, docs, assets = (await total(UiDesignerVersion.bytes), await total(UiDesignerDocument.bytes),
                               await total(UiDesignerAsset.bytes))
-    return {"versions": versions, "documents": docs, "assets": assets, "total": versions + docs + assets}
+    comments = await total(func.length(UiDesignerComment.body))
+    return {"versions": versions, "documents": docs, "assets": assets, "comments": comments,
+            "total": versions + docs + assets + comments}
 
 
 async def _doc_version_bytes(s, document_id: str) -> int:
@@ -296,6 +298,9 @@ async def write_times(s, author: str, since: datetime) -> list[datetime]:
                 continue
             if at >= since:
                 out.append(at)
+    for (at,) in (await s.execute(select(UiDesignerComment.created_at).where(
+            UiDesignerComment.author == author, UiDesignerComment.created_at >= since))):
+        out.append(_aware(at))
     return sorted(out)
 
 
@@ -760,3 +765,105 @@ async def render_put(s, key: str, *, document_id: str, png: bytes, width: int, h
             if total <= max_bytes:
                 break
     return True
+
+
+# --- comments ---------------------------------------------------------------
+
+MAX_COMMENT_BYTES = 4096
+MAX_COMMENTS_PER_DOC = 1000
+
+
+def comment_view(c: UiDesignerComment) -> dict:
+    return {"id": c.id, "node_id": c.node_id, "x": c.x, "y": c.y, "parent_id": c.parent_id,
+            "author": c.author, "run_id": c.run_id, "body": c.body, "resolved_by": c.resolved_by,
+            "resolved_at": _iso(c.resolved_at), "created_at": _iso(c.created_at)}
+
+
+async def list_comments(s, slug: str, *, include_resolved: bool = True, node: str | None = None,
+                        limit: int = 200, before: str | None = None) -> tuple[list[dict], str | None]:
+    """A page of the thread, oldest first within the page. The filters run in SQL
+    before the limit, and the page is the NEWEST `limit` rows (resolved ones
+    excluded when asked), so old resolved threads never hide new ones. `before`
+    is the `next_before` of the previous page (a comment id): older rows only."""
+    row = await _live(s, slug)
+    stmt = select(UiDesignerComment).where(UiDesignerComment.document_id == row.id)
+    if node is not None:
+        stmt = stmt.where(UiDesignerComment.node_id == node)
+    if not include_resolved:
+        stmt = stmt.where(UiDesignerComment.resolved_at.is_(None))
+    if before is not None:
+        ref = await s.get(UiDesignerComment, before)
+        if ref is None or ref.document_id != row.id:
+            raise _not_found(f"comment {before!r}")
+        stmt = stmt.where((UiDesignerComment.created_at < ref.created_at) |
+                          ((UiDesignerComment.created_at == ref.created_at) & (UiDesignerComment.id < ref.id)))
+    rows = (await s.execute(stmt.order_by(UiDesignerComment.created_at.desc(), UiDesignerComment.id.desc())
+                            .limit(limit + 1))).scalars().all()
+    more = len(rows) > limit
+    rows = rows[:limit]
+    return [comment_view(c) for c in reversed(rows)], (rows[-1].id if more and rows else None)
+
+
+async def add_comment(s, slug: str, *, body: str, author: str, run_id: str | None = None,
+                      node_id: str | None = None, x: float | None = None, y: float | None = None,
+                      parent_id: str | None = None, request_id: str | None = None,
+                      caps: Caps = Caps(), scope: str | None = None, now: datetime | None = None) -> dict:
+    now = now or utcnow()
+    scope = _scope(scope, run_id, request_id)
+    h = args_hash(op="comment", slug=slug, body=body, node=node_id, x=x, y=y, parent=parent_id)
+    if scope:
+        prior = await _receipt_lookup(s, scope, request_id, "comment", h)
+        if prior is not None:
+            return {"replayed": True, "comment": None, "id": prior.get("text"), "slug": slug}
+    if not isinstance(body, str) or not body.strip():
+        raise invalid([issue("UD-MISSING", "$.body", "a comment needs text")])
+    if len(body.encode()) > MAX_COMMENT_BYTES:
+        raise invalid([issue("UD-LIMIT", "$.body", f"a comment is at most {MAX_COMMENT_BYTES} bytes")])
+    if (x is None) != (y is None):
+        raise invalid([issue("UD-MISSING", "$.x", "a pin needs both x and y")])
+    row = await _live(s, slug, lock=True)
+    n = int((await s.execute(select(func.count(UiDesignerComment.id)).where(
+        UiDesignerComment.document_id == row.id))).scalar_one())
+    if n >= MAX_COMMENTS_PER_DOC:
+        raise UiDesignerError(UD_BUDGET_STORAGE, f"{slug!r} already has {n} comments; the limit is "
+                              f"{MAX_COMMENTS_PER_DOC}. Resolve and ask an administrator to prune, "
+                              "or comment on another document",
+                              detail={"cap": "max_comments_per_doc", "used": n,
+                                      "limit": MAX_COMMENTS_PER_DOC})
+    await _check_caps(s, caps, len(body.encode()), None, "comment")
+    if node_id is not None:
+        pages = {p.get("id") for p in row.doc.get("pages") or []}
+        if node_id not in pages and node_id not in index_nodes(row.doc):
+            raise invalid([issue("UD-OP-TARGET", "$.node", f"no node or page {node_id!r}", node_id)])
+    if parent_id is not None:
+        parent = await s.get(UiDesignerComment, parent_id)
+        if parent is None or parent.document_id != row.id:
+            raise _not_found(f"comment {parent_id!r}")
+        parent_id = parent.parent_id or parent.id          # a thread is flat
+    c = UiDesignerComment(document_id=row.id, node_id=node_id, x=x, y=y, parent_id=parent_id,
+                          author=author, run_id=run_id, body=body.strip(), created_at=now)
+    s.add(c)
+    await s.flush()
+    if scope:
+        await _receipt_write(s, scope, request_id, row.id, "comment", h,
+                             {"version": row.version, "slug": slug, "text": c.id}, now)
+    return {"replayed": False, "comment": comment_view(c), "id": c.id, "slug": slug}
+
+
+async def resolve_comment(s, slug: str, comment_id: str, *, by: str, resolved: bool = True,
+                          now: datetime | None = None) -> dict:
+    """Resolve (or reopen) a thread: the root and every reply."""
+    row = await _live(s, slug, lock=True)
+    c = await s.get(UiDesignerComment, comment_id)
+    if c is None or c.document_id != row.id:
+        raise _not_found(f"comment {comment_id!r}")
+    root_id = c.parent_id or c.id
+    rows = (await s.execute(select(UiDesignerComment).where(
+        UiDesignerComment.document_id == row.id,
+        (UiDesignerComment.id == root_id) | (UiDesignerComment.parent_id == root_id)))).scalars().all()
+    for r in rows:
+        r.resolved_by = by if resolved else None
+        r.resolved_at = (now or utcnow()) if resolved else None
+    await s.flush()
+    return {"slug": slug, "id": root_id, "resolved": resolved,
+            "comment": comment_view(next(r for r in rows if r.id == root_id)), "document_id": row.id}
