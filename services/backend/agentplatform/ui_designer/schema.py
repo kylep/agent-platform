@@ -64,7 +64,9 @@ TYPE_KEYS: dict[str, set[str]] = {
     "instance": _SHARED | {"of", "overrides"},
 }
 # Never overridable on an instance's target.
-_NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides"}
+# asset is not overridable: image_assets() walks node assets only, so an
+# override would place an image the asset check never saw.
+_NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset"}
 
 # Value positions that are text, not token references (resolution skips them).
 _LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of"}
@@ -74,7 +76,7 @@ _LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of"}
 
 def slugify(text: str, fallback: str = "node") -> str:
     s = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:48].strip("-")
-    return s if s and ID_RE.match(s) else fallback
+    return s if s and ID_RE.fullmatch(s) else fallback
 
 
 def generate_id(taken: set[str], title: str | None = None, kind: str = "node") -> str:
@@ -151,7 +153,7 @@ def resolve_token(ref: str, tokens: dict, mode: str | None = None,
     """The literal a `$group.name` reference names. A mode-keyed colour picks
     the render's mode, falling back to the first mode (in `modes` order, then
     key order) that it defines; the lint reports the gap."""
-    m = REF_RE.match(ref)
+    m = REF_RE.fullmatch(ref)
     if not m:
         raise KeyError(ref)
     group, name = m.groups()
@@ -175,7 +177,7 @@ def resolve_tokens(doc: dict, mode: str | None = None) -> dict:
 
     def sub(v: Any, key: str | None = None) -> Any:
         if isinstance(v, str):
-            return resolve_token(v, tokens, mode, modes) if REF_RE.match(v) else v
+            return resolve_token(v, tokens, mode, modes) if REF_RE.fullmatch(v) else v
         if isinstance(v, list):
             return [sub(x) for x in v]
         if isinstance(v, dict):
@@ -198,7 +200,7 @@ def iter_token_refs(doc: dict) -> Iterator[tuple[str, str]]:
     """Yield (json path, reference) for every `$group.name` used outside `tokens`."""
     def walk(v: Any, path: str, key: str | None = None) -> Iterator[tuple[str, str]]:
         if isinstance(v, str):
-            if REF_RE.match(v):
+            if REF_RE.fullmatch(v):
                 yield path, v
         elif isinstance(v, list):
             for i, x in enumerate(v):
@@ -243,7 +245,7 @@ def _isref(v: Any) -> bool:
 
 
 def _tokref(c: _Ctx, v: str, path: str, groups: tuple[str, ...]) -> None:
-    m = REF_RE.match(v)
+    m = REF_RE.fullmatch(v)
     if not m:
         c.add("UD-FORMAT", path, "malformed token reference", v,
               fix="Write `$<group>.<name>`, e.g. `$color.accent`.")
@@ -293,7 +295,7 @@ def _bool(c: _Ctx, v: Any, path: str) -> None:
 def _color(c: _Ctx, v: Any, path: str) -> None:
     if _isref(v):
         _tokref(c, v, path, ("color",))
-    elif not (isinstance(v, str) and COLOR_RE.match(v)):
+    elif not (isinstance(v, str) and COLOR_RE.fullmatch(v)):
         c.add("UD-FORMAT", path, "expected #rgb, #rrggbb or #rrggbbaa", v)
 
 
@@ -459,12 +461,12 @@ def _pathd(c: _Ctx, v: Any, path: str) -> None:
     c.path_bytes += n
     if n > MAX_PATH_D_BYTES:
         c.add("UD-LIMIT", path, f"path data is limited to {MAX_PATH_D_BYTES} bytes per node")
-    if not PATH_D_RE.match(v):
+    if not PATH_D_RE.fullmatch(v):
         c.add("UD-FORMAT", path, "path data holds only SVG path commands and numbers")
 
 
 def _asset(c: _Ctx, v: Any, path: str) -> None:
-    if not (isinstance(v, str) and SHA_RE.match(v)):
+    if not (isinstance(v, str) and SHA_RE.fullmatch(v)):
         c.add("UD-FORMAT", path, "an asset is a lowercase sha256 hex digest", v)
 
 
@@ -489,7 +491,7 @@ PROP_CHECKS = {
 
 
 def _register(c: _Ctx, id_: Any, path: str) -> None:
-    if not (isinstance(id_, str) and ID_RE.match(id_)):
+    if not (isinstance(id_, str) and ID_RE.fullmatch(id_)):
         c.add("UD-ID", path, "invalid id", id_)
     elif id_ in c.ids:
         c.add("UD-DUPLICATE-ID", path, f"id {id_!r} is already used at {c.ids[id_]}", id_)
@@ -558,11 +560,11 @@ def _check_tokens(c: _Ctx, tokens: Any, modes: list[str] | None) -> None:
                     for mk, mv in v.items():
                         if modes is not None and mk not in modes:
                             c.add("UD-MODE", join_path(p, mk), f"mode {mk!r} is not in `modes`")
-                        if _isref(mv) or not (isinstance(mv, str) and COLOR_RE.match(mv)):
+                        if _isref(mv) or not (isinstance(mv, str) and COLOR_RE.fullmatch(mv)):
                             c.add("UD-FORMAT", join_path(p, mk), "expected #rgb, #rrggbb or #rrggbbaa", mv)
                     if not v:
                         c.add("UD-MISSING", p, "a mode-keyed colour defines at least one mode")
-                elif _isref(v) or not (isinstance(v, str) and COLOR_RE.match(v)):
+                elif _isref(v) or not (isinstance(v, str) and COLOR_RE.fullmatch(v)):
                     c.add("UD-FORMAT", p, "expected #rgb, #rrggbb or #rrggbbaa", v)
             elif group in ("space", "radius"):
                 if not _isnum(v) or isinstance(v, bool) or v < 0:
@@ -597,7 +599,7 @@ def collect_issues(doc: Any) -> list[Issue]:
     if "modes" in doc:
         m = doc["modes"]
         if not (isinstance(m, list) and 1 <= len(m) <= 8 and len(set(map(str, m))) == len(m)
-                and all(isinstance(x, str) and MODE_RE.match(x) for x in m)):
+                and all(isinstance(x, str) and MODE_RE.fullmatch(x) for x in m)):
             c.add("UD-BOUNDS", "$.modes", "1 to 8 distinct lowercase mode names", m)
     if "tokens" in doc:
         _check_tokens(c, doc["tokens"], c.modes)
@@ -841,7 +843,7 @@ def lint(doc: dict) -> list[dict]:
     color = (doc.get("tokens") or {}).get("color") or {}
     seen: set[str] = set()
     for path, ref in iter_token_refs(doc):
-        m = REF_RE.match(ref)
+        m = REF_RE.fullmatch(ref)
         if not m or m.group(1) != "color" or ref in seen:
             continue
         seen.add(ref)

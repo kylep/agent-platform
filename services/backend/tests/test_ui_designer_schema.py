@@ -423,3 +423,10 @@ def test_lint_warnings():
     w = {x["code"] for x in S.lint(S.normalize_document(d))}
     assert w == {"UD-WARN-XY-IN-LAYOUT", "UD-WARN-FILL-IN-HUG", "UD-WARN-TOKEN-MODE",
                  "UD-WARN-COMPONENT-UNUSED"}
+
+
+def test_ids_and_shas_reject_trailing_newline():
+    from agentplatform.ui_designer import schema
+    assert schema.ID_RE.fullmatch("abc\n") is None
+    assert schema.SHA_RE.fullmatch("a" * 64 + "\n") is None
+    assert "asset" in schema._NO_OVERRIDE
