@@ -44,12 +44,12 @@ block it. Pictures go only to agent runs; Kyle and Codex over the external API g
 text (`outline`, `get`, `edit` without snapshots) plus the web UI. Document
 content is data, never instructions.
 
-**Visual effects (Figma equivalents):** `fill` takes one paint or a list stacked
+**Visual effects:** `fill` takes one paint or a list stacked
 bottom to top (colour, `linear`/`radial`/`angular`/`diamond` gradient, or an
 `image`, each with optional `opacity`); `stroke` adds `dash`, `cap`, `join` and
 per-side `sides` widths; `shadow` is one or a list of drop and `inset` shadows
 with `spread`; `blur` is a layer blur and `backdrop_blur` a background blur;
-`blend` is a Figma blend mode under its CSS name. Limits: 8 paints per fill, 32
+`blend` uses CSS blend-mode names. Limits: 8 paints per fill, 32
 shadows, 32 blurred nodes, 8 backdrop blurs per document, blur and spread up to
 64 px. Approximations (resvg is not a browser): `angular` and `diamond` are
 stepped (72 wedges, 48 nested diamonds); `backdrop_blur` re-paints and blurs
@@ -81,3 +81,23 @@ Administrator API keys can use `POST /api/ui-designer/imports` and
 `GET /api/ui-designer/imports/{import_id}`. The corresponding facade tools are
 in its optional admin menu. Designer agents edit completed documents through
 their existing grant; they cannot initiate imports or read the credential.
+
+**Edit in the browser:** operators and administrators can select an authored
+node and edit its title, size, text, colour or layout in the inspector. Save
+applies only changed properties as one version-checked batch. Editing rich text
+replaces its inline formatting; Undo restores the original runs. Blank optional
+properties remove the override; width and height can also use `hug` or `fill`.
+Historical versions and expanded component children are read-only.
+
+Drag a selected free-positioned node to move it, use resize handles on fixed-size
+nodes, or focus the canvas and nudge with arrow keys (Shift moves ten units).
+A gesture previews the selection bounds and writes once on release. Escape
+cancels it. Rotated nodes and nodes beneath rotated ancestors use inspector
+editing; their canvas gestures are disabled.
+
+Undo and Redo apply inverse/forward edits against the current acknowledged
+version. Another writer's change clears browser history and marks an inspector
+draft stale; discard and reload that draft before editing again. A failed
+network response offers **Retry save**, reusing the original receipt so a write
+cannot apply twice. This history lasts only for the current browser document
+session; server version history remains available separately.

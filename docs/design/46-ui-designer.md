@@ -1130,3 +1130,29 @@ restart/resume, rate-limit retry, partial and failed imports, unsafe asset URLs,
 image bounds, and idempotent completion. Existing render goldens must remain
 unchanged. The web flow covers permissions, submission, persisted progress,
 errors and a link to the imported document.
+
+## 17. P1.2 implementation addendum — web editing with safe undo
+
+The web editor remains an overlay over the server painter. Load a pinned
+version's resolved tree and authored inspector properties; historical versions
+are read-only. Inspector saves, drag/resize gestures and arrow-key nudges each
+produce one existing `edit` batch with the exact `expected_version` and a unique
+request ID. Only dirty properties are changed, preserving rich-text runs and
+unexposed layout/style properties. Free-position movement uses authored local
+coordinates, not the resolved world coordinates. Unsupported rotated-container
+manipulation is disabled rather than applying an incorrect transform.
+
+Undo and redo are session-local forward/inverse op pairs. They create ordinary
+new versions under CAS; they never restore a whole document or overwrite an
+agent's intervening changes. An external version change clears those stacks and
+cancels an active gesture; a dirty inspector becomes stale until reloaded.
+Distinguish an own-write SSE event arriving before its response from an external
+write. Ignore old events and stale HTTP responses. A 409 refreshes the pinned
+head without retrying an inverse against somebody else's work. An uncertain
+network result is reconciled using the same request ID before further writes.
+
+Permissions stay at the existing API grant/role boundary. The web additionally
+hides/disables editing for read-only viewers and historical versions. No schema,
+renderer, budget, or agent-tool changes are needed. Browser tests cover saved
+properties, rich-text inverse ops, zoomed gestures, keyboard focus guards,
+conflicts, historical views, stale loads and both own/external SSE races.

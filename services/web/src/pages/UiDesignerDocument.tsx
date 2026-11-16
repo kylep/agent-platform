@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage } from "../api";
+import Inspector from "../components/ui-designer/Inspector";
+import { Button } from "@ap/ui/button";
+import { useDesignerEditing } from "../lib/useDesignerEditing";
+import type { UiInspection } from "../lib/uiDesigner";
 import { Canvas } from "../components/ui-designer/Canvas";
 import { useTitle } from "../lib/title";
 import { UD, flatten, nodeLabel, opSummary, type RNode, type Resolved, type UiComment, type UiDiff, type UiEvent, type UiExport, type UiVersionRow } from "../lib/uiDesigner";
@@ -59,6 +63,26 @@ export default function UiDesignerDocument() {
   const [exported, setExported] = useState<UiExport | null>(null);
   const base = `${UD}/${encodeURIComponent(slug)}`;
 
+  const [canWrite, setCanWrite] = useState(false);
+  const [pinned, setPinned] = useState<number | null>(null);
+  const [inspection, setInspection] = useState<UiInspection | null>(null);
+  const [parents, setParents] = useState<Record<string, unknown>[]>([]);
+  const [stale, setStale] = useState(false);
+  const headLoad = useRef(0);
+  const refresh = useCallback((next?: number, external?: boolean) => {
+    if (external) setStale(true);
+    if (next) { setCurrent(next); setPinned(next); }
+    setRev((r) => r + 1);
+  }, []);
+  const editing = useDesignerEditing(base, refresh, `${base}:${version ?? "latest"}`);
+  const eventHandler = useRef(editing.external); eventHandler.current = editing.external;
+  useEffect(() => { api<{ role: string }>("/api/whoami").then((me) => setCanWrite(["admin", "operator"].includes(me.role))).catch(() => setCanWrite(false)); }, []);
+  useEffect(() => {
+    setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
+    setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
+    setDraft(""); setCmp(null); setExported(null); setHl(null); setErr("");
+  }, [slug]);
+
   // Live refresh: the events stream carries every document; only the open one reloads.
   useEffect(() => {
     if (typeof EventSource === "undefined") return;
@@ -66,37 +90,77 @@ export default function UiDesignerDocument() {
     es.addEventListener("design", (m) => {
       try {
         const ev = JSON.parse(m.data) as UiEvent;
-        if (ev.slug === slug) setRev((r) => r + 1);
+        if (ev.slug === slug) {
+          if (ev.type === "version" || ev.type === "imported" || ev.type === "restored") {
+            if (ev.version) eventHandler.current(ev.version);
+          } else setRev((r) => r + 1);
+        }
       } catch { /* non-JSON frame */ }
     });
     return () => es.close();
   }, [slug]);
 
   useEffect(() => {
+    let cancelled = false;
     api<{ comments: UiComment[] }>(`${base}/comments`)
-      .then((r) => setComments(r.comments ?? []))
-      .catch((e) => setErr(String(e.message ?? e)));
+      .then((r) => { if (!cancelled) setComments(r.comments ?? []); })
+      .catch((e) => { if (!cancelled) setErr(String(e.message ?? e)); });
+    return () => { cancelled = true; };
   }, [base, rev]);
 
   useEffect(() => {
+    const seq = ++headLoad.current;
+    let cancelled = false;
     api<{ version: number; versions: UiVersionRow[] }>(`${UD}/${encodeURIComponent(slug)}/versions`)
-      .then((r) => { setVersions(r.versions); setCurrent(r.version); })
-      .catch((e) => setErr(String(e.message ?? e)));
-  }, [slug, rev]);
+      .then((r) => { if (cancelled || seq !== headLoad.current) return; setVersions(r.versions); setCurrent((old) => Math.max(old ?? 0, r.version)); if (eventHandler.current(r.version)) setPinned((old) => old == null || r.version > old ? r.version : old); })
+      .catch((e) => { if (!cancelled && seq === headLoad.current) setErr(String(e.message ?? e)); });
+    return () => { cancelled = true; };
+  }, [slug, rev, version]);
 
   useEffect(() => {
     setErr("");
-    const q = new URLSearchParams({ mode });
-    if (version) q.set("version", String(version));
+    if (!(version ?? pinned)) return;
+    let cancelled = false;
+    const q = new URLSearchParams({ mode, version: String(version ?? pinned) });
     api<Resolved>(`${UD}/${encodeURIComponent(slug)}/resolved?${q}`)
-      .then((r) => { setResolved(r); setSel(null); })
-      .catch((e) => setErr(String(e.message ?? e)));
-  }, [slug, version, mode, rev]);
+      .then((r) => { if (!cancelled) setResolved(r); })
+      .catch((e) => { if (!cancelled) setErr(String(e.message ?? e)); });
+    return () => { cancelled = true; };
+  }, [slug, version, pinned, mode, rev]);
 
   const pages = resolved?.pages ?? [];
   const page = pages.find((p) => p.id === pageId) ?? pages[0] ?? null;
   const known = useMemo(() => flatten(page?.children ?? []), [page]);
-  const picked = sel ? known.find((n) => n.id === sel.id) ?? sel : null;
+  const picked = sel ? known.find((n) => n.id === sel.id) ?? null : null;
+
+  const selectedId = picked?.id;
+  const pageNodes = useRef<RNode[]>([]); pageNodes.current = page?.children ?? [];
+  useEffect(() => {
+    if (!selectedId || !pinned || stale) return;
+    let cancelled = false;
+    const ancestors: string[] = [];
+    function find(nodes: RNode[], path: string[]): boolean {
+      for (const node of nodes) {
+        if (node.id === selectedId) { ancestors.push(...path); return true; }
+        if (find(node.children ?? [], [...path, node.id])) return true;
+      }
+      return false;
+    }
+    find(pageNodes.current, []);
+    setInspection(null);
+    Promise.all([selectedId, ...ancestors].map((id) => api<UiInspection>(`${base}/inspect?${new URLSearchParams({ node: id, version: String(version ?? pinned), mode })}`)))
+      .then(([selected, ...parentNodes]) => { if (!cancelled) { setInspection(selected); setParents(parentNodes.map((p) => p.authored ?? {})); } })
+      .catch((e) => { if (!cancelled) setErr(apiErrorMessage(e, "Could not inspect node.")); });
+    return () => { cancelled = true; };
+  }, [base, selectedId, pinned, version, mode, stale]);
+  const parent = parents.at(-1);
+  const freePosition = !parent?.layout || !!inspection?.authored?.absolute;
+  const editable = canWrite && !version && !stale && !!inspection?.authored && inspection.version === pinned && inspection.id === picked?.id && !editing.busy && !editing.uncertain;
+  function saveNode(id: string, changes: Record<string, unknown>) {
+    if (!editable || inspection?.id !== id || picked?.id !== id || !inspection.authored) return;
+    const before = Object.fromEntries(Object.keys(changes).map((key) => [key, inspection.authored![key] ?? null]));
+    editing.commit([{ op: "update", id, set: changes }], [{ op: "update", id, set: before }]);
+  }
 
   async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {
     try { setErr(""); return await fn(); } catch (e) { setErr(apiErrorMessage(e, "request failed")); }
@@ -154,6 +218,7 @@ export default function UiDesignerDocument() {
           </select>
         </label>
         <div className="ud-actions">
+          {canWrite && !version && <><Button onClick={editing.undo} disabled={stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
           <button type="button" onClick={labelVersion}>Label this version</button>
           <button type="button" onClick={() => (cmp ? setCmp(null) : openCompare())}>
             {cmp ? "Close compare" : "Compare"}</button>
@@ -197,6 +262,10 @@ export default function UiDesignerDocument() {
           )}
         </section>
       )}
+      {editing.message && <p role="status">{editing.message}</p>}
+      {editing.uncertain && <Button onClick={editing.retry} disabled={editing.busy}>Retry save</Button>}
+      {stale && <p role="status">The document changed. Your inspector draft is preserved. <Button onClick={() => { setStale(false); setInspection(null); }}>Discard draft and reload inspector</Button></p>}
+      {version && <p className="muted">Viewing a historical version. Return to Latest to edit.</p>}
       {err && <p role="alert" className="muted">Could not load: {err}</p>}
       <div className="ud-cols">
         <aside className="ud-outline" aria-label="Outline">
@@ -215,20 +284,16 @@ export default function UiDesignerDocument() {
           ))}
         </aside>
         <div className="ud-canvas">
-          {page ? <Canvas slug={slug} page={page} version={version} mode={mode}
+          {page ? <Canvas slug={slug} page={page} version={version ?? pinned} mode={mode}
                           selected={picked?.id ?? null} onSelect={setSel}
-                          highlight={hl} rev={rev} />
+                          highlight={hl} rev={rev} editable={editable} busy={editing.busy || editing.uncertain}
+                          selectedAuthored={inspection?.id === picked?.id ? inspection?.authored : null} freePosition={freePosition}
+                          ancestorsRotated={parents.some((p) => !!p.rotate)} onCommit={saveNode} />
             : !err && <p className="muted">Loading...</p>}
         </div>
         <aside className="ud-inspector" aria-label="Inspector">
           <h2>Inspector</h2>
-          {picked ? (
-            <dl>
-              <dt>id</dt><dd>{picked.id}</dd>
-              <dt>type</dt><dd>{picked.type ?? "node"}</dd>
-              <dt>size</dt><dd>{Math.round(picked.w ?? 0)} x {Math.round(picked.h ?? 0)}</dd>
-            </dl>
-          ) : <p className="muted">Click a node.</p>}
+          {picked && inspection?.id === picked.id ? <Inspector inspection={inspection} disabled={!editable} freePosition={freePosition} onSave={(changes) => saveNode(inspection.id, changes)} /> : <p className="muted">{picked ? "Loading node…" : "Click a node."}</p>}
           <section className="ud-comments" aria-label="Comments">
             <h2>Comments</h2>
             <ul>

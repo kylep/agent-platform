@@ -34,7 +34,7 @@ Live:
 
 ## Wishlist (most valuable first)
 
-### P1: makes it a real Figma replacement for us
+### P1: completes our core design workflow
 
 1. **Figma REST importer (design 46 T11).** Use the `figma-token` secret,
    the internal executor tool, a resumable dispatcher job, staged pages, a
@@ -107,7 +107,7 @@ Live:
 Paste this into Codex in `~/gh/agent-platform`:
 
 ```
-You are extending UI Designer, the agent-first Figma replacement in this repo
+You are extending UI Designer, the agent-first visual design tool in this repo
 (Agent Platform). Read, in order: AGENTS.md; docs/building-blocks/ui-designer.md;
 docs/design/46-ui-designer.md (all of it — §2 schema, §5 rendering, §6 API,
 §8 Figma import, §9 permissions, §10 versioning/backups, §15 tasks);
@@ -150,9 +150,10 @@ Then propose (don't build) designs for P2 items 6–8 in the same file.
 
 ## Implementation status — Codex, 2026-11-16
 
-- **P1.1 Status:** implemented and pushed in `e00134b`; deployment pending an
-  explicit live-rollout approval required by automatic approval review. Pinned
-  images `ud-import-20261116` are built and transferred to pai. Resumable page,
+- **P1.1 Status:** implemented and pushed in `e00134b`; images
+  `ud-import-20261116` deployed to pai (Helm revision 146). Live admin create/status and the
+  dispatcher identity → executor bridge verified; the smoke job failed with
+  the expected missing Figma connection. Affected deployments are ready. Resumable page,
   image and reference checkpoints; Figma retry delays; administrator API/web;
   typed SDK; REST shared styles; bounded reports; `#design` completion card.
   Existing documents remain unchanged. A real Figma acceptance import still
@@ -162,11 +163,16 @@ Then propose (don't build) designs for P2 items 6–8 in the same file.
   expectation passing separately; 378 browser, 465 broker, 39 facade, 91 executor
   tests; 29 fetch tests; render/effects goldens; build, Storybook, tokens,
   SDK regeneration, Helm lint and secret checks.
-- **Quota:** 17% weekly Codex used at the pre-deployment checkpoint. Stop opening
+- **Quota:** 20% weekly Codex used at the editor verification checkpoint. Stop opening
   work at 75%; finish and record the current chunk without consuming the final
   20% reserved for other work.
-- **P1.2–P1.5 Status:** not started. Inspector editing has a read-only technical
-  outline; no implementation is left in the tree.
+- **P1.2 Status:** implemented inspector edits, canvas gestures and safe browser
+  undo/redo, including CAS conflicts, uncertain-save receipt recovery and
+  navigation/SSE races. All 388 browser tests, web build, Storybook, token
+  checks and focused lint pass. Deployment verification pending. P1.3–P1.5 remain unopened.
+- **Standing authorization:** Kyle explicitly authorized unattended deployments,
+  frequent commits and direct pushes to main after the importer checkpoint.
+  Continue chunk by chunk without asking again; quota stop remains 75%.
 
 ## P2 proposals (design only)
 
