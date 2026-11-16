@@ -606,3 +606,26 @@ async def test_stream_closes_when_access_is_lost(sf, seed_agent, agent_store, ad
         with pytest.raises(Exception):         # the stream ends: no further frame ever comes
             for _ in range(40):
                 await stream.frame(0.5)
+
+
+async def test_card_text_cannot_forge_chips_or_mentions(sf, admin_client, producer):
+    await mk(admin_client)
+    await admin_client.post(f"{P}/docs/{SLUG}/label", json={"label": "[[artifact:x]] @kai\nhi"})
+    body = (await _design_cards(sf))[0].body
+    assert "[[" not in body and "@kai" not in body and "\n" not in body
+
+
+async def test_agents_resolve_only_their_threads_and_are_budgeted(sf, seed_agent, agent_store,
+                                                                  admin_client, token_client):
+    await mk(admin_client)
+    theirs = (await admin_client.post(f"{P}/docs/{SLUG}/comments", json={"body": "kyle's"})).json()["id"]
+    h = await _agent(sf, seed_agent, agent_store, "tidy")
+    r = await token_client.post(f"{P}/docs/{SLUG}/comments/{theirs}/resolve", headers=h)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "UD-FORBIDDEN"
+    mine = (await token_client.post(f"{P}/docs/{SLUG}/comments", headers=h, json={"body": "mine"})).json()["id"]
+    settings(admin_client).ui_designer_cards_per_hour = 2   # the refused try above counted
+    assert (await token_client.post(f"{P}/docs/{SLUG}/comments/{mine}/resolve", headers=h)).status_code == 200
+    r = await token_client.post(f"{P}/docs/{SLUG}/comments/{mine}/resolve?reopen=true", headers=h)
+    assert r.status_code == 429 and r.json()["detail"]["code"] == "UD-BUDGET-WRITES"
+    r = await token_client.post(f"{P}/docs/{SLUG}/label", headers=h, json={"label": "v"})
+    assert r.status_code == 429

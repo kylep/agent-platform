@@ -183,6 +183,34 @@ def _pixel_window(request: Request, agent: str) -> deque:
     return st.ui_designer_pixels.setdefault(agent, deque())
 
 
+def _check_card_budget(request: Request, caller: Caller) -> None:
+    """Agents only: label, resolve and export (the actions that announce
+    themselves in `#design` or flip shared state without a version) per rolling
+    hour, in memory like the pixel window."""
+    limit = request.app.state.settings.ui_designer_cards_per_hour
+    if caller.agent is None or limit <= 0:
+        return
+    st = request.app.state
+    if getattr(st, "ui_designer_cards", None) is None:
+        st.ui_designer_cards = {}
+    win = st.ui_designer_cards.setdefault(caller.agent, deque())
+    now = time.monotonic()
+    while win and now - win[0] > 3600:
+        win.popleft()
+    if len(win) >= limit:
+        raise ud_http(UiDesignerError(
+            ud_errors.UD_BUDGET_WRITES, f"{len(win)} labels, resolves and exports in the last hour; "
+            f"the limit is {limit}",
+            detail={"retry_after": max(1, int(win[0] + 3600 - now) + 1), "limit": limit}))
+    win.append(now)
+
+
+def _card_text(text: str, limit: int) -> str:
+    """Somebody's words inside a system-voiced `#design` card: one line, and no
+    chip or mention syntax that would render as the platform's own."""
+    return one_line(text, limit).replace("[[", "[\u200b[").replace("@", "@\u200b")
+
+
 def _check_pixel_budget(request: Request, caller: Caller) -> None:
     """Agents only: rendered megapixels per rolling hour. Kept in memory (one
     API replica); a restart forgives a loop, which the write budget still caps."""
@@ -795,11 +823,13 @@ async def add_ui_comment(slug: str, body: S.UiCommentIn, request: Request,
 async def resolve_ui_comment(slug: str, request: Request,
                              comment_id: str = Path(pattern=r"^[0-9a-f]{32}$"), reopen: bool = False,
                              caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    await _check_write_budget(request, caller)
+    _check_card_budget(request, caller)
     run_id = await caller_run_id(request, caller)
     async with request.app.state.session_factory() as s:
         try:
             out = await store.resolve_comment(s, slug, comment_id, by=caller.participant,
-                                              resolved=not reopen)
+                                              resolved=not reopen, restrict=caller.agent is not None)
             version = (await store.get_document(s, slug))["version"]
         except UiDesignerError as e:
             raise ud_http(e)
@@ -814,6 +844,8 @@ async def label_ui_document(slug: str, body: S.UiDocLabelIn, request: Request,
                             caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
     """Name a version (default: the current one). A label protects its row from
     folding and prune, and a named version is announced in `#design`."""
+    await _check_write_budget(request, caller)
+    _check_card_budget(request, caller)
     run_id = await caller_run_id(request, caller)
     async with request.app.state.session_factory() as s:
         try:
@@ -827,7 +859,7 @@ async def label_ui_document(slug: str, body: S.UiDocLabelIn, request: Request,
     if body.label:
         await _design_card(
             request,
-            body=f"{view['title'] or slug} v{n} named \"{one_line(body.label, 64)}\" "
+            body=f"{_card_text(view['title'] or slug, 64)} v{n} named \"{_card_text(body.label, 64)}\" "
                  f"by {participant_label(caller.participant)}",
             card={"type": "ui_design", "event": "labeled", "slug": slug, "version": n,
                   "label": one_line(body.label, 64), "author": caller.participant})
@@ -844,6 +876,7 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
         granted = await agents_api._caller_platform_tools(request, caller.agent)
         if TOOL_ARTIFACTS not in granted:
             raise HTTPException(403, "exporting makes an artifact; it needs the artifacts tool")
+    _check_card_budget(request, caller)
     run_id = await caller_run_id(request, caller)
     view, sha, _cc = await _doc_at(request, caller, slug, body.version)
     _check_pixel_budget(request, caller)
@@ -875,8 +908,8 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
     chip = f"[[artifact:{art.id}]]"
     posted = await _design_card(
         request,
-        body=f"{chip}\n{view['title'] or slug} v{version}"
-             f"{' · ' + body.node if body.node else ''} exported by {participant_label(caller.participant)}",
+        body=f"{chip}\n{_card_text(view['title'] or slug, 64)} v{version}"
+             f"{' · ' + _card_text(body.node, 64) if body.node else ''} exported by {participant_label(caller.participant)}",
         card={"type": "ui_design", "event": "exported", "slug": slug, "node": body.node,
               "version": version, "artifact_id": art.id, "author": caller.participant})
     await _emit(request, caller, "exported", slug, version, run_id, artifact_id=art.id,

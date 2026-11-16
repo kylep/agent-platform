@@ -275,6 +275,7 @@ class Settings(BaseSettings):
     # x 1.25 MP = 600 MP. Humans are not metered.
     ui_designer_writes_per_hour: int = 120
     ui_designer_pixels_per_hour_mp: float = 600
+    ui_designer_cards_per_hour: int = 30
     ui_designer_max_images_per_request: int = 4
     ui_designer_max_megapixels_per_request: float = 10
     # Past this the edit still commits; the receipt says "snapshot timed out".

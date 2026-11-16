@@ -851,13 +851,19 @@ async def add_comment(s, slug: str, *, body: str, author: str, run_id: str | Non
 
 
 async def resolve_comment(s, slug: str, comment_id: str, *, by: str, resolved: bool = True,
-                          now: datetime | None = None) -> dict:
-    """Resolve (or reopen) a thread: the root and every reply."""
+                          now: datetime | None = None, restrict: bool = False) -> dict:
+    """Resolve (or reopen) a thread: the root and every reply. With `restrict`
+    (an agent caller), only the thread's author or the document's owner may."""
     row = await _live(s, slug, lock=True)
     c = await s.get(UiDesignerComment, comment_id)
     if c is None or c.document_id != row.id:
         raise _not_found(f"comment {comment_id!r}")
     root_id = c.parent_id or c.id
+    if restrict:
+        root = c if c.id == root_id else await s.get(UiDesignerComment, root_id)
+        if by not in (row.owner, root.author if root else None):
+            raise UiDesignerError(errors.UD_FORBIDDEN, "only the thread's author or the document's owner "
+                                                "may resolve or reopen it")
     rows = (await s.execute(select(UiDesignerComment).where(
         UiDesignerComment.document_id == row.id,
         (UiDesignerComment.id == root_id) | (UiDesignerComment.parent_id == root_id)))).scalars().all()
