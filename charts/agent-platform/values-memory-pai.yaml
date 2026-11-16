@@ -5,7 +5,7 @@ images:
   backend:
     tag: bk-bf190b0
   web:
-    tag: bk-bf190b0
+    tag: bk-9900ff4
   runner:
     tag: bk-1383a26
   runnerDev:
