@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ud-b1e4039
+    tag: ud-ce01e44
   web:
     tag: ud-b1e4039
   runner:
@@ -14,7 +14,7 @@ images:
     tag: ud-b1e4039
 mcpBroker:
   image:
-    tag: ud-b1e4039
+    tag: ud-ce01e44
 uiRenderer:
   image:
     tag: ud-b1e4039
