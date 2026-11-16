@@ -17,3 +17,10 @@ importer moves to the Codex wishlist; the converter is built here and reused.
 - **Full suites:** main, once after A–C, background, `| tail -40`.
 - **Reviews:** one Codex astra review of the whole diff before deploy; fixes via SendMessage to the owning unit.
 - **Gate:** 53% → ~62% weekly. Stop and write a handoff if Claude weekly passes 70%.
+
+## Result (2026-11-16)
+- Deployed helm rev 145 (backend ud-4bf8159; broker, web, facade, renderer ud-25dc85e).
+- Live: inspect, comments, diff, label, export (artifact + #design card), SSE `design` events all verified on pai.
+- desk-buddy v3 "figma import": 0 approximated, 0 unmapped; mean abs diff vs Figma 16/255 (remaining: one later hand-edit to the Play card, kerning).
+- Codex astra review: 8 findings, all fixed; commit security hook: 4 findings, all fixed.
+- Figma MCP on Starter ran out after 3 calls; the dump was rebuilt by replaying the original build scripts.
