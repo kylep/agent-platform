@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type AgentSummary } from "../api";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
+import { FormDialog } from "@ap/ui/dialog";
 import { Select } from "@ap/ui/field";
 import { useTitle } from "../lib/title";
 
@@ -23,6 +24,8 @@ type Turn = { id: number; seq: number; agent: string; area_key: string | null; r
   started_at: string | null; finished_at: string | null; reason: string | null };
 
 const when = (s: string | null) => s ? new Date(s).toLocaleString() : "-";
+const finishing = (c: Chat) => c.state === "running" && !!c.end_reason;
+const stateLabel = (c: Chat) => finishing(c) ? "finishing" : c.state;
 const active = (c: Chat) => c.state === "running" || c.state === "stopping";
 function mins(ms: number) { const s = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; }
@@ -41,6 +44,7 @@ export default function RapidChats() {
   const [open, setOpen] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
+  const [launchOpen, setLaunchOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
@@ -99,7 +103,7 @@ export default function RapidChats() {
         sink: { kind: "wiki", slug: slug.trim(), mode }, duration_minutes: duration,
         max_turns: maxTurns, turn_timeout_seconds: turnTimeout,
         limits: { claude_5h_max_pct: lim5h, claude_7d_max_pct: lim7d, codex_7d_max_pct: limCodex } }) });
-      setSelId(c.id); load();
+      setSelId(c.id); setLaunchOpen(false); load();
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   }
@@ -119,12 +123,15 @@ export default function RapidChats() {
   }
 
   return <div className="page page-wide">
-    <h1>Rapid Chats</h1>
+    <div className="row-actions" style={{ justifyContent: "space-between" }}>
+      <h1>Rapid Chats</h1>
+      <Button onClick={() => { setError(null); setLaunchOpen(true); }}>New rapid-chat</Button></div>
     <p className="muted">Time-boxed multi-agent working sessions that write a spec to the wiki.</p>
-    {error && <div className="error" role="alert">{error}</div>}
+    {error && !launchOpen && <div className="error" role="alert">{error}</div>}
 
-    <section className="task-panel task-form" style={{ maxWidth: 760 }}>
-      <h2>Launch a Rapid Chat</h2>
+    <FormDialog open={launchOpen} title="New rapid-chat" submitLabel={busy ? "Launching..." : "Launch"}
+      disabled={busy || !valid} onSubmit={launch} onCancel={() => setLaunchOpen(false)}>
+      <div className="task-form" style={{ maxHeight: "60vh", overflowY: "auto" }}>
       <label>Title</label><input value={title} maxLength={128} onChange={(e) => setTitle(e.target.value)} />
       <label>Goal</label><textarea rows={5} value={goal} onChange={(e) => setGoal(e.target.value)} />
       <label>Participants (1-5)</label>
@@ -148,14 +155,15 @@ export default function RapidChats() {
       <label>Claude 5h max %</label><input type="number" value={lim5h} onChange={(e) => setLim5h(Number(e.target.value))} />
       <label>Claude 7d max %</label><input type="number" value={lim7d} onChange={(e) => setLim7d(Number(e.target.value))} />
       <label>Codex 7d max %</label><input type="number" value={limCodex} onChange={(e) => setLimCodex(Number(e.target.value))} />
-      <Button disabled={busy || !valid} onClick={launch}>Launch</Button>
-    </section>
+      </div>
+      {error && <div className="error" role="alert">{error}</div>}
+    </FormDialog>
 
     <h2 style={{ marginTop: 24 }}>Chats</h2>
     {chats.length === 0 ? <p className="muted">No Rapid Chats yet.</p> :
       <div className="task-grid">{chats.map((c) => <button type="button" className="task-card" key={c.id} onClick={() => setSelId(c.id)}>
         <span className="task-card-top"><strong>{c.title}</strong>
-          <Chip variant={c.end_reason === "error" ? "danger" : "ok"}>{c.state}</Chip></span>
+          <Chip variant={c.end_reason === "error" ? "danger" : "ok"}>{stateLabel(c)}</Chip></span>
         <span>{c.participants.join(", ")}</span>
         <span className="muted">{when(c.started_at)}{c.end_reason ? ` · ${c.end_reason}` : ""}</span>
       </button>)}</div>}
@@ -163,8 +171,8 @@ export default function RapidChats() {
     {sel && <section className="panel task-detail">
       <div className="row-actions" style={{ justifyContent: "space-between" }}>
         <h2>{sel.title}</h2><Button variant="secondary" onClick={() => setSelId(null)}>Close</Button></div>
-      <p><Chip variant={sel.end_reason === "error" ? "danger" : "ok"}>{sel.state}</Chip>{" "}
-        {sel.end_reason && <span className="muted">{sel.end_reason}</span>}
+      <p><Chip variant={sel.end_reason === "error" ? "danger" : "ok"}>{finishing(sel) ? `finishing · ${sel.end_reason}` : sel.state}</Chip>{" "}
+        {sel.end_reason && !finishing(sel) && <span className="muted">{sel.end_reason}</span>}
         {sel.last_error && <span className="error"> {sel.last_error}</span>}</p>
       {timing(sel)}
       {sel.last_quota && <p className="muted">Last quota reading: {Object.entries(sel.last_quota).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`).join(" · ")}</p>}
