@@ -1852,3 +1852,25 @@ a.relay-action { color: var(--ds-link); }
   .layout > .nav { position: sticky; top: 0; align-self: flex-start; height: 100vh; min-height: 0; overflow-y: auto; }
   .layout > .nav .nav-foot { position: sticky; bottom: 0; background: var(--ds-surface); }
 }
+
+/* UI Designer, read-only (docs/design/46 §7) */
+.ud-cols { display: grid; grid-template-columns: 220px minmax(0, 1fr) 200px; gap: 12px; align-items: start; }
+@media (max-width: 800px) { .ud-cols { grid-template-columns: 1fr; } }
+.ud-outline, .ud-inspector { border: 1px solid var(--ds-border); border-radius: var(--radius-md);
+  background: var(--ds-surface); padding: 8px; max-height: 70vh; overflow: auto; }
+.ud-tree { list-style: none; margin: 0; padding: 0; }
+.ud-node { display: block; width: 100%; text-align: left; background: none; border: 0;
+  color: var(--ds-text); padding: 3px 6px; cursor: pointer; border-radius: var(--radius-md); font: inherit; }
+.ud-node:hover { background: var(--ds-raised); }
+.ud-node[data-selected] { background: color-mix(in srgb, var(--ds-accent) 18%, transparent); }
+.ud-page { font-weight: 600; }
+.ud-inspector dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; }
+.ud-inspector dd { margin: 0; font-family: var(--font-mono); word-break: break-all; }
+.ud-viewport { position: relative; height: 70vh; overflow: hidden; touch-action: none; cursor: grab;
+  border: 1px solid var(--ds-border); border-radius: var(--radius-md); background: var(--ds-canvas); }
+.ud-stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.ud-svg, .ud-overlay { position: absolute; top: 0; left: 0; display: block; user-select: none; }
+.ud-hit { fill: transparent; stroke: transparent; pointer-events: all; }
+.ud-hit:hover { stroke: var(--ds-accent); stroke-opacity: .5; }
+.ud-hit[data-selected] { stroke: var(--ds-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.ud-zoom { position: absolute; top: 8px; right: 8px; z-index: 1; display: flex; gap: 4px; }

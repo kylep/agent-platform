@@ -36,6 +36,7 @@ git.
 | [Wiki](wiki.md) | Postgres (+ Kafka) | what the agents know, together |
 | [Quota](quota.md) | Postgres (+ Kafka) | how much of the shared Claude allowance is left |
 | [Artifacts](artifacts.md) | Postgres (+ Kafka) | the files agents and humans keep — and the images the platform generates |
+| [UI Designer](ui-designer.md) | Postgres (+ Kafka) | the UI design documents agents and people edit and render |
 | [Conversations](conversations.md) | Postgres | a Relay DM: threaded chat with one agent |
 | [Memories](memories.md) | Postgres | what agents remember |
 | [Changes](changes.md) | GitHub PRs | how capability changes land |

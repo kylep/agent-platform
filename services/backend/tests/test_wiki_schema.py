@@ -332,11 +332,11 @@ async def test_the_librarian_seeds_are_idempotent(engine, sfx):
                               ScheduledJob.__table__)]
     # The librarian, both artists (docs/design/23), the engineer
     # (docs/design/24), the QA (docs/design/25) and the three registry-only
-    # system workers (docs/design/34). One version each, except the two legacy
+    # system workers (docs/design/34), and the quota-probe worker (design 45). One version each, except the two legacy
     # seeds the registry adopts (wiki, codex-artist): seed,
     # before-adoption snapshot, reconcile. standup + gardener + eng-queue +
     # qa-nightly.
-    assert await counts() == [8, 12, 4]
+    assert await counts() == [9, 13, 4]
 
 
 async def test_a_gardener_job_that_already_exists_is_adopted(engine, sfx):
