@@ -145,8 +145,11 @@ async def main() -> None:
     merged_tickets = MergedTicketCloser(_gh_client, session_factory, producer,
                                         base=settings.default_branch)
 
+    from agentplatform.ui_designer.figma_import_job import FigmaImportWorker
+    figma_imports = FigmaImportWorker(session_factory, settings, producer)
+
     try:
-        await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
+        await asyncio.gather(figma_imports.run_forever(), dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), report_pruner.run_forever(),
                              artifact_pruner.run_forever(),

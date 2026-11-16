@@ -194,7 +194,7 @@ def test_admin_flag_restores_gated(spec, admin_tools):
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 235, \
+    assert len(admin_tools) == len(expected) == 237, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -705,7 +705,8 @@ def test_ui_designer_text_routes_are_tools_and_pictures_are_not(spec, tools, adm
               ("GET", f"{P}/docs/{{slug}}/resolved"), ("GET", f"{P}/assets/{{sha256}}"),
               ("GET", f"{P}/events"), ("POST", f"{P}/docs/{{slug}}/place")}
     gated = {("DELETE", f"{P}/docs/{{slug}}"), ("POST", f"{P}/docs/{{slug}}/prune"),
-             ("POST", f"{P}/assets/gc")}
+             ("POST", f"{P}/assets/gc"), ("POST", f"{P}/imports"),
+             ("GET", f"{P}/imports/{{import_id}}")}
     ops = operations(spec)
     assert hidden | gated <= set(ops)
     for surface in ({(t._route.method, t._route.path) for t in tools},

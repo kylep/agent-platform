@@ -1,7 +1,8 @@
 # 46 — UI Designer
 
-Status: ready to build, revision 3 after three review passes (2026-11-16). Author: Claude (design
-partner, Kyle's session). Plan only; nothing implemented yet.
+Status: Phases 0 and 1 deployed (2026-11-16). The original design below records
+the intended contracts; implementation addenda describe subsequent decisions.
+Author: Claude (design partner, Kyle's session).
 
 ## Problem
 
@@ -1091,3 +1092,41 @@ Platform code this design builds on
 - Facade rules: `services/mcp-facade/facade.py` (`EXCLUDED_PATHS` 91–147, `GATED_ADMIN` 236, `MCP_NAMES` 302)
 - Web: `services/web/src/App.tsx`, `pages/Artifacts.tsx`, `pages/Studio.tsx`, `pages/Wiki.tsx`
 - Design-doc precedent for format and the rapid-chat fence: `docs/design/45-rapid-chat.md`
+
+## 16. P1.1 implementation addendum — resumable REST import
+
+The import is admin initiated and creates a **new** document. An existing
+slug is never overwritten. `POST /api/ui-designer/imports` accepts a file key,
+slug, optional title, page IDs and node IDs; it returns a job immediately.
+`GET /api/ui-designer/imports/{import_id}` returns progress and the fidelity
+report. Both routes are admin gated in the external facade; ordinary designer
+agents continue to work on the resulting document through their existing grant.
+
+Reuse `ui_designer_imports`, its active-slug unique index, and durable staged
+pages. The dispatcher checkpoints bounded fetch/conversion work, respects a
+persisted retry deadline, and publishes the document only after processing the
+selected pages. The final document uses the same validated store, version and
+asset-placement contracts as a normal create; repeated processing must not
+create another version or overwrite a document created by someone else.
+Failed pages and approximations remain visible in the report.
+
+The dispatcher calls an internal API bridge authenticated with its Kubernetes
+service-account identity. The bridge invokes the internal `figma_import`
+executor tool. Only that executor receives `figma-token`; trees and raster
+assets return through the bounded file sink. URLs are restricted to Figma and
+its asset hosts, redirects are checked, credentials never accompany asset
+requests, and error messages contain no token or signed asset URL. Figma 429s
+return a retry delay for the durable job instead of occupying a process while
+sleeping. Document, image, staged-data and request budgets apply before data is
+persisted or rendered.
+
+A deliberate change from §8: no backend secret-verification script reads the
+Figma token. It is checked when the executor makes a real import request. This
+keeps the credential in one execution boundary and avoids spending Figma API
+calls on a heartbeat. No new document properties or painter behavior are needed.
+
+Verification covers authentication and run fences, concurrent slug creation,
+restart/resume, rate-limit retry, partial and failed imports, unsafe asset URLs,
+image bounds, and idempotent completion. Existing render goldens must remain
+unchanged. The web flow covers permissions, submission, persisted progress,
+errors and a link to the imported document.

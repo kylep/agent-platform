@@ -87,6 +87,11 @@ from .empty import Empty
 from .endpoint_in import EndpointIn
 from .entrypoints_in import EntrypointsIn
 from .fallback_in import FallbackIn
+from .figma_import_in import FigmaImportIn
+from .figma_import_out import FigmaImportOut
+from .figma_import_out_pages import FigmaImportOutPages
+from .figma_import_out_report import FigmaImportOutReport
+from .figma_import_out_state import FigmaImportOutState
 from .generate_in import GenerateIn
 from .grant_in import GrantIn
 from .group_in import GroupIn
@@ -484,6 +489,11 @@ __all__ = (
     "EndpointIn",
     "EntrypointsIn",
     "FallbackIn",
+    "FigmaImportIn",
+    "FigmaImportOut",
+    "FigmaImportOutPages",
+    "FigmaImportOutReport",
+    "FigmaImportOutState",
     "GenerateIn",
     "GrantIn",
     "GroupIn",

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import FigmaImport from "../components/ui-designer/FigmaImport";
 import { api } from "../api";
 import { useTitle } from "../lib/title";
 import { UD, type UiDocSummary } from "../lib/uiDesigner";
@@ -8,6 +9,8 @@ import { UD, type UiDocSummary } from "../lib/uiDesigner";
 export default function UiDesigner() {
   useTitle("UI Designer");
   const [docs, setDocs] = useState<UiDocSummary[] | null>(null);
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => { api<{ role: string }>("/api/whoami").then((me) => setAdmin(me.role === "admin")).catch(() => setAdmin(false)); }, []);
   const [err, setErr] = useState("");
   useEffect(() => {
     api<{ docs: UiDocSummary[] }>(UD).then((r) => setDocs(r.docs))
@@ -16,6 +19,7 @@ export default function UiDesigner() {
   return (
     <div>
       <div className="page-header"><h1>UI Designer</h1></div>
+      {admin && <FigmaImport />}
       {err && <p role="alert" className="muted">Could not load documents: {err}</p>}
       {docs && docs.length === 0 && <p className="muted">No documents yet.</p>}
       {docs && docs.length > 0 && (

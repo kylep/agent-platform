@@ -29,12 +29,13 @@ import re
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
-from sqlalchemy import select
+from sqlalchemy import func, select, text
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from agentplatform import artifact_store
 from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_UI_DESIGNER
@@ -42,7 +43,7 @@ from agentplatform.api import agents as agents_api
 from agentplatform.api import relay as relay_api
 from agentplatform.api import schemas as S
 from agentplatform.api.artifacts import _authorize_read, _bounded_body, _may_modify
-from agentplatform.api.auth import require_browser_session
+from agentplatform.api.auth import require_admin, require_browser_session
 from agentplatform.api.relay import READ, WRITE, Caller, require_relay_access
 from agentplatform.api.tickets import _run_of
 from agentplatform.appdata import artifacts as app_artifacts
@@ -1081,3 +1082,104 @@ async def get_ui_asset(request: Request, sha256: str = Path(pattern=r"^[0-9a-f]{
                              "Content-Security-Policy": "default-src 'none'; sandbox",
                              "Content-Disposition": f'{"inline" if inline else "attachment"}; '
                                                     f'filename="{sha256[:16]}"'})
+
+# Figma import control plane. The PAT exists only in the executor's environment.
+FigmaNodeId = Annotated[str, StringConstraints(pattern=r'^[A-Za-z0-9:_-]{1,128}$')]
+
+
+class FigmaImportIn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    file_key: str = Field(pattern=r'^[A-Za-z0-9_-]{1,128}$')
+    slug: str = Field(pattern=r'^[a-z0-9][a-z0-9-]{0,63}$')
+    title: str = Field(default='', max_length=120)
+    pages: list[FigmaNodeId] = Field(default_factory=list, max_length=50)
+    node_ids: list[FigmaNodeId] = Field(default_factory=list, max_length=8)
+
+
+class FigmaImportOut(BaseModel):
+    id: str
+    slug: str
+    file_key: str
+    state: Literal['queued', 'running', 'done', 'failed']
+    pages: dict[str, Any]
+    report: dict[str, Any]
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+async def require_figma_admin(request: Request,
+                              _admin: str = Depends(require_admin)) -> Caller:
+    caller = await require_ui_designer_access('admin', write=True)(request)
+    if caller.agent is not None:
+        raise HTTPException(403, 'Figma imports require a human administrator')
+    return caller
+
+
+@router.post(PREFIX + '/imports', status_code=202, response_model=FigmaImportOut)
+async def start_figma_import(body: FigmaImportIn, request: Request,
+                            caller: Caller = Depends(require_figma_admin)):
+    from agentplatform.db import UiDesignerDocument, UiDesignerImport
+    from agentplatform.ui_designer.figma_import_job import job_view
+    async with request.app.state.session_factory() as s:
+        # Serialize admission across API replicas; no credential or network work
+        # occurs in this short transaction. SQLite tests serialize writes itself.
+        if s.bind.dialect.name == 'postgresql':
+            await s.execute(text('SELECT pg_advisory_xact_lock(460011)'))
+        active = (await s.execute(select(func.count()).select_from(UiDesignerImport).where(
+            UiDesignerImport.state.in_(('queued', 'running'))))).scalar_one()
+        if active >= 10:
+            raise HTTPException(429, 'ten imports are already active; wait for one to finish')
+        if (await s.execute(select(UiDesignerDocument.id).where(UiDesignerDocument.slug == body.slug,
+            UiDesignerDocument.deleted_at.is_(None)))).first():
+            raise HTTPException(409, 'a document with that slug already exists')
+        job, created = await store.start_import(s, slug=body.slug, file_key=body.file_key,
+                                                initiated_by=caller.participant)
+        if not created:
+            raise HTTPException(409, 'an import with that slug is active')
+        job.report = {'options':body.model_dump(exclude={'file_key','slug'})}
+        await s.commit()
+        return job_view(job)
+
+
+@router.get(PREFIX + '/imports/{import_id}', response_model=FigmaImportOut)
+async def get_figma_import(import_id: str, request: Request,
+                          caller: Caller = Depends(require_figma_admin)):
+    from agentplatform.db import UiDesignerImport
+    from agentplatform.ui_designer.figma_import_job import job_view
+    async with request.app.state.session_factory() as s:
+        job = await s.get(UiDesignerImport, import_id)
+        if job is None:
+            raise HTTPException(404, 'import not found')
+        return job_view(job)
+
+
+@router.post('/api/internal/ui-designer/figma-fetch', include_in_schema=False)
+async def internal_figma_fetch(body: dict, request: Request):
+    import json
+    import httpx
+    header = request.headers.get('authorization','')
+    token = header[7:] if header.startswith('Bearer ') else ''
+    validator = getattr(request.app.state, 'sa_validator', None)
+    identity = await validator(token) if token.count('.') == 2 and validator else None
+    settings = request.app.state.settings
+    expected = f'system:serviceaccount:{settings.k8s_namespace}:{settings.dispatcher_service_account}'
+    if identity != expected:
+        raise HTTPException(403, 'dispatcher identity required')
+    allowed = {'file_key','mode','page_ids','node_ids','image_refs','version'}
+    if set(body) - allowed or body.get('mode') not in ('file_meta','tree_page','asset_batch','references'):
+        raise HTTPException(422, 'invalid Figma fetch request')
+    try:
+        async with httpx.AsyncClient(timeout=320) as client:
+            r = await client.post(request.app.state.settings.executor_url + '/run',
+                                  json={'tool':'figma_import','args':body,'caller':{}})
+        r.raise_for_status()
+        result = r.json()
+        # Errors are fixed codes; raw stderr, upstream URLs and bodies never leave this door.
+        if not result.get('ok'):
+            return {'ok':False,'error':'UD-IMPORT-FETCH-FAILED'}
+        meta = json.loads(result.get('output') or '{}')
+        safe = {k:v for k,v in meta.items() if k in ('ok','error','retry_after_seconds','frames','name','version','pages','missing')}
+        return {'ok':True,'meta':safe,'files':result.get('files',[])}
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(502, 'Figma fetch unavailable')

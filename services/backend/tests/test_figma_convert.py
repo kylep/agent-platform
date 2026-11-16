@@ -156,3 +156,34 @@ def test_instance_root_fill_override():
     doc, _ = convert(d)
     S.validate_document(doc)
     assert _find(doc, "3:20")["overrides"]["fill"] == "#0000ff"
+
+
+def test_rest_shared_fill_and_text_styles_use_first_referenced_value():
+    dump={'name':'REST styles','styles':{
+        'S:fill':{'name':'Brand / Primary','styleType':'FILL'},
+        'S:text':{'name':'Heading','styleType':'TEXT'},
+        'S:unused':{'name':'Unused','styleType':'FILL'}},
+        'document':{'id':'page','type':'CANVAS','name':'Main','children':[
+            rect('a',fills=[solid({'r':1,'g':0,'b':0})],styles={'fill':'S:fill'}),
+            rect('b',fills=[solid({'r':0,'g':0,'b':1})],styles={'fill':'S:fill'}),
+            {'id':'t','type':'TEXT','name':'Title','width':80,'height':25,'characters':'Hi!',
+             'style':{'fontFamily':'Inter','fontSize':20,'fontWeight':600,'lineHeightPx':24,'letterSpacing':1},
+             'styles':{'text':'S:text','fill':'S:fill'},'fills':[solid({'r':1,'g':0,'b':0})],
+             'characterStyleOverrides':[0,0,1],'styleOverrideTable':{'1':{'fontWeight':700}}}]}}
+    doc,report=convert(dump)
+    a,b,text=doc['pages'][0]['children']
+    assert a['fill']==b['fill'] and a['fill'].startswith('$color.brand-primary-')
+    assert len(doc['tokens']['color'])==1
+    assert list(doc['tokens']['color'].values())==['#ff0000']
+    assert text['style'].startswith('$type.heading-')
+    style=next(iter(doc['tokens']['type'].values()))
+    assert style=={'family':'Inter','size':20,'weight':600,'line':1.2,'letter':1}
+    assert text['text'][1]['style']['weight']==700
+    assert not S.collect_issues(doc)
+
+
+def test_unsupported_shared_style_is_reported_without_changing_node_paint():
+    dump={'document':{'id':'p','type':'CANVAS','children':[
+        rect('a',styles={'effect':'shadow-style'},effects=[])]}}
+    doc,report=convert(dump)
+    assert any('shared effect style' in key for key in report['unmapped'])

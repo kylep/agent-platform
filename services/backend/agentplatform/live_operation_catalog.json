@@ -3002,6 +3002,25 @@
       "snapshot_eligible": false
     },
     {
+      "id": "tool.figma_import.call@1",
+      "source": "mcp-custom",
+      "tool": "figma_import",
+      "action": "call",
+      "category": "service_connector",
+      "effects": [
+        "unknown"
+      ],
+      "output_classification": "restricted",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "tool.image_gen.generate@1",
       "source": "mcp-custom",
       "tool": "image_gen",

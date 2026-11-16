@@ -58,3 +58,26 @@ single-node render only sees that subtree); `sides` is inside-aligned without
 dash; `plus-lighter` paints as `screen`; "plus darker" and "pass through" are
 not offered (omit `blend` for the latter). Image paints go on frames, rects and
 ellipses, and cannot be instance overrides.
+
+**Import from Figma:** an administrator opens **Import from Figma** on the
+UI Designer list and enters a Figma file URL or key. Configure the
+`figma-token` secret with a Figma personal access token carrying
+`file_content:read` first. Only the internal executor receives that token;
+it is checked on import, with no recurring probe. Choose a new document slug,
+optionally a title and page IDs. Existing documents are never overwritten.
+
+The import runs in the background and survives dispatcher restarts. The browser
+remembers its job, so leaving and returning resumes the progress display. Figma
+rate limits defer the job until its retry time. Completed pages, assets and
+reference renders are checkpointed; unavailable pages are reported explicitly.
+The final document appears once, with a card in `#design`. The report shows
+conversion counts, approximations, omitted warning counts and links to Figma
+reference artifacts. An all-failed import creates no document. Missing image
+fills are called out by the converter. Imports are limited to 10 active jobs,
+50 pages, 64 top-level reference frames per page and the normal document/storage
+budgets; unusually large pages are fetched frame by frame.
+
+Administrator API keys can use `POST /api/ui-designer/imports` and
+`GET /api/ui-designer/imports/{import_id}`. The corresponding facade tools are
+in its optional admin menu. Designer agents edit completed documents through
+their existing grant; they cannot initiate imports or read the credential.

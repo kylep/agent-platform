@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     spiffe_workload_socket: str = "unix:///spiffe-workload-api/spire-agent.sock"
     # The broker's ServiceAccount (release-name prefixed) — what run-pod
     # tunnels pin as the expected server identity.
+    dispatcher_token_file: str = "/var/run/ap-identity/token"
+    dispatcher_service_account: str = "ap-dispatcher"
     broker_service_account: str = "ap-mcp-broker"
     # Read-only connector identity. The Discord bridge presents a projected,
     # audience-bound ServiceAccount token to fetch its endpoint bindings; it

@@ -2565,7 +2565,8 @@ Other actions: inspect {node, mode?} (resolved box, colours, tokens, component o
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
   {op: diff, from_version, to_version} (the writes between two versions); export {node?, scale?, name?}
   (full-size PNG artifact + a card in #design). Check comments before editing and resolve
-  what you fix.
+  what you fix. Figma REST imports are administrator jobs in the web UI; use list/outline
+  to find and edit the completed document. Import never overwrites an existing slug.
 Example edit ops (new page: a frame, a text and a row of two cards):
   [{"op":"set_doc","doc":{"schema":1,"title":"Demo","tokens":{"color":{"bg":"#0f172a","card":"#1e293b","ink":"#f8fafc"}},"pages":[{"id":"home","title":"Home","children":[{"id":"root","type":"frame","w":800,"h":400,"fill":"$color.bg","layout":{"dir":"column","gap":16,"pad":24},"children":[{"id":"hello","type":"text","text":"Hello","style":{"size":28,"weight":700},"color":"$color.ink"},{"id":"cards","type":"frame","w":"fill","h":"hug","layout":{"dir":"row","gap":16},"children":[{"id":"card-1","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12},{"id":"card-2","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12}]}]}]}]}}]"""
     if action not in UI_DESIGNER_ACTIONS:

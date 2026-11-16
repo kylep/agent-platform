@@ -122,8 +122,10 @@ async def usage(s) -> dict:
     versions, docs, assets = (await total(UiDesignerVersion.bytes), await total(UiDesignerDocument.bytes),
                               await total(UiDesignerAsset.bytes))
     comments = await total(func.length(UiDesignerComment.body))
+    staging = sum(len(_canon(v)) for v in (await s.execute(select(UiDesignerImport.staged).where(
+        UiDesignerImport.state.in_(("queued", "running"))))).scalars())
     return {"versions": versions, "documents": docs, "assets": assets, "comments": comments,
-            "total": versions + docs + assets + comments}
+            "total": versions + docs + assets + comments + staging}
 
 
 async def _doc_version_bytes(s, document_id: str) -> int:
@@ -219,7 +221,9 @@ async def get_receipt(s, scope: str, request_id: str) -> dict | None:
 async def create_document(s, *, slug: str, title: str = "", owner: str, author: str | None = None,
                           run_id: str | None = None, doc: dict | None = None, description: str = "",
                           reason: str = "", caps: Caps = Caps(), request_id: str | None = None,
-                          scope: str | None = None, now: datetime | None = None) -> dict:
+                          scope: str | None = None, now: datetime | None = None,
+                          imported_assets: set[str] | None = None,
+                          import_id: str | None = None) -> dict:
     now = now or utcnow()
     author = author or owner
     scope = _scope(scope, run_id, request_id)
@@ -234,7 +238,13 @@ async def create_document(s, *, slug: str, title: str = "", owner: str, author: 
     if len(title) > 120:
         raise invalid([issue("UD-LIMIT", "$.title", "title is at most 120 characters", title)])
     body = normalize_document(doc) if doc is not None else new_document(title)
-    validate_document(body, known_assets=set())
+    validate_document(body, known_assets=imported_assets or set())
+    if imported_assets:
+        total = (await s.execute(select(func.coalesce(func.sum(UiDesignerAsset.bytes), 0)).where(
+            UiDesignerAsset.sha256.in_(imported_assets)))).scalar_one()
+        if total > MAX_ASSET_BYTES_PER_VERSION:
+            raise invalid([issue("UD-LIMIT", "$.assets", "imported assets exceed the per-version limit",
+                                 total)])
     size = stored_size(body, description)
     await _check_caps(s, caps, size * 2, None, "create")  # the document row and version 1
     row = UiDesignerDocument(slug=slug, title=title or str(body.get("title") or "")[:120],
@@ -248,6 +258,12 @@ async def create_document(s, *, slug: str, title: str = "", owner: str, author: 
             await s.flush()
     except IntegrityError as exc:
         raise UiDesignerError(UD_SLUG_TAKEN, f"a document called {slug!r} already exists") from exc
+    for sha in imported_assets or set():
+        if await s.get(UiDesignerAsset, sha) is None:
+            raise UiDesignerError("UD-ASSET-UNKNOWN", "import asset disappeared")
+        s.add(UiDesignerDocumentAsset(document_id=row.id, sha256=sha, placed_by=author,
+                                      placed_from=f"import:{import_id}" if import_id else "figma-import",
+                                      placed_at=now))
     chunk = {"version": 1, "ops": [], "reason": reason or "create", "at": _iso(now)}
     s.add(UiDesignerVersion(document_id=row.id, version=1, first_version=1, doc=body, chunks=[chunk],
                             author=author, run_id=run_id, bytes=stored_size(body, [chunk]),

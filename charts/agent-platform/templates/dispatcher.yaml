@@ -38,12 +38,22 @@ spec:
               value: {{ required "env.AP_INTERNAL_SECRET is required when an OAuth/quota broker is enabled (e.g. --set env.AP_INTERNAL_SECRET=...)" .Values.env.AP_INTERNAL_SECRET | quote }}
             {{- end }}
           volumeMounts:
+            - name: api-identity
+              mountPath: /var/run/ap-identity
+              readOnly: true
             - name: agent-definitions
               mountPath: /agents
               readOnly: true
           resources:
             {{- toYaml .Values.resources.dispatcher | nindent 12 }}
       volumes:
+        - name: api-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: agent-platform
+                  expirationSeconds: 3600
         - name: agent-definitions
           persistentVolumeClaim:
             claimName: {{ .Values.env.AP_AGENTS_VOLUME_CLAIM }}

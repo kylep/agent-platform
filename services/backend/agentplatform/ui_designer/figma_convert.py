@@ -18,6 +18,7 @@ used and the loss is reported.
 from __future__ import annotations
 
 import math
+import hashlib
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -106,6 +107,8 @@ class _Conv:
         self.comp_nodes: dict[str, dict] = {}   # figma component id -> figma node
         self.rest_groups = bool(dump.get("restGroupTransforms"))
         self.tokens: dict[str, str] = {}
+        self.type_tokens: dict[str, dict] = {}
+        self.style_names: dict[tuple[str, str], str] = {}
         self.n_shadows = 0
         self.n_blurs = 0
 
@@ -130,6 +133,15 @@ class _Conv:
     def newid(self, title: str, kind: str) -> str:
         return S.generate_id(self.taken, title, kind)
 
+    def style_name(self, style_id: str, group: str) -> str:
+        key = (group, style_id)
+        if key not in self.style_names:
+            metadata = self.dump.get("styles", {}).get(style_id, {})
+            name = S.slugify(metadata.get("name") or style_id, group)[:32]
+            # Stable disambiguation: two shared styles may have the same display name.
+            self.style_names[key] = name + "-" + hashlib.sha256(style_id.encode()).hexdigest()[:8]
+        return self.style_names[key]
+
     # --- paints ---------------------------------------------------------
     def _grad_angle(self, p: dict, w: float, h: float) -> float:
         m = _inv(_mat(p.get("gradientTransform")))
@@ -153,6 +165,12 @@ class _Conv:
         t = p["type"]
         op = p.get("opacity", 1.0)
         if t == "SOLID":
+            style_id = (n.get("styles") or {}).get("fill")
+            visible = [paint for paint in n.get("fills", []) if paint.get("visible", True)]
+            if style_id and len(visible) == 1:
+                token = self.style_name(style_id, "color")
+                self.tokens.setdefault(token, _hex(p["color"], op))
+                return f"$color.{token}"
             return self._solid(p, op)
         if t.startswith("GRADIENT_"):
             stops = p.get("gradientStops", [])
@@ -171,6 +189,9 @@ class _Conv:
                 g["angle"] = self._grad_angle(p, w, h)
             return g
         if t == "IMAGE":
+            sha = self.dump.get("image_assets", {}).get(p.get("imageRef"))
+            if sha:
+                return {"image": sha, "fit": "contain" if p.get("scaleMode") == "FIT" else "cover"}
             self.unmapped(n, "image fill (no asset fetched)")
             return None
         self.unmapped(n, f"paint {t}")
@@ -318,6 +339,13 @@ class _Conv:
         out["h"] = "fill" if sv == "FILL" else "hug" if sv == "HUG" else _num(h)
 
     def _common(self, n: dict, out: dict) -> None:
+        for kind in n.get("styles", {}):
+            if kind == "text" and n.get("type") == "TEXT":
+                continue
+            fills = [p for p in n.get("fills", []) if p.get("visible", True)]
+            if kind == "fill" and len(fills) == 1 and fills[0].get("type") == "SOLID":
+                continue
+            self.unmapped(n, f"shared {kind} style kept as node values (no compatible token)")
         if n.get("visible") is False:
             out["visible"] = False
         if n.get("opacity") not in (None, 1):
@@ -497,6 +525,25 @@ class _Conv:
         elif auto == "HEIGHT":
             out["h"] = "hug"
         segs = n.get("segments") or []
+        if not segs and n.get("style"):
+            # REST uses a base TypeStyle plus per-character override indices.
+            chars = n.get("characters", "")
+            indices = n.get("characterStyleOverrides") or []
+            table = n.get("styleOverrideTable") or {}
+            start = 0
+            while start < len(chars):
+                override = indices[start] if start < len(indices) else 0
+                end = start + 1
+                while end < len(chars) and (indices[end] if end < len(indices) else 0) == override:
+                    end += 1
+                style = {**n["style"], **(table.get(str(override), {}) if override else {})}
+                style.setdefault("fills", n.get("fills", []))
+                if "lineHeightPx" in style:
+                    style["lineHeight"] = {"unit":"PIXELS", "value":style["lineHeightPx"]}
+                if isinstance(style.get("letterSpacing"), (int, float)):
+                    style["letterSpacing"] = {"unit":"PIXELS", "value":style["letterSpacing"]}
+                segs.append({**style, "start":start, "end":end})
+                start = end
         chars = n.get("characters", "")
         runs = []
         for s in segs:
@@ -505,6 +552,11 @@ class _Conv:
             runs = [(chars, {"family": FALLBACK_FONT, "size": 14}, None)]
         base = max(runs, key=lambda r: len(r[0]))
         out["style"] = base[1]
+        style_id = (n.get("styles") or {}).get("text")
+        if style_id:
+            token = self.style_name(style_id, "type")
+            self.type_tokens.setdefault(token, base[1])
+            out["style"] = f"$type.{token}"
         if base[2]:
             out["color"] = base[2]
         if len(runs) == 1:
@@ -557,7 +609,7 @@ class _Conv:
             return None
         p = fills[-1]
         if p["type"] == "SOLID":
-            return self._solid(p, p.get("opacity", 1.0))
+            return self._paint(n, p, 1, 1)
         self.approx(n, "non-solid text fill")
         return None
 
@@ -653,8 +705,12 @@ def convert(dump: dict, *, ext: dict | None = None) -> tuple[dict, dict]:
         if t in comps:
             continue
         children.extend(c.node(t, False))
-    if c.tokens:
-        doc["tokens"] = {"color": dict(sorted(c.tokens.items()))}
+    if c.tokens or c.type_tokens:
+        doc["tokens"] = {}
+        if c.tokens:
+            doc["tokens"]["color"] = dict(sorted(c.tokens.items()))
+        if c.type_tokens:
+            doc["tokens"]["type"] = dict(sorted(c.type_tokens.items()))
     doc["pages"].append({"id": c.newid(page.get("name", "page"), "page"),
                          "title": page.get("name", "Page")[:200], "children": children})
     # instances were converted after components so overrides are diffed against ids

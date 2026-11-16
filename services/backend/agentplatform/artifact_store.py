@@ -197,7 +197,7 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
                  source: str = "upload", meta=None, tags=None, run_id: str | None = None,
                  producer=None, settings=None, allow_generated: bool = False,
                  max_bytes: int | None = None, count_total: bool = True,
-                 before_commit=None, event_extra: dict | None = None) -> Artifact:
+                 before_commit=None, event_extra: dict | None = None, commit: bool = True) -> Artifact:
     """Store bytes as a new artifact and tell the topic. `owner` is a
     participant string the CALLER resolved from a token — nothing here checks
     it, because nothing here can. `allow_generated` is the generate route's
@@ -246,6 +246,8 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
     session.add(ArtifactBlob(artifact_id=row.id, data=data))
     if before_commit is not None:
         await before_commit(session, row)
+    if not commit:
+        return row
     await session.commit()
     await publish_artifact_event(producer, event="created", artifact=artifact_view(row),
                                  agent=_agent_of(owner), extra=event_extra)

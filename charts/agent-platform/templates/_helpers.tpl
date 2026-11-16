@@ -117,6 +117,8 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
 # executor's, for tool-call credentials (docs/design/39).
 - name: AP_BROKER_SERVICE_ACCOUNT
   value: "{{ .Release.Name }}-mcp-broker"
+- name: AP_DISPATCHER_SERVICE_ACCOUNT
+  value: "{{ .Release.Name }}-dispatcher"
 - name: AP_TOOL_EXECUTOR_SERVICE_ACCOUNT
   value: "{{ .Release.Name }}-tool-executor"
 - name: AP_AGENTS_VOLUME_CLAIM

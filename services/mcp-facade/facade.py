@@ -28,15 +28,15 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   and archiving rooms), a system row into a room one is not in, and
   archiving a wiki page, and the Task schedule grants (which agent may
   schedule which), a room's watcher list and watch-turn log, and the UI Designer's
-  delete, prune and asset GC. Offered
-  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 56 of
+  delete, prune, asset GC and Figma imports. Offered
+  ONLY when `AP_MCP_ADMIN_TOOLS` is truthy (`admin_tools_enabled()`). 58 of
   them. The
   role ladder authorizes every call regardless — the flag controls the MENU,
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 21 curated-out, plus 103 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 359 graded operations in all.
+  byte-serving/connector/run-only operations below — 361 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -309,6 +309,8 @@ GATED_ADMIN = (
     (("DELETE",), r"^/api/ui-designer/docs/\{slug\}$"),
     (("POST",),   r"^/api/ui-designer/docs/\{slug\}/prune$"),
     (("POST",),   r"^/api/ui-designer/assets/gc$"),
+    (("POST",),   r"^/api/ui-designer/imports$"),
+    (("GET",),    r"^/api/ui-designer/imports/\{import_id\}$"),
     (("GET",),    r"^/api/relay/channels/\{channel_id\}/watch-turns$"),
 )
 
