@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -208,7 +209,8 @@ def _check_card_budget(request: Request, caller: Caller) -> None:
 def _card_text(text: str, limit: int) -> str:
     """Somebody's words inside a system-voiced `#design` card: one line, and no
     chip or mention syntax that would render as the platform's own."""
-    return one_line(text, limit).replace("[[", "[\u200b[").replace("@", "@\u200b")
+    out = re.sub(r"\[(?=\[)", "[\u200b", one_line(text, limit))
+    return re.sub(r"\](?=\])", "]\u200b", out).replace("@", "@\u200b")
 
 
 def _check_pixel_budget(request: Request, caller: Caller) -> None:

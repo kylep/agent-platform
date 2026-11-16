@@ -610,9 +610,9 @@ async def test_stream_closes_when_access_is_lost(sf, seed_agent, agent_store, ad
 
 async def test_card_text_cannot_forge_chips_or_mentions(sf, admin_client, producer):
     await mk(admin_client)
-    await admin_client.post(f"{P}/docs/{SLUG}/label", json={"label": "[[artifact:x]] @kai\nhi"})
+    await admin_client.post(f"{P}/docs/{SLUG}/label", json={"label": "[[[artifact:x]]] @kai\nhi"})
     body = (await _design_cards(sf))[0].body
-    assert "[[" not in body and "@kai" not in body and "\n" not in body
+    assert "[[" not in body and "]]" not in body and "@kai" not in body and "\n" not in body
 
 
 async def test_agents_resolve_only_their_threads_and_are_budgeted(sf, seed_agent, agent_store,
