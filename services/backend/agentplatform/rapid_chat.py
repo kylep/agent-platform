@@ -478,6 +478,7 @@ class Gate:
     end_reason: str | None
     blocked: set
     snapshot: dict
+    stale: set = field(default_factory=set)     # blocked because the reading is old, not null
 
 
 def _fresh(snap: dict | None, provider: str) -> bool:
@@ -487,23 +488,27 @@ def _fresh(snap: dict | None, provider: str) -> bool:
     return age is None or age <= MAX_SNAPSHOT_AGE[provider]
 
 
-def gate(chat, now: datetime, snapshots: dict, providers) -> Gate:
+def gate(chat, now: datetime, snapshots: dict, providers, hold=()) -> Gate:
     """End conditions (§4) from the row and serialized quota snapshots. Pure.
 
     Over a limit ends (at it passes, on the rounded percent, as `api/quota.gate`
     does). A provider with no fresh reading is `blocked` — its participants skip
     the pass — and ends the chat as `quota_unreadable` once blocked 10 minutes.
     Only providers a participant uses are consulted; Codex 5h is never a
-    condition."""
+    condition. `stale` is the subset of `blocked` whose reading is merely old:
+    the caller may admit a scout turn for Claude, whose own traffic refreshes the
+    proxy's reading."""
     limits = {**DEFAULT_LIMITS, **(chat.limits or {})}
     now = as_utc(now)
     record = {p: snapshots.get(p) for p in ("claude", "codex")}
     blocked: set = set()
+    stale: set = set()
     over = None
     for provider in sorted(providers):
         snap = snapshots.get(provider)
         if not _fresh(snap, provider):
             blocked.add(provider)
+            stale.add(provider)
             continue
         windows = (("claude_5h", "five_hour", limits["claude_5h_max_pct"]),
                    ("claude_7d", "seven_day", limits["claude_7d_max_pct"])) \
@@ -515,7 +520,9 @@ def gate(chat, now: datetime, snapshots: dict, providers) -> Gate:
             elif _percent(util) > limit and over is None:
                 over = f"quota:{label}"
     prev = ((chat.last_quota or {}).get("blocked_since")) or {}
-    since = {p: prev.get(p) or now.isoformat() for p in blocked}
+    # `hold`: a scout turn is running for that provider, so the unreadable timer
+    # starts only once the scouts have finished.
+    since = {p: now.isoformat() if p in hold else prev.get(p) or now.isoformat() for p in blocked}
     snapshot = {**record, "blocked_since": since}
     reason = None
     started = as_utc(chat.started_at)
@@ -530,7 +537,7 @@ def gate(chat, now: datetime, snapshots: dict, providers) -> Gate:
     elif any(now - as_utc(datetime.fromisoformat(t)) >= timedelta(seconds=UNREADABLE_AFTER)
              for t in since.values()):
         reason = "quota_unreadable"
-    return Gate(reason, blocked, snapshot)
+    return Gate(reason, blocked, snapshot, stale)
 
 
 # --- body and prompt ---------------------------------------------------------
@@ -1201,8 +1208,13 @@ async def advance(sf, producer, settings, *, quota_state=None, now: datetime | N
         benched = await bench(s, chat, turns, now)
         await s.commit()
         snaps = await _snapshots(sf, quota_state, providers, now, refresh=True)
-        g = gate(chat, now, snaps, providers)
-        chat.last_quota = {**(chat.last_quota or {}), **g.snapshot}
+        scouting = {"claude"} if any(t.state == "running" and (t.reason or "").startswith("scout")
+                                     for t in turns) else set()
+        g = gate(chat, now, snaps, providers, hold=scouting)
+        old_q = chat.last_quota or {}
+        # Scouts are per stale spell: a fresh reading resets who has scouted.
+        scouts = list(old_q.get("scouts", [])) if "claude" in g.blocked else []
+        chat.last_quota = {**old_q, **g.snapshot, "scouts": scouts}
         chat.last_quota.setdefault("start", _quota_brief(snaps))
         reason = g.end_reason or ("all_benched" if all(a in benched for a in chat.participants) else None)
         if reason:
@@ -1222,14 +1234,25 @@ async def advance(sf, producer, settings, *, quota_state=None, now: datetime | N
             if row is None or not row.enabled:
                 await _note_skip(s, chat, turns, agent, "skipped_disabled", "agent disabled or missing", now)
                 continue
-            fresh = gate(chat, now, await _read_snapshots(sf, providers, now), providers)
+            fresh = gate(chat, now, await _read_snapshots(sf, providers, now), providers,
+                         hold=scouting)
             if fresh.end_reason:
                 await s.commit()
                 return await _begin_finish(sf, s, producer, settings, chat, fresh.end_reason, now, rows)
+            scout = False
             if aprov[agent] & fresh.blocked:
-                await _note_skip(s, chat, turns, agent, "skipped_quota",
-                                 f"no fresh {'/'.join(sorted(aprov[agent] & fresh.blocked))} quota reading", now)
-                continue
+                here = aprov[agent] & fresh.blocked
+                scouts = list(chat.last_quota.get("scouts", []))
+                # A stale Claude reading with a failed refresh is a deadlock
+                # (nothing refreshes it without traffic): one scout turn per
+                # Claude participant breaks it, and its own traffic refreshes
+                # the proxy's reading. Anything else stays blocked.
+                if here == {"claude"} and "claude" in fresh.stale and agent not in scouts:
+                    scout = True
+                else:
+                    await _note_skip(s, chat, turns, agent, "skipped_quota",
+                                     f"no fresh {'/'.join(sorted(here))} quota reading", now)
+                    continue
             last = next((t for t in reversed(turns) if t.agent == agent and t.state == "done"
                          and t.outcome in FAILURE_OUTCOMES), None)
             mine = [t for t in turns if t.agent == agent and t.outcome
@@ -1248,6 +1271,11 @@ async def advance(sf, producer, settings, *, quota_state=None, now: datetime | N
             turn = RapidChatTurn(chat_id=chat.id, seq=await _next_seq(s, chat.id), agent=agent, area_key=job.area_key,
                                  pass_no=job.pass_no, role=job.role, run_id=run_id, state="running",
                                  prompt=build_prompt(chat, job, chat.areas, recent), started_at=now)
+            if scout:
+                turn.reason = "scout: stale claude quota reading"
+                chat.last_quota = {**chat.last_quota,
+                                   "scouts": [*chat.last_quota.get("scouts", []), agent]}
+                scouting = {"claude"}
             s.add(turn)
             turns.append(turn)
             chat.turns_total += 1

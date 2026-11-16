@@ -324,11 +324,18 @@ async def test_refresh_observes_headers_on_an_error_response(admin_client, sf):
         assert (await quota_store.latest(s)).raw["http_status"] == "429"
 
 
-async def test_refresh_is_503_when_neither_step_carries_headers(admin_client):
+async def test_no_headers_falls_back_to_a_probe_run_and_returns_a_stale_snapshot(admin_client, sf):
     calls = arm_proxy(admin_client, None)
     r = await admin_client.post("/api/quota/refresh")
-    assert (r.status_code, r.json()["detail"]) == (503, "the probe returned no usage headers")
-    assert len(calls) == 2
+    assert r.status_code == 200, r.text
+    assert (r.json()["probe"], r.json()["stale"]) == ("run_started", True)
+    assert len(calls) == 2                              # both direct steps tried first
+    from agentplatform.db import Run
+    from sqlalchemy import select
+    async with sf() as s:
+        runs = (await s.execute(select(Run).where(Run.agent == "quota-probe"))).scalars().all()
+    assert len(runs) == 1 and runs[0].prompt == "Reply with a single period."
+    assert runs[0].trigger == "quota_probe"
 
 
 async def test_refresh_is_503_without_a_proxy_configured(admin_client):

@@ -10,12 +10,14 @@ must be run under `lock(state)` by the caller; `refresh` is the entry point
 that takes the lock itself and turns a 503 into None."""
 import asyncio
 import logging
+import uuid
+from datetime import timedelta
 
 import httpx
 from fastapi import HTTPException
 
 from agentplatform import quota_store
-from agentplatform.db import utcnow
+from agentplatform.db import ACTIVE_STATES, Run, utcnow
 from agentplatform.quota import Observation, is_stale, parse_codex_usage, parse_observation
 
 log = logging.getLogger("quota")
@@ -34,6 +36,43 @@ PROBE_HEADERS = {"Authorization": "Bearer placeholder",
 # response said nothing about usage.
 PROBE_MESSAGE = [{"role": "user", "content": "."}]
 COUNT_TOKENS, MESSAGES = "/v1/messages/count_tokens", "/v1/messages"
+
+# Anthropic's 429 answers to our hand-made probe carry no usage headers, while a
+# real Claude Code run does (and the proxy records them). When the direct probe
+# yields none, a minimal REAL run of this code-owned agent refreshes the reading
+# through the ordinary runner path. At most one in flight, one per 5 minutes.
+NO_USAGE_HEADERS = "the probe returned no usage headers"
+PROBE_AGENT = "quota-probe"
+PROBE_PROMPT = "Reply with a single period."
+PROBE_RUN_MIN_INTERVAL = timedelta(minutes=5)
+
+
+async def launch_probe_run(state) -> str:
+    """Kick off the `quota-probe` run without waiting for it. Returns
+    "started", "in_flight", "throttled" or "unavailable" (agent missing or
+    disabled). Deduped on the runs table, so the API and the dispatcher share
+    one budget; the caller holds `lock(state)`."""
+    from sqlalchemy import select
+    from agentplatform.materialize import materialize_run
+    async with state.session_factory() as s:
+        last = (await s.execute(select(Run).where(Run.agent == PROBE_AGENT).order_by(
+            Run.created_at.desc()).limit(1))).scalars().first()
+    if last is not None:
+        if last.state in ACTIVE_STATES:
+            return "in_flight"
+        created = last.created_at if last.created_at.tzinfo else last.created_at.replace(
+            tzinfo=utcnow().tzinfo)
+        if utcnow() - created < PROBE_RUN_MIN_INTERVAL:
+            return "throttled"
+    try:
+        await materialize_run(state.session_factory, state.producer, {
+            "run_id": uuid.uuid4().hex, "agent": PROBE_AGENT, "prompt": PROBE_PROMPT,
+            "trigger": "quota_probe", "requested_by": "system:quota-probe", "initiated_by": "admin"})
+    except ValueError:
+        log.warning("quota-probe agent is missing or disabled; no fallback probe run")
+        return "unavailable"
+    return "started"
+
 
 def lock(state) -> asyncio.Lock:
     """The per-process probe lock. Lazily made rather than built in
@@ -62,7 +101,17 @@ async def refresh_claude(state) -> dict:
     cached = await _cache_hit(state)
     if cached is not None:
         return {**cached, "probe": None}
-    obs, step = await _probe(state)
+    try:
+        obs, step = await _probe(state)
+    except HTTPException as exc:
+        if exc.status_code != 503 or exc.detail != NO_USAGE_HEADERS:
+            raise                          # unreachable/unconfigured proxy: not this fallback
+        launched = await launch_probe_run(state)
+        async with st.session_factory() as s:
+            held = quota_store.serialize(await quota_store.latest(s), utcnow())
+        # Not waited on: the existing snapshot, marked stale; `probe` says a run
+        # is (or recently was) refreshing it.
+        return {**held, "stale": True, "probe": f"run_{launched}"}
     async with st.session_factory() as s:
         row = await quota_store.observe(s, st.producer, obs)
         return {**quota_store.serialize(row, utcnow()), "probe": step}
@@ -114,7 +163,7 @@ async def _probe(state) -> tuple[Observation, str]:
                                 http_status=resp.status_code)
         if obs is not None:
             return obs, step
-    raise HTTPException(503, "the probe returned no usage headers")
+    raise HTTPException(503, NO_USAGE_HEADERS)
 
 
 async def refresh_codex(state) -> dict:

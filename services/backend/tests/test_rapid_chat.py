@@ -902,3 +902,74 @@ def test_an_advocate_turn_records_its_pass():
                              "advocate")
     out, _ = rc.merge(areas, rc.Job("advocate", "pai", "a", 1), "pai", parsed, 4)
     assert out[0]["advocated_pass"] == 1 and out[0]["status"] == "critiqued"
+
+
+# --- stale claude reading: scouts ---------------------------------------------
+
+async def _stale_claude(sf):
+    async with sf() as s:
+        s.add(QuotaSnapshot(id=1, five_hour_utilization=0.1, seven_day_utilization=0.1,
+                            five_hour_resets_at=utcnow() + timedelta(hours=3),
+                            seven_day_resets_at=utcnow() + timedelta(hours=3),
+                            observed_at=utcnow() - timedelta(hours=1), source="proxy"))
+        await s.commit()
+
+
+async def test_a_stale_claude_reading_admits_one_scout_per_participant(sf, producer, seed_agent):
+    await _chat(sf, producer, seed_agent, areas=("a", "b", "c", "d"))
+    await _stale_claude(sf)                                     # refresh fails (autouse boom)
+    assert await rc.advance(sf, producer, SETTINGS) == "dispatched"
+    turns = [t for t in await _turns(sf) if t.run_id]
+    assert sorted(t.agent for t in turns) == sorted(PERSONAS)
+    assert all(t.reason.startswith("scout") for t in turns)
+    for _ in range(2):                                          # no more until a reading appears
+        await rc.advance(sf, producer, SETTINGS)
+    assert len([t for t in await _turns(sf) if t.run_id]) == 3
+    assert (await _row(sf)).last_quota["scouts"] == list(PERSONAS)
+    # The scouts' traffic refreshed the proxy's reading: normal gating resumes.
+    async with sf() as s:
+        row = await s.get(QuotaSnapshot, 1)
+        row.observed_at = utcnow()
+        await s.commit()
+    for t in turns:
+        await _finish_run(sf, t.run_id, OPTIONS)
+    await rc.advance(sf, producer, SETTINGS)
+    assert (await _row(sf)).last_quota["scouts"] == []
+    assert len([t for t in await _turns(sf) if t.run_id]) > 3
+
+
+async def test_a_fresh_over_limit_reading_still_ends_after_scouting(sf, producer, seed_agent):
+    await _chat(sf, producer, seed_agent)
+    await _stale_claude(sf)
+    await rc.advance(sf, producer, SETTINGS)
+    async with sf() as s:
+        row = await s.get(QuotaSnapshot, 1)
+        row.observed_at, row.five_hour_utilization = utcnow(), 0.99
+        await s.commit()
+    await rc.advance(sf, producer, SETTINGS)
+    assert (await _row(sf)).end_reason == "quota:claude_5h"
+
+
+async def test_unreadable_timer_waits_for_scouts_to_finish(sf, producer, seed_agent):
+    await _chat(sf, producer, seed_agent, participants=["pai"])
+    await _stale_claude(sf)
+    async with sf() as s:
+        (await s.get(RapidChat, "c1")).turn_timeout_seconds = 900
+        await s.commit()
+    await rc.advance(sf, producer, SETTINGS)
+    later = utcnow() + timedelta(seconds=700)
+    await rc.advance(sf, producer, SETTINGS, now=later)         # scout still running: held
+    assert (await _row(sf)).end_reason is None
+    t = [x for x in await _turns(sf) if x.run_id][0]
+    await _finish_run(sf, t.run_id, OPTIONS)
+    await rc.advance(sf, producer, SETTINGS, now=later)         # scout done: timer starts now
+    assert (await _row(sf)).end_reason is None
+    await rc.advance(sf, producer, SETTINGS, now=later + timedelta(seconds=601))
+    assert (await _row(sf)).end_reason == "quota_unreadable"
+
+
+def test_gate_reports_stale_separately_from_a_null_window():
+    got = rc.gate(chat_ns(), NOW, {"claude": snap(age=9999)}, {"claude"})
+    assert got.blocked == {"claude"} and got.stale == {"claude"}
+    nul = rc.gate(chat_ns(), NOW, {"claude": snap(None, 0.1)}, {"claude"})
+    assert nul.blocked == {"claude"} and nul.stale == set()
