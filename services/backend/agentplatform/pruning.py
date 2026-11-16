@@ -172,6 +172,62 @@ class ArtifactPruner:
             await asyncio.sleep(interval_seconds)
 
 
+class UiDesignerPruner:
+    """UI Designer retention (docs/design/46 §10): hard-delete documents that
+    have been soft-deleted `prune_days`, drop receipts older than 7 days, and
+    collect unreferenced assets. It never prunes live version history; that is
+    Kyle's `prune` button. `prune_days` <= 0 keeps tombstones forever."""
+
+    def __init__(self, session_factory, prune_days: int = 30):
+        self.sf = session_factory
+        self.prune_days = prune_days
+
+    async def prune_once(self, now=None) -> int:
+        from agentplatform.ui_designer import store
+        now = now or utcnow()
+        async with self.sf() as s:
+            docs = (await store.hard_delete_expired(s, now - timedelta(days=self.prune_days))
+                    if self.prune_days > 0 else 0)
+            receipts = await store.prune_receipts(s, now - store.RECEIPT_TTL)
+            await s.commit()
+        if docs or receipts:
+            log.info("pruned %d ui designer documents, %d receipts", docs, receipts)
+        return docs + receipts
+
+    async def run_forever(self, interval_seconds: int = 86400) -> None:
+        while True:
+            try:
+                await self.prune_once()
+            except Exception:
+                log.exception("ui designer prune failed")
+            await asyncio.sleep(interval_seconds)
+
+
+class UiDesignerAssetSweeper:
+    """The weekly asset GC (§9): an asset goes only when no placement row and
+    no retained version names it. Collects; never prunes versions."""
+
+    def __init__(self, session_factory):
+        self.sf = session_factory
+
+    async def prune_once(self, now=None) -> int:
+        from agentplatform.ui_designer import store
+        async with self.sf() as s:
+            res = await store.gc_assets(s)
+            await s.commit()
+        if res["assets_removed"]:
+            log.info("collected %d ui designer assets", res["assets_removed"])
+        return res["assets_removed"]
+
+    async def run_forever(self, interval_seconds: int = 7 * 86400) -> None:
+        while True:
+            try:
+                await self.prune_once()
+            except Exception:
+                log.exception("ui designer asset sweep failed")
+            await asyncio.sleep(interval_seconds)
+
+
 class LiveDataPruner:
     """Physically remove expired private snapshots and short-lived call data."""
 

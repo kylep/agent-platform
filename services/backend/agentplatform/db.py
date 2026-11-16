@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import Any
 from sqlalchemy import (Boolean, JSON, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String,
                         Text, UniqueConstraint, case, func, select, text)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -987,6 +988,148 @@ class ArtifactBlob(Base):
     __tablename__ = "artifact_blobs"
     artifact_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     data: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+# --- UI Designer (docs/design/46 §2.1) -------------------------------------
+# Business rules live in ui_designer/store.py; these are only the tables.
+_UD_JSON = JSON().with_variant(JSONB(), "postgresql")
+_UD_TS = DateTime(timezone=True)
+
+
+class UiDesignerDocument(Base):
+    """A design document. The slug is unique only among live rows, so a
+    deleted slug can be reused and the tombstone keeps its name. `bytes` is the
+    zlib-compressed size of `doc` (a proxy for the TOASTed JSONB on disk)."""
+    __tablename__ = "ui_designer_documents"
+    __table_args__ = (Index("uq_ui_designer_documents_slug", "slug", unique=True,
+                            postgresql_where=text("deleted_at IS NULL"),
+                            sqlite_where=text("deleted_at IS NULL")),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    slug: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(120), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    owner: Mapped[str] = mapped_column(String(160))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    doc: Mapped[dict] = mapped_column(_UD_JSON)
+    doc_sha256: Mapped[str] = mapped_column(String(64), default="")
+    node_count: Mapped[int] = mapped_column(Integer, default=0)
+    expanded_count: Mapped[int] = mapped_column(Integer, default=0)
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    # The last principal to read or write; a write by anyone else stops folding.
+    last_reader: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(_UD_TS, nullable=True)
+
+
+class UiDesignerVersion(Base):
+    """One history row, folding the writes of one run's burst. `version` is the
+    last write's number, `first_version` the first chunk's; `doc` is the snapshot
+    at `version`. `base_doc` is the snapshot before the first chunk, kept only
+    when a prune removed the row that used to supply it. `bytes` is the
+    compressed size of doc + chunks + base_doc."""
+    __tablename__ = "ui_designer_versions"
+    __table_args__ = (UniqueConstraint("document_id", "version", name="uq_ui_designer_versions_doc_version"),
+                      Index("ix_ui_designer_versions_doc_first", "document_id", "first_version"))
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    document_id: Mapped[str] = mapped_column(ForeignKey("ui_designer_documents.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    first_version: Mapped[int] = mapped_column(Integer)
+    doc: Mapped[dict] = mapped_column(_UD_JSON)
+    chunks: Mapped[list] = mapped_column(_UD_JSON, default=list)
+    base_doc: Mapped[dict | None] = mapped_column(_UD_JSON, nullable=True)
+    author: Mapped[str] = mapped_column(String(128))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    last_write_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerImport(Base):
+    """A Figma import job. The slug is the idempotency key while the job is
+    queued or running; `staged` is the durable per-page checkpoint."""
+    __tablename__ = "ui_designer_imports"
+    __table_args__ = (Index("uq_ui_designer_imports_active_slug", "slug", unique=True,
+                            postgresql_where=text("state IN ('queued', 'running')"),
+                            sqlite_where=text("state IN ('queued', 'running')")),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    slug: Mapped[str] = mapped_column(String(64))
+    file_key: Mapped[str] = mapped_column(String(128))
+    state: Mapped[str] = mapped_column(String(8), default="queued")  # queued|running|done|failed
+    pages: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    staged: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    report: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    initiated_by: Mapped[str] = mapped_column(String(160), default="")
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerAsset(Base):
+    """Image bytes a document owns, content-addressed."""
+    __tablename__ = "ui_designer_assets"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    mime: Mapped[str] = mapped_column(String(80))
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerDocumentAsset(Base):
+    """The placement record: an image node may name only an asset placed here."""
+    __tablename__ = "ui_designer_document_assets"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    placed_by: Mapped[str] = mapped_column(String(160))
+    placed_from: Mapped[str] = mapped_column(String(80), default="")
+    placed_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerComment(Base):
+    __tablename__ = "ui_designer_comments"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    node_id: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    parent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    author: Mapped[str] = mapped_column(String(160))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    body: Mapped[str] = mapped_column(Text)
+    resolved_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(_UD_TS, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerReceipt(Base):
+    """Request replay (like AppDataBuildOp). `response` is the final version
+    number, warnings and text only, never a snapshot."""
+    __tablename__ = "ui_designer_receipts"
+    __table_args__ = (UniqueConstraint("scope", "request_id", name="uq_ui_designer_receipts_request"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    scope: Mapped[str] = mapped_column(String(160))
+    request_id: Mapped[str] = mapped_column(String(128))
+    document_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    op: Mapped[str] = mapped_column(String(16))  # edit|create|restore|comment
+    args_hash: Mapped[str] = mapped_column(String(64))
+    response: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow, index=True)
+
+
+class UiDesignerRender(Base):
+    """Render cache: derivable, bounded, excluded from backups."""
+    __tablename__ = "ui_designer_renders"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    png: Mapped[bytes] = mapped_column(LargeBinary)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    last_used: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow, index=True)
 
 
 class SchemaMark(Base):

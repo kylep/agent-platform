@@ -1,0 +1,220 @@
+{
+ "mode": "light",
+ "pages": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "h": 19.6,
+         "id": "match-title",
+         "text": {
+          "align": "left",
+          "lines": [
+           {
+            "h": 19.6,
+            "runs": [
+             {
+              "color": "#e6edf3",
+              "face": "Inter:400",
+              "glyphs": [
+               [
+                292,
+                0.0
+               ],
+               [
+                507,
+                12.646
+               ],
+               [
+                889,
+                20.508
+               ],
+               [
+                586,
+                24.951
+               ],
+               [
+                670,
+                32.949
+               ],
+               [
+                1777,
+                41.228
+               ],
+               [
+                1342,
+                45.165
+               ],
+               [
+                1343,
+                50.859
+               ]
+              ],
+              "size": 14.0
+             }
+            ],
+            "text": "Match 12",
+            "w": 59.397,
+            "x": 32.0,
+            "y": 69.093
+           }
+          ],
+          "truncated": false
+         },
+         "type": "text",
+         "w": 59.397,
+         "x": 32.0,
+         "y": 54.2
+        },
+        {
+         "children": [
+          {
+           "h": 24.0,
+           "id": "red-score/label",
+           "text": {
+            "align": "left",
+            "lines": [
+             {
+              "h": 24.0,
+              "runs": [
+               {
+                "color": "#ffffff",
+                "face": "JetBrains Mono:600",
+                "glyphs": [
+                 [
+                  731,
+                  0.0
+                 ]
+                ],
+                "size": 20.0
+               }
+              ],
+              "text": "7",
+              "w": 12.0,
+              "x": 965.699,
+              "y": 71.2
+             }
+            ],
+            "truncated": false
+           },
+           "type": "text",
+           "w": 12.0,
+           "x": 965.699,
+           "y": 52.0
+          }
+         ],
+         "fill": "#5ad1ff",
+         "h": 32.0,
+         "id": "red-score",
+         "of": "score-pill",
+         "radius": 999,
+         "type": "frame",
+         "w": 36.0,
+         "x": 953.699,
+         "y": 48.0
+        },
+        {
+         "children": [
+          {
+           "h": 24.0,
+           "id": "blue-score/label",
+           "text": {
+            "align": "left",
+            "lines": [
+             {
+              "h": 24.0,
+              "runs": [
+               {
+                "color": "#ffffff",
+                "face": "JetBrains Mono:600",
+                "glyphs": [
+                 [
+                  729,
+                  0.0
+                 ]
+                ],
+                "size": 20.0
+               }
+              ],
+              "text": "5",
+              "w": 12.0,
+              "x": 1864.0,
+              "y": 71.2
+             }
+            ],
+            "truncated": false
+           },
+           "type": "text",
+           "w": 12.0,
+           "x": 1864.0,
+           "y": 52.0
+          }
+         ],
+         "fill": "#ff5a5a",
+         "h": 32.0,
+         "id": "blue-score",
+         "of": "score-pill",
+         "radius": 999,
+         "type": "frame",
+         "w": 36.0,
+         "x": 1852.0,
+         "y": 48.0
+        }
+       ],
+       "h": 64.0,
+       "id": "topbar",
+       "type": "frame",
+       "w": 1856.0,
+       "x": 32.0,
+       "y": 32.0
+      },
+      {
+       "fill": "#000000",
+       "h": 936.0,
+       "id": "stage",
+       "radius": 12,
+       "type": "frame",
+       "w": 1856.0,
+       "x": 32.0,
+       "y": 112.0
+      }
+     ],
+     "fill": "#ffffff",
+     "h": 1080.0,
+     "id": "hud",
+     "title": "HUD 1080p",
+     "type": "frame",
+     "w": 1920.0,
+     "x": 0.0,
+     "y": 0.0
+    }
+   ],
+   "id": "spectator",
+   "title": "Spectator"
+  }
+ ],
+ "schema": 1,
+ "stats": {
+  "nodes": 8
+ },
+ "title": "Spectator UI",
+ "warnings": [
+  {
+   "code": "UD-WARN-CONTRAST",
+   "id": "match-title",
+   "message": "text 'match-title' has contrast 1.18:1 against its background; WCAG large-text minimum is 3:1",
+   "mode": "light",
+   "path": "$.pages[0].children[0].children[0].children[0]"
+  },
+  {
+   "code": "UD-WARN-CONTRAST",
+   "id": "red-score/label",
+   "message": "text 'red-score/label' has contrast 1.75:1 against its background; WCAG large-text minimum is 3:1",
+   "mode": "light",
+   "path": "$.components[\"score-pill\"].children[0]"
+  }
+ ]
+}

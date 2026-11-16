@@ -13,6 +13,9 @@ dependencies = [
   # upload, and only for the four rasters; python-multipart is FastAPI's
   # multipart parser for the upload route.
   "pillow>=10.4", "python-multipart>=0.0.9",
+  # UI Designer (docs/design/46): text is shaped with uharfbuzz and drawn as
+  # fontTools glyph outlines; pinned because the golden trees depend on both.
+  "uharfbuzz==0.57.0", "fonttools==4.68.0",
 ]
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27",
@@ -37,7 +40,9 @@ dev = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27",
        # and openapi-python-client together, then regenerate. ruff is not used
        # anywhere else in the repo.
        "openapi-python-client==0.29.0", "ruff==0.15.22",
-       "attrs>=22.2", "python-dateutil>=2.8"]
+       "attrs>=22.2", "python-dateutil>=2.8",
+       # UI Designer font-parity test rasterizes glyph paths (the renderer service pins its own).
+       "resvg_py==0.5.0"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 [build-system]
@@ -46,4 +51,5 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["agentplatform*"]
 [tool.setuptools.package-data]
-agentplatform = ["live_operation_catalog.json", "system_agent_prompts.json"]
+agentplatform = ["live_operation_catalog.json", "system_agent_prompts.json",
+  "ui_designer/fonts/*.ttf", "ui_designer/fonts/OFL-*.txt"]
