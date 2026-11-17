@@ -163,7 +163,7 @@ Then propose (don't build) designs for P2 items 6–8 in the same file.
   expectation passing separately; 378 browser, 465 broker, 39 facade, 91 executor
   tests; 29 fetch tests; render/effects goldens; build, Storybook, tokens,
   SDK regeneration, Helm lint and secret checks.
-- **Quota:** 23% weekly Codex used at the component verification checkpoint. Stop opening
+- **Quota:** 26% weekly Codex used at final export acceptance (74% left). Stop opening
   work at 75%; finish and record the current chunk without consuming the final
   20% reserved for other work.
 - **P1.2 Status:** implemented inspector edits, canvas gestures and safe browser
@@ -193,7 +193,19 @@ Then propose (don't build) designs for P2 items 6–8 in the same file.
   browser 404, renderer 32, broker 466, facade 39 tests pass, plus web build,
   Storybook, tokens, SDK drift and Helm lint. Attachments/nosniff, byte/pixel
   budgets and literal HTML/CSS handling verified. PDF is rasterized; HTML
-  is static and bounded to 200 expanded nodes / 1 MiB. Deployment acceptance pending.
+  is static and bounded to 200 expanded nodes / 1 MiB. Pushed `64bb712`;
+  deployed `ud-export-20261116` in Helm revision 152. Live PNG/SVG/PDF/HTML
+  downloads verified MIME, nosniff and attachment delivery on both byte routes.
+  PDF opened/rasterized successfully; HTML displayed without external requests.
+  Smoke documents/artifacts were removed. Generic font fallbacks were then
+  verified in 22 focused export tests and live HTML; renderer
+  `ud-export-font-20261116` deployed in Helm revision 153.
+- **Final checkpoint:** P1.1–P1.5 are implemented, committed and deployed.
+  P2.6–P2.8 remain proposals only, below. All affected deployments are ready.
+  Claude’s merged backup fixes are included. The only external acceptance
+  prerequisite is configuring `figma-token` for a real Figma source import.
+  Native features use UI Designer/neutral naming; Figma names identify only
+  the real import/conversion integration. No UI Designer work remains uncommitted.
 - **Standing authorization:** Kyle explicitly authorized unattended deployments,
   frequent commits and direct pushes to main after the importer checkpoint.
   Continue chunk by chunk without asking again; quota stop remains 75%.

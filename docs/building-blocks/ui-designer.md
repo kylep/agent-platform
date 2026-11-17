@@ -165,6 +165,6 @@ retain the artifact grant and normal design/export budgets.
   describe the limitations for that result.
 
 SVG, PDF and HTML download as attachments with `nosniff`; the platform never
-injects exported HTML into its own page. The file cap is 8 MiB, with additional
-HTML node/byte limits. Smaller node selections or a lower PDF scale help when
+injects exported HTML into its own page. The file cap is 8 MiB, with an additional
+200-expanded-node / 1 MiB limit for HTML. Smaller node selections or a lower PDF scale help when
 an export exceeds its budget.

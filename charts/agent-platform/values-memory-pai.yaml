@@ -17,7 +17,7 @@ mcpBroker:
     tag: ud-export-20261116
 uiRenderer:
   image:
-    tag: ud-export-20261116
+    tag: ud-export-font-20261116
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"

@@ -160,7 +160,7 @@ def html_document(doc: dict, resolved: dict, node: str | None, assets: dict, cap
                             typography[field] = f'var(--type-{name}-{field})'
                 color = css_value(n, 'color', run.get('color', '#000000'))
                 style = (f'left:{_number(line["x"]-x)}px;top:{_number(line["y"]-y-size*.8)}px;'
-                         f'font-family:{typography["family"]};font-weight:{typography["weight"]};'
+                         f'font-family:{typography["family"]},{"monospace" if family == "JetBrains Mono" else "sans-serif"};font-weight:{typography["weight"]};'
                          f'font-size:{typography["size"]};color:{color};white-space:pre;line-height:1')
                 children += f'<span class="ud-node" style="{_escape(style)}">{_escape(line.get("text", ""))}</span>'
         return f'<div class="ud-node" data-node="{_escape(n.get("id", ""))}" style="{_escape(";".join(css))}">{children}</div>'

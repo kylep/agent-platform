@@ -141,3 +141,16 @@ def test_html_child_under_rotated_ancestor_uses_svg_fallback(tmp_path):
     out = renderer.job_export(renderer.Config(asset_dir=str(tmp_path)), req)
     assert b'<svg' in out['data']
     assert any('SVG fallback' in warning for warning in out['warnings'])
+
+
+@pytest.mark.parametrize('family,fallback', [('Inter', 'sans-serif'), ('JetBrains Mono', 'monospace')])
+@pytest.mark.parametrize('token', [False, True])
+def test_html_font_family_has_generic_fallback(tmp_path, family, fallback, token):
+    doc = copy.deepcopy(DOC)
+    style = {'family': family, 'size': 16, 'weight': 400}
+    doc['tokens']['type']['body'] = style
+    doc['pages'][0]['children'][0]['children'][0]['style'] = '$type.body' if token else style
+    req = request('html'); req['doc'] = doc
+    output = renderer.job_export(renderer.Config(asset_dir=str(tmp_path)), req)['data'].decode()
+    expected = f'font-family:var(--type-body-family),{fallback};' if token else f'font-family:&quot;{family}&quot;,{fallback};'
+    assert expected in output
