@@ -74,7 +74,9 @@ class _BoundedRoute(APIRoute):
 
         async def handler(request: Request):
             if request.method in ("POST", "PUT", "PATCH"):
-                bound = (2 << 20) if request.url.path.endswith("/fonts") else request.app.state.settings.ui_designer_max_body_bytes
+                bound = ((2 << 10) if "/presence/{client_session}" in self.path else
+                         (2 << 20) if request.url.path.endswith("/fonts") else
+                         request.app.state.settings.ui_designer_max_body_bytes)
                 try:
                     original_request = request
                     request = await _bounded_body(request, bound)
@@ -485,12 +487,23 @@ STREAM_RECHECK_SECONDS = 60.0   # module global: a test turns it down
 DESIGN_CHANNEL = "design"
 
 
+class _DesignerFeed(TopicFeed):
+    async def _on_message(self, msg, data: dict) -> None:
+        await super()._on_message(msg, data)
+        if (msg.topic == TOPIC_UI_DESIGNER_EVENTS and data.get("type") in ("access", "deleted")
+                and isinstance(data.get("document_id"), str)):
+            self.publish("presence:" + data["document_id"], "design", data)
+
+
 def ui_designer_feed(session_factory=None) -> TopicFeed:
-    """The API's live designer fan-out: `ui_designer.events` as `design` frames
-    (`{type: version|comment|deleted|exported, slug, version, author, run_id}`)."""
-    return TopicFeed(TOPIC_UI_DESIGNER_EVENTS, event="design",
-                     frame_of=lambda data: ((STREAM, data) if data.get("slug") else None),
-                     session_factory=session_factory)
+    """Presence has a per-UUID fan-out; chip subscribers never see cursors."""
+    def frame(data):
+        if data.get("type") == "presence":
+            identifier = data.get("document_id")
+            return ("presence:" + identifier, data) if isinstance(identifier, str) else None
+        return (STREAM, data) if data.get("slug") else None
+    return _DesignerFeed(TOPIC_UI_DESIGNER_EVENTS, event="design", frame_of=frame,
+                         session_factory=session_factory)
 
 
 async def _emit(request: Request, caller: Caller, type_: str, slug: str, version: int,
@@ -641,6 +654,138 @@ async def _access_view(session, request: Request, caller: Caller, row) -> dict:
     view["can_write"] = view["can_write"] and global_write
     view["can_manage_sharing"] = view["can_manage_sharing"] and global_write
     return view, who
+
+
+def _presence_credential(request: Request) -> dict | None:
+    from agentplatform.api.auth import hash_token
+    if getattr(request.state, "auth_kind", None) == "session":
+        identifier = getattr(request.state, "session_id", None)
+        return {"kind": "session", "id": hash_token(identifier)} if identifier else None
+    identifier = getattr(request.state, "api_key_id", None)
+    return {"kind": "key", "id": identifier} if identifier else None
+
+
+def _presence_view(data: dict) -> S.UiPresenceOut:
+    view = S.UiPresenceOut.model_validate(data)
+    if len(view.model_dump_json().encode()) > 32 << 10:
+        raise HTTPException(413, "presence roster exceeds 32KiB")
+    return view
+
+
+async def _publish_presence(request: Request, slug: str, document_id: str, signal: dict | None):
+    producer = getattr(request.app.state, "producer", None)
+    if producer is None or signal is None:
+        return
+    data = {"type": "presence", "slug": slug, "document_id": document_id,
+            **{key: signal[key] for key in ("participant", "client_session", "sequence")}}
+    try:
+        await producer.publish(TOPIC_UI_DESIGNER_EVENTS, "presence:" + document_id,
+                               data, type="ui_designer.event")
+    except Exception:
+        log.warning("presence signal publish failed for %s", document_id, exc_info=True)
+
+
+@router.get(PREFIX + "/docs/{slug}/presence", response_model=S.UiPresenceOut)
+async def ui_presence_roster(slug: str, request: Request,
+                             caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.ui_designer import presence
+    who = await access.subject(request, caller)
+    async with request.app.state.session_factory() as session:
+        row = await store._live(session, slug)
+        return _presence_view(await presence.roster(session, row.id, who))
+
+
+@router.put(PREFIX + "/docs/{slug}/presence/{client_session}", response_model=S.UiPresenceOut)
+async def refresh_ui_presence(slug: str, body: S.UiPresenceIn, request: Request,
+        client_session: str = Path(pattern=r"^[0-9a-f]{32}$"),
+        caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.ui_designer import presence
+    if body.state == "editing":
+        # This advertises an editing cursor, not a document mutation. Keep the
+        # global write role/tool AND the service's current write ACL, without
+        # requiring a Run for ordinary browser collaboration.
+        await require_ui_designer_access(*WRITE, write=caller.agent is not None)(request)
+    who = await access.subject(request, caller)
+    async with request.app.state.session_factory() as session:
+        row = await store._live(session, slug)
+        result = _presence_view(await presence.refresh(session, row.id, who, client_session,
+            body.model_dump(), credential=_presence_credential(request)))
+        await session.commit()
+    own = next((item.model_dump() for item in result.sessions
+                if item.participant == who.participant and item.client_session == client_session), None)
+    await _publish_presence(request, slug, row.id, own)
+    return result
+
+
+@router.delete(PREFIX + "/docs/{slug}/presence/{client_session}", status_code=204)
+async def leave_ui_presence(slug: str, request: Request,
+        client_session: str = Path(pattern=r"^[0-9a-f]{32}$"),
+        document_id: str | None = Query(None, pattern=r"^[0-9a-f]{32}$"),
+        caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.ui_designer import presence
+    who = await access.subject(request, caller)
+    async with request.app.state.session_factory() as session:
+        row = await store._live(session, slug)
+        if document_id is not None and document_id != row.id:
+            raise HTTPException(409, "document identity changed")
+        signal = await presence.leave(session, row.id, who, client_session)
+        await session.commit()
+    await _publish_presence(request, slug, row.id, signal)
+    return Response(status_code=204)
+
+
+@router.get(PREFIX + "/docs/{slug}/presence/events", response_class=StreamingResponse)
+async def ui_presence_events(slug: str, request: Request,
+                             caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.ui_designer import presence
+    identifier = request.state.ui_acl_document_id
+    feed = request.app.state.ui_designer_feed
+    stream_key = "presence:" + identifier
+    cookie = stream_cookie(request)
+
+    async def snapshot(signal=None):
+        fresh = await require_ui_designer_access(*READ)(request)
+        who = await access.subject(request, fresh)
+        async with request.app.state.session_factory() as session:
+            await access.require_read_by_uuid(session, identifier, who, allow_deleted_owner=False)
+            if signal is not None and signal.get("type") == "presence":
+                if signal.get("document_id") != identifier:
+                    return None
+                current = await presence.event_current(session, identifier, who,
+                    signal.get("participant"), signal.get("client_session"), signal.get("sequence"))
+                if current is None:
+                    return None
+            return _presence_view(await presence.roster(session, identifier, who)).model_dump()
+
+    async def stream():
+        queue = feed.subscribe(stream_key)
+        try:
+            initial = await snapshot()
+            yield relay_api._frame("presence", initial)
+            while True:
+                if cookie and not await still_signed_in(request.app, cookie):
+                    return
+                try:
+                    event, data = await asyncio.wait_for(queue.get(), relay_api.HEARTBEAT_SECONDS)
+                except TimeoutError:
+                    # Full snapshots on heartbeats remove TTL-expired peers even
+                    # when Kafka is down and no explicit leave signal arrives.
+                    yield relay_api._frame("presence", await snapshot())
+                    continue
+                if event == OVERFLOW:
+                    yield relay_api._frame(OVERFLOW, {})
+                    yield relay_api._frame("presence", await snapshot())
+                    continue
+                view = await snapshot(data)
+                if view is not None:
+                    yield relay_api._frame("presence", view)
+        except HTTPException:
+            return
+        finally:
+            feed.unsubscribe(stream_key, queue)
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "private, no-store", "X-Accel-Buffering": "no"})
 
 
 @router.get(PREFIX + "/docs/{slug}/access", response_model=S.UiAccessOut)

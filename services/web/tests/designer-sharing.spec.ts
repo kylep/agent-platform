@@ -21,6 +21,7 @@ async function setup(page:Page,kind='owner'){
       if(failed){failed=false;return r.fulfill({status:502,json:{detail:'Proxy failure'}});}
       return r.fulfill({json:access});
     }
+    if(url.pathname.endsWith('/presence') || url.pathname.includes('/presence/'))return r.fallback();
     reads.push(url.pathname);
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version:head,versions:[{version:head,author:'kyle'},{version:3,author:'kyle'}]}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[{id:'page',children:[{id:'frame',title:'Screen',type:'frame',x:0,y:0,w:100,h:40,children:[node]}]}]}});

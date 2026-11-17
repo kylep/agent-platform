@@ -445,5 +445,20 @@ syntax, with authorized, bounded live thumbnails.
   SQLite and real PostgreSQL upgrade/idempotency checks pass. Browser 482,
   broker 475, facade 40 and renderer 150 checks pass; SDK regeneration is stable.
   Full backend run: 4,095 passed / 23 skipped; three startup/seed fixture
-  assumptions were corrected and all 92 affected checks passed. Deployment
-  and live acceptance follow the committed chunk.
+  assumptions were corrected and all 92 affected checks passed. Pushed `17745f9`;
+  deployed `ud-access-20261117` in Helm revision 166 (renderer remains fonts).
+  Live temporary accounts verified role/ACL intersections, sharing replay,
+  history restore, private exports without public cards, derivative revocation
+  and old-export isolation after slug reuse. Browser owner sharing controls
+  triggered real SSE revocation that cleared a reader's canvas; only the
+  cookie-only authentication bootstrap was mocked for the temporary API keys.
+  All temporary documents, artifacts and keys were cleaned up. Codex quota: 63%.
+
+- **P3.17 Status:** implemented multi-cursor presence with viewing/editing labels,
+  page/version-aware world coordinates, TTL expiry, own-tab leave and current
+  permission checks. Shared SQL leases enforce a 32-session cap and per-actor
+  cooldown across API replicas; scoped Kafka/SSE avoids global thumbnail churn.
+  Backend 4,117 passed / 23 skipped; browser 490, broker 475, facade 40 and
+  renderer 150 passed, plus build, Storybook, tokens, stable SDK and Helm lint.
+  Twelve focused service checks and an actual two-engine PostgreSQL race test
+  prove capacity, cooldown and revocation ordering. Deploy/live acceptance next.

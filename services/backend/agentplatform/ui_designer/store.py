@@ -21,7 +21,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.db import (UiDesignerAsset, UiDesignerComment, UiDesignerDocument,
-                              UiDesignerDocumentAsset, UiDesignerFont, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerImport, UiDesignerReceipt,
+                              UiDesignerDocumentAsset, UiDesignerFont, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerPresence, UiDesignerImport, UiDesignerReceipt,
                               UiDesignerRender, UiDesignerVersion, utcnow)
 from agentplatform.ui_designer import errors
 from agentplatform.ui_designer.errors import UiDesignerError, invalid, issue
@@ -600,7 +600,7 @@ async def restore_deleted(s, document_id: str) -> None:
 
 
 async def _purge(s, document_id: str) -> None:
-    for model in (UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerRender):
+    for model in (UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerPresence, UiDesignerRender):
         await s.execute(delete(model).where(model.document_id == document_id))
     # An upload retry must remain bound to its original UUID after slug reuse.
     # The normal receipt TTL pruner reclaims these small tombstones later.

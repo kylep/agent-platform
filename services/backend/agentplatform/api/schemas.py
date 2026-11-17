@@ -2484,3 +2484,38 @@ class UiSharingChoices(BaseModel):
     principals: list[UiSharingPrincipal]
     teams: list[UiSharingTeam]
     truncated: bool
+
+
+class UiPresenceCursor(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    x: float = Field(ge=-100000, le=100000, strict=True)
+    y: float = Field(ge=-100000, le=100000, strict=True)
+
+
+class UiPresenceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    version: int = Field(ge=1, strict=True)
+    page_id: str = Field(min_length=1, max_length=48)
+    state: Literal["viewing", "editing"]
+    node_id: str | None = Field(default=None, min_length=1, max_length=512)
+    cursor: UiPresenceCursor | None = None
+
+
+class UiPresenceSession(BaseModel):
+    participant: str
+    label: str
+    client_session: str = Field(pattern=r"^[0-9a-f]{32}$")
+    state: Literal["viewing", "editing"]
+    version: int
+    page_id: str
+    node_id: str | None = None
+    cursor: UiPresenceCursor | None = None
+    sequence: int
+    expires_at: str
+
+
+class UiPresenceOut(BaseModel):
+    document_id: str
+    server_now: str
+    sessions: list[UiPresenceSession] = Field(max_length=32)

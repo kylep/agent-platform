@@ -37,7 +37,7 @@ async function setup(page: Page, role = "admin") {
     const url = new URL(route.request().url());
     if (url.pathname === '/api/ui-designer/docs') return route.fulfill({ json: { docs: [{ slug: 'second', title: 'Second document', owner: 'kyle' }] } });
     if (url.pathname.endsWith('/events')) return route.fulfill({ body: '' });
-    if(url.pathname.endsWith('/access'))return route.fallback();
+    if(url.pathname.endsWith('/access') || url.pathname.endsWith('/presence') || url.pathname.includes('/presence/'))return route.fallback();
     if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { version, versions: Array.from({ length: version }, (_, i) => ({ version: version-i, author: 'kyle' })) } });
     if (url.pathname.endsWith('/comments')) return route.fulfill({ json: { comments: [] } });
     if (url.pathname.endsWith('/resolved')) return route.fulfill({ json: { pages: [{ id: 'page', title: 'Main', children: resolvedNodes() }] } });

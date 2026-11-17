@@ -7,7 +7,7 @@ async function setup(page:Page,availableModes=['dark','light']){
   const box={id:'box',type:'text',title:'Greeting',x:10,y:20,w:100,h:80,text:'Hello'};
   await page.route('**/api/ui-designer/**',async(r)=>{
     const url=new URL(r.request().url());
-    if(url.pathname.endsWith('/access'))return r.fallback();
+    if(url.pathname.endsWith('/access') || url.pathname.endsWith('/presence') || url.pathname.includes('/presence/'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version:3,versions:[3,1].map((version)=>({version,author:'kyle'}))}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[{id:'page',title:'Main',children:[box]}]}});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});

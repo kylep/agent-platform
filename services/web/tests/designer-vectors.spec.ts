@@ -9,7 +9,7 @@ async function setup(page:Page,options:{role?:string;historical?:boolean}={}){
   await page.route('**/api/whoami',(r)=>r.fulfill({json:{role:options.role||'admin'}}));
   await page.route('**/api/ui-designer/**',async(r)=>{
     const url=new URL(r.request().url());
-    if(url.pathname.endsWith('/access'))return r.fallback();
+    if(url.pathname.endsWith('/access') || url.pathname.endsWith('/presence') || url.pathname.includes('/presence/'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version,versions:Array.from({length:version},(_,i)=>({version:version-i,author:'kyle'}))}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[{id:'page',title:'Main',children:shapes}]}});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});

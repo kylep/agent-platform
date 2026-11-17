@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
+import type { PresenceCursor, PresenceSession } from "../../lib/useDesignerPresence";
+import { presenceColor } from "../../lib/uiPresence";
 import { UD, flatten, pageBounds, type RNode, type RPage } from "../../lib/uiDesigner";
 
 type Changes = Record<string, unknown>;
@@ -14,17 +16,18 @@ const size = (v: number) => Math.min(100_000, Math.max(1, rounded(v)));
 /** The server render remains the painter. Manipulation previews change only the
  * selection overlay; the parent submits one CAS edit after a completed gesture. */
 export function Canvas({ slug, page, version, mode, selected, onSelect, highlight, rev,
-  editable = false, onCommit, onRenderError, selectedAuthored, freePosition = false, busy = false, ancestorsRotated = false }: {
+  editable = false, onCommit, onRenderError, onCursor, remotePresence = [], selectedAuthored, freePosition = false, busy = false, ancestorsRotated = false }: {
   slug: string; page: RPage; version: number | null; mode: "dark" | "light";
   selected: string | null; onSelect: (n: RNode | null) => void;
   highlight?: string | null; rev?: number; editable?: boolean;
-  onCommit?: (id: string, changes: Changes) => void; onRenderError?: () => void;
+  onCommit?: (id: string, changes: Changes) => void; onRenderError?: () => void; onCursor?: (cursor: PresenceCursor|null) => void; remotePresence?: PresenceSession[];
   selectedAuthored?: Record<string, unknown> | null; freePosition?: boolean;
   busy?: boolean; ancestorsRotated?: boolean;
 }) {
   const b = pageBounds(page);
   const [view, setView] = useState({ s: 1, x: 20, y: 20 });
-  const viewport = useRef<HTMLDivElement>(null);
+  const viewport = useRef<HTMLDivElement>(null),stage=useRef<HTMLDivElement>(null),cursorFrame=useRef(0),pointerPosition=useRef<{x:number;y:number}|null>(null);
+  const cursorCallback=useRef(onCursor);cursorCallback.current=onCursor;
   const pan = useRef<{ px: number; py: number; moved: boolean } | null>(null);
   const gesture = useRef<Gesture | null>(null);
   const [preview, setPreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -43,6 +46,13 @@ export function Canvas({ slug, page, version, mode, selected, onSelect, highligh
   useEffect(() => { setView({ s: 1, x: 20, y: 20 }); }, [page.id]);
   useEffect(() => { cancel(); }, [page.id, version, selected, editable, busy, mode, rev]);
 
+  useEffect(()=>()=>{cancelAnimationFrame(cursorFrame.current);cursorFrame.current=0;pointerPosition.current=null;cursorCallback.current?.(null);},[page.id,version]);
+  function reportPointer(e: PointerEvent){
+    if(!onCursor)return;
+    pointerPosition.current={x:e.clientX,y:e.clientY};if(cursorFrame.current)return;
+    cursorFrame.current=requestAnimationFrame(()=>{cursorFrame.current=0;const position=pointerPosition.current,rect=stage.current?.getBoundingClientRect();if(position && rect && rect.width>0 && rect.height>0)cursorCallback.current?.({x:rounded(b.x+(position.x-rect.left)*b.w/rect.width),y:rounded(b.y+(position.y-rect.top)*b.h/rect.height)});});
+  }
+  function leavePointer(){cancelAnimationFrame(cursorFrame.current);cursorFrame.current=0;pointerPosition.current=null;onCursor?.(null);}
   function onWheel(e: WheelEvent) {
     if (gesture.current) return;
     const f = e.deltaY < 0 ? 1.1 : 1 / 1.1;
@@ -124,7 +134,7 @@ export function Canvas({ slug, page, version, mode, selected, onSelect, highligh
   const handles = canResize && selection ? (freePosition ? ["nw", "ne", "sw", "se"] : ["e", "s", "se"]) : [];
   return (
     <div ref={viewport} className="ud-viewport" tabIndex={0} aria-label="Design canvas" onKeyDown={keydown}
-         onWheel={onWheel} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel}
+         onWheel={onWheel} onPointerDown={down} onPointerMove={(e)=>{move(e);reportPointer(e);}} onPointerLeave={leavePointer} onPointerUp={up} onPointerCancel={cancel} onLostPointerCapture={cancel}
          onClick={() => { if (!suppressClick.current) onSelect(null); suppressClick.current = false; }}>
       <div className="ud-zoom" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
         <button type="button" onClick={() => { if (!gesture.current) setView((v) => ({ ...v, s: Math.min(8, v.s * 1.25) })); }} aria-label="Zoom in">+</button>
@@ -134,7 +144,7 @@ export function Canvas({ slug, page, version, mode, selected, onSelect, highligh
       {editable && selected && rotated && <div role="status" style={{ position: "absolute", bottom: 8, left: 8, zIndex: 1, background: "var(--ds-surface)", padding: 8 }}>
         Canvas gestures are unavailable for rotated nodes or ancestors. Use the inspector.
       </div>}
-      <div className="ud-stage" style={{ width: b.w, height: b.h, transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
+      <div ref={stage} className="ud-stage" style={{ width: b.w, height: b.h, transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
         <img onError={onRenderError} className="ud-svg" draggable={false} alt={`Page ${page.id}`} src={`${UD}/${encodeURIComponent(slug)}/render?${q}`} width={b.w} height={b.h} />
         <svg className="ud-overlay" width={b.w} height={b.h} viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`}>
           {boxes.map((n) => <rect key={n.id} x={n.x ?? 0} y={n.y ?? 0} width={n.w ?? 0} height={n.h ?? 0}
@@ -150,6 +160,10 @@ export function Canvas({ slug, page, version, mode, selected, onSelect, highligh
               fill="var(--ds-surface)" stroke="var(--ds-accent)" strokeWidth={1 / view.s} data-resize={corner}
               style={{ cursor: `${corner}-resize` }} onPointerDown={(e) => begin(e, node, corner)} onClick={(e) => e.stopPropagation()} />;
           })}
+          {remotePresence.filter((peer)=>peer.cursor).map((peer)=><g key={`${peer.participant}:${peer.client_session}`} data-presence-session={peer.client_session} data-presence-x={peer.cursor!.x} data-presence-y={peer.cursor!.y} transform={`translate(${peer.cursor!.x} ${peer.cursor!.y}) scale(${1/view.s})`} pointerEvents="none" role="img" aria-label={`${peer.label} cursor`}>
+            <path d="M0 0 L0 17 L5 12 L9 21 L12 19 L8 11 L15 11 Z" fill={presenceColor(peer.participant)} stroke="var(--ds-surface)" strokeWidth={1.5} />
+            <text x={15} y={25} fontSize={12} fill={presenceColor(peer.participant)} stroke="var(--ds-surface)" strokeWidth={3} paintOrder="stroke">{peer.label}</text>
+          </g>)}
         </svg>
       </div>
     </div>

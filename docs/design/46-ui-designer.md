@@ -1657,3 +1657,27 @@ Tests cover human and agent authority, reader/editor/owner roles, team archive,
 SQL filtering before pagination/counts, independent CAS/replay, concurrent
 revocation, source deletion/reuse, derivative provenance, migration idempotency,
 SSE audience filtering and browser editor/prototype/Relay-preview invalidation.
+
+## 34. Multi-cursor presence (P3.17)
+
+Presence is transient state keyed by document UUID, authenticated participant
+and a random browser-tab ID. It never changes scene JSON, version history or
+undo. A small shared SQL table gives all API replicas the same 45-second leases;
+tabs refresh every 15 seconds and coalesce pointer updates to at most twice a
+second. Document row locks serialize sharing, admission and the 32-live-session
+cap. Persisted per-participant/document cooldown prevents fresh tab IDs or
+another API replica from bypassing the rate limit. Expired rows are reclaimed.
+
+The browser sends only a pinned UUID/version/page, selected node, view/edit
+state and finite world coordinates. The server supplies identity and validates
+retained scene references. Viewing requires existing read authority; editing
+requires current write authority. Current ACLs filter both viewers and actors.
+Presence records from a different version/page do not draw a misleading cursor.
+
+GET/PUT/DELETE document presence routes share these gates. A scoped SSE stream
+uses the existing UI Designer Kafka topic and per-API feed, but cursor events
+never enter the global thumbnail stream. Each delivery reads current bounded
+SQL state instead of trusting queued coordinates. Heartbeat polling repairs
+missed Kafka events; server timestamps and local expiry remove abandoned tabs.
+Hidden/unmounted tabs stop timers and attempt leave. ACL changes clear revoked
+content and presence. No model runs, Relay posts or new infrastructure are used.

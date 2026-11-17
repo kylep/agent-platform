@@ -8,7 +8,7 @@ async function setup(page:Page,role='admin'){
   const text={id:'text',type:'text',title:'Greeting',text:[{text:'Hello',style:{weight:700}}],x:0,y:0,w:100,h:40,style:{family:'Inter',size:20,line:1.4,weight:700,letter:0.5} as Record<string,unknown>};
   await page.route('**/api/ui-designer/**',async r=>{
     const url=new URL(r.request().url());
-    if(url.pathname.endsWith('/access'))return r.fallback();
+    if(url.pathname.endsWith('/access') || url.pathname.endsWith('/presence') || url.pathname.includes('/presence/'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version,versions:[{version:1,author:'kyle'},{version:2,author:'kyle'},{version:3,author:'kyle'}]}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[{id:'page',children:[text]}]}});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});

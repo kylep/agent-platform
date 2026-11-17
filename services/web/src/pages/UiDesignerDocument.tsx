@@ -8,6 +8,8 @@ import LibrariesPanel from "../components/ui-designer/LibrariesPanel";
 import FindingsPanel from "../components/ui-designer/FindingsPanel";
 import CompareVersions from "../components/ui-designer/CompareVersions";
 import MotionControls from "../components/ui-designer/MotionControls";
+import PresenceBar from "../components/ui-designer/PresenceBar";
+import { useDesignerPresence } from "../lib/useDesignerPresence";
 import SharingPanel from "../components/ui-designer/SharingPanel";
 import { useDesignerAccess } from "../lib/useDesignerAccess";
 import FontsPanel from "../components/ui-designer/FontsPanel";
@@ -210,6 +212,7 @@ export default function UiDesignerDocument() {
   const parent = parents.at(-1);
   const freePosition = !parent?.layout || !!inspection?.authored?.absolute;
   const editable = canWrite && !version && !stale && !!inspection?.authored && inspection.version === pinned && inspection.id === picked?.id && !editing.busy && !editing.uncertain && !writeLocked;
+  const presence=useDesignerPresence({base,documentId:access?.document_id ?? null,version:version ?? pinned,pageId:page?.id ?? null,nodeId:picked?.id.includes("/") ? known.find((node)=>node.id===picked.id.split("/")[0] && node.of)?.id ?? null : picked?.id ?? null,editing:editable,accessVersion:access?.access_version ?? 0,enabled:canRead,onAccessCheck:reloadAccess});
   function saveNode(id: string, changes: Record<string, unknown>) {
     if (!editable || inspection?.id !== id || picked?.id !== id || !inspection.authored) return;
     const before = Object.fromEntries(Object.keys(changes).map((key) => [key, inspection.authored![key] ?? null]));
@@ -278,6 +281,7 @@ export default function UiDesignerDocument() {
         </div>
       </div>
       {sharingPanel}
+      {presence.active && <PresenceBar sessions={presence.sessions} notice={presence.notice} version={version ?? pinned} />}
       {(version ?? pinned) && <ExportControls key={`${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canExport={canWrite} />}
       {(version ?? pinned) && resolved && <MotionControls key={`motion:${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} frames={prototypeFrames(resolved)} canExport={canWrite} />}
       {comparing && page && (version ?? pinned) && <CompareVersions key={base} base={base} versions={versions} initialVersion={(version ?? pinned)!} pageId={page.id} selectedId={picked?.id ?? null} mode={mode} onSelectNode={(id) => { const node = known.find((n) => n.id === id); if (node) setSel(node); }} />}
@@ -314,7 +318,7 @@ export default function UiDesignerDocument() {
         </aside>
         <div className="ud-canvas">
           {page ? <Canvas slug={slug} page={page} version={version ?? pinned} mode={mode}
-                          selected={picked?.id ?? null} onSelect={setSel}
+                          selected={picked?.id ?? null} onSelect={setSel} onCursor={presence.onCursor} remotePresence={presence.sessions.filter((peer)=>peer.version===(version ?? pinned) && peer.page_id===page.id)}
                           highlight={hl} rev={rev} editable={editable} onRenderError={()=>{setErr("Could not render this page.");const key=`${base}:${version ?? pinned}:${page.id}:${mode}`;if(!failedRenders.current.has(key)){if(failedRenders.current.size>=16)failedRenders.current.clear();failedRenders.current.add(key);reloadAccess();}}} busy={editing.busy || editing.uncertain}
                           selectedAuthored={inspection?.id === picked?.id ? inspection?.authored : null} freePosition={freePosition}
                           ancestorsRotated={parents.some((p) => !!p.rotate)} onCommit={saveNode} />

@@ -49,6 +49,12 @@ subscription artist currently refuses them before starting. Agents use
 `action=sharing op=get|choices|set`; sharing saves require a request ID and
 `expected_access_version` from the current policy.
 
+The editor shows who is **viewing** or **editing** alongside remote cursors and
+selections. Cursors appear only on the same page and document version. Presence
+expires after 45 seconds without a heartbeat and never creates a design version.
+Closing or hiding a tab leaves the session; lost connections recover from the
+current roster. Sharing and platform permissions still apply.
+
 The editor's motion controls preview or export two frames from a retained
 document version. Matching `meta.motion_key` values animate position, size,
 rotation and opacity; changed content crossfades. Complex effects may use a

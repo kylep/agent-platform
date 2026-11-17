@@ -22,7 +22,7 @@ async function setup(page:Page,role='admin'){
   });
   await page.route('**/api/ui-designer/docs/*/**',(r)=>{
     const url=new URL(r.request().url());
-    if(url.pathname.endsWith('/access'))return r.fallback();
+    if(url.pathname.endsWith('/access') || url.pathname.endsWith('/presence') || url.pathname.includes('/presence/'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version:1,versions:[{version:1,author:'kyle'}]}});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[]}});

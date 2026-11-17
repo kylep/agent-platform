@@ -424,6 +424,12 @@ from .ui_motion_preview_out_easing import UiMotionPreviewOutEasing
 from .ui_motion_preview_out_fps import UiMotionPreviewOutFps
 from .ui_placed_asset import UiPlacedAsset
 from .ui_placed_assets_out import UiPlacedAssetsOut
+from .ui_presence_cursor import UiPresenceCursor
+from .ui_presence_in import UiPresenceIn
+from .ui_presence_in_state import UiPresenceInState
+from .ui_presence_out import UiPresenceOut
+from .ui_presence_session import UiPresenceSession
+from .ui_presence_session_state import UiPresenceSessionState
 from .ui_sharing_choices import UiSharingChoices
 from .ui_sharing_principal import UiSharingPrincipal
 from .ui_sharing_principal_kind import UiSharingPrincipalKind
@@ -886,6 +892,12 @@ __all__ = (
     "UiMotionPreviewOutFps",
     "UiPlacedAsset",
     "UiPlacedAssetsOut",
+    "UiPresenceCursor",
+    "UiPresenceIn",
+    "UiPresenceInState",
+    "UiPresenceOut",
+    "UiPresenceSession",
+    "UiPresenceSessionState",
     "UiSharingChoices",
     "UiSharingPrincipal",
     "UiSharingPrincipalKind",

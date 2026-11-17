@@ -183,24 +183,34 @@ class UiDesignerPruner:
         self.prune_days = prune_days
 
     async def prune_once(self, now=None) -> int:
-        from agentplatform.ui_designer import store
+        from agentplatform.ui_designer import store, presence
         now = now or utcnow()
         async with self.sf() as s:
             docs = (await store.hard_delete_expired(s, now - timedelta(days=self.prune_days))
                     if self.prune_days > 0 else 0)
             receipts = await store.prune_receipts(s, now - store.RECEIPT_TTL)
+            ephemeral = await presence.purge_expired(s,now)
             await s.commit()
         if docs or receipts:
             log.info("pruned %d ui designer documents, %d receipts", docs, receipts)
-        return docs + receipts
+        return docs + receipts + ephemeral
 
     async def run_forever(self, interval_seconds: int = 86400) -> None:
+        import time
+        from agentplatform.ui_designer.presence import purge_expired
+        next_retention=0
         while True:
             try:
-                await self.prune_once()
+                if time.monotonic()>=next_retention:
+                    await self.prune_once()
+                    next_retention=time.monotonic()+interval_seconds
+                else:
+                    async with self.sf() as session:
+                        await purge_expired(session)
+                        await session.commit()
             except Exception:
                 log.exception("ui designer prune failed")
-            await asyncio.sleep(interval_seconds)
+            await asyncio.sleep(min(30,interval_seconds))
 
 
 class UiDesignerAssetSweeper:

@@ -3,15 +3,15 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ud-access-20261117
+    tag: ud-presence-20261117
   web:
-    tag: ud-access-20261117
+    tag: ud-presence-20261117
   runner:
     tag: bk-1383a26
   runnerDev:
     tag: bk-edf7a44
   mcpFacade:
-    tag: ud-access-20261117
+    tag: ud-presence-20261117
 mcpBroker:
   image:
     tag: ud-access-20261117

@@ -1673,6 +1673,10 @@ export async function mockApi(page: Page): Promise<string[]> {
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if(/^\/api\/ui-designer\/docs\/[^/]+\/presence(?:\/.*)?$/.test(path)) {
+      if(path.endsWith("/events")){await route.fulfill({contentType:"text/event-stream",body:""});return;}
+      await route.fulfill({json:route.request().method()==="DELETE" ? {ok:true}:{document_id:"d".repeat(32),server_now:new Date().toISOString(),sessions:[]}});return;
+    }
     if (/^\/api\/ui-designer\/docs\/[^/]+\/access$/.test(path) && route.request().method()==="GET") {
       await route.fulfill({json:{document_id:"d".repeat(32),owner:"user:kyle",visibility:"workspace",readers:[],editors:[],access_version:0,can_read:true,can_write:true,can_manage_sharing:true}});return;
     }

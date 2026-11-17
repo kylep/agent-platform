@@ -1086,6 +1086,27 @@ class UiDesignerAccessEntry(Base):
     role: Mapped[str] = mapped_column(String(8), primary_key=True)
 
 
+class UiDesignerPresence(Base):
+    """Transient authenticated tab state; TTL, never document/version history."""
+    __tablename__ = "ui_designer_presence"
+    __table_args__ = (Index("ix_ui_presence_document_expiry", "document_id", "expires_at"),
+                      Index("ix_ui_presence_expiry", "expires_at"))
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    participant: Mapped[str] = mapped_column(String(160), primary_key=True)
+    client_session: Mapped[str] = mapped_column(String(32), primary_key=True)
+    state: Mapped[str] = mapped_column(String(8), default="viewing")
+    version: Mapped[int] = mapped_column(Integer)
+    page_id: Mapped[str] = mapped_column(String(48))
+    node_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(_UD_TS)
+    credential_kind: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    credential_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 class UiDesignerFont(Base):
     """Worker-validated static OFL font bytes; never a public raw asset."""
     __tablename__ = "ui_designer_fonts"

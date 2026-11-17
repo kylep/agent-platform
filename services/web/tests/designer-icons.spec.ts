@@ -15,7 +15,7 @@ async function setup(page:Page,options:{reader?:boolean;historical?:boolean}={})
       return r.fulfill({json:{revision:1,source,icons:list,total:q?list.length:3,next_cursor:!q&&!url.searchParams.has('cursor')?'next-1':null}});
     }
     const detail=/\/icons\/([^/]+)$/.exec(url.pathname);if(detail){detailQueries.push(url.search);if(held&&holdDetail===detail[1])await held;const icon=icons.find((entry)=>entry.id===detail[1]);return r.fulfill({json:{...icon,revision:1,view_box:[0,0,24,24],d:'M 0 0 L 24 24',paths:unsafe?[{d:'<svg onload=alert(1)>',fill:false}]:[{d:'M 2 2 L 8 2 L 8 8 Z',fill:detail[1]==='filled'},{d:'M 4 4 L 20 20',fill:false}]}});}
-    if(url.pathname.endsWith('/access'))return r.fallback();
+    if(url.pathname.endsWith('/access') || url.pathname.endsWith('/presence') || url.pathname.includes('/presence/'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version,versions:Array.from({length:version},(_,i)=>({version:version-i,author:'kyle'}))}});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[{id:'page',title:'Main',children:nodes}]}});

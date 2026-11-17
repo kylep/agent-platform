@@ -709,6 +709,10 @@ def test_ui_designer_text_routes_are_tools_and_pictures_are_not(spec, tools, adm
     gated = {("DELETE", f"{P}/docs/{{slug}}"), ("POST", f"{P}/docs/{{slug}}/prune"),
              ("POST", f"{P}/assets/gc"), ("POST", f"{P}/imports"),
              ("GET", f"{P}/imports/{{import_id}}")}
+    hidden |= {("GET", f"{P}/docs/{{slug}}/presence"),
+               ("GET", f"{P}/docs/{{slug}}/presence/events"),
+               ("PUT", f"{P}/docs/{{slug}}/presence/{{client_session}}"),
+               ("DELETE", f"{P}/docs/{{slug}}/presence/{{client_session}}")}
     ops = operations(spec)
     assert hidden | gated <= set(ops)
     for surface in ({(t._route.method, t._route.path) for t in tools},
