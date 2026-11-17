@@ -74,15 +74,15 @@ TYPE_KEYS: dict[str, set[str]] = {
     "line": set(_SHARED),
     "path": _SHARED | {"d"},
     "image": _SHARED | {"asset", "fit"},
-    "instance": _SHARED | {"of", "overrides"},
+    "instance": _SHARED | {"of", "overrides", "variant", "props"},
 }
 # Never overridable on an instance's target.
 # asset is not overridable: image_assets() walks node assets only, so an
 # override would place an image the asset check never saw.
-_NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset"}
+_NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset", "variant", "props"}
 
 # Value positions that are text, not token references (resolution skips them).
-_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image"}
+_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image", "props", "variant", "axes", "properties", "when", "bindings"}
 
 
 # --- ids -----------------------------------------------------------------
@@ -136,6 +136,9 @@ def normalize_document(doc: dict) -> dict:
                     page.get("title"), str) else None, "page")
             for c in page.get("children") if isinstance(page.get("children"), list) else []:
                 assign_ids(c, taken)
+    sets = out.get("component_sets")
+    if isinstance(sets, dict):
+        taken.update(sets)
     comps = out.get("components")
     for key, root in (comps.items() if isinstance(comps, dict) else []):
         if isinstance(root, dict):
@@ -145,6 +148,8 @@ def normalize_document(doc: dict) -> dict:
 
 
 def _collect_ids(doc: dict, taken: set[str]) -> None:
+    if isinstance(doc.get("component_sets"), dict):
+        taken.update(doc["component_sets"])
     def walk(n: Any) -> None:
         if isinstance(n, dict):
             if isinstance(n.get("id"), str):
@@ -235,6 +240,7 @@ class _Ctx:
     tokens: dict
     modes: list[str] | None
     components: dict
+    component_sets: dict = field(default_factory=dict)
     issues: list[Issue] = field(default_factory=list)
     ids: dict[str, str] = field(default_factory=dict)
     nodes: int = 0
@@ -714,8 +720,8 @@ def collect_issues(doc: Any) -> list[Issue]:
     tokens = {g: v for g, v in tokens.items() if isinstance(v, dict)}
     modes = doc.get("modes") if isinstance(doc.get("modes"), list) else None
     c = _Ctx(tokens=tokens, modes=[m for m in modes if isinstance(m, str)] if modes else None,
-             components=comps)
-    _obj(c, doc, "$", {"schema", "title", "tokens", "modes", "components", "pages"},
+             components=comps, component_sets=doc.get("component_sets", {}) if isinstance(doc.get("component_sets", {}), dict) else {})
+    _obj(c, doc, "$", {"schema", "title", "tokens", "modes", "components", "component_sets", "pages"},
          ("schema", "pages"))
     if "schema" in doc and doc["schema"] != SCHEMA_VERSION:
         c.add("UD-VALUE", "$.schema", f"schema must be {SCHEMA_VERSION}", doc["schema"])
@@ -759,6 +765,8 @@ def collect_issues(doc: Any) -> list[Issue]:
                 p = join_path("$.components", key)
                 _register(c, key, p)
                 _node(c, root, p, 1, key, root_key=key)
+    from .components import validate_sets
+    validate_sets(doc, c)
     for path, n, scope in c.instances:
         _check_instance(c, path, n, scope)
     if c.nodes > MAX_NODES:
@@ -774,26 +782,18 @@ def collect_issues(doc: Any) -> list[Issue]:
     return c.issues
 
 
-def _check_instance(c: _Ctx, path: str, n: dict, scope: str) -> None:
-    of = n.get("of")
-    if "of" in n and not (isinstance(of, str) and of in c.components):
-        c.add("UD-COMPONENT-UNKNOWN", join_path(path, "of"), f"no component {of!r}", of)
-        return
-    if "overrides" not in n:
-        return
+def _check_overrides(c: _Ctx, path: str, n: dict, of: str, root: dict) -> None:
     op = join_path(path, "overrides")
-    ov = n["overrides"]
+    ov = n.get("overrides", {})
     if not isinstance(ov, dict):
-        c.add("UD-TYPE", op, "expected an object of \"<child-id>.<prop>\" -> value", ov)
+        c.add("UD-TYPE", op, 'expected an object of "<child-id>.<prop>" -> value', ov)
         return
-    if not isinstance(of, str):
-        return
-    root = c.components[of]
+    targets = c.comp_nodes.get(of, {})
     for key, val in ov.items():
         p = join_path(op, key)
         child, _, prop = key.rpartition(".")
         if child:
-            target = c.comp_nodes.get(of, {}).get(child)
+            target = targets.get(child)
             if target is None or child == of:
                 c.add("UD-OVERRIDE", p, f"component {of!r} has no child {child!r}", key)
                 continue
@@ -807,6 +807,28 @@ def _check_instance(c: _Ctx, path: str, n: dict, scope: str) -> None:
             c.add("UD-OVERRIDE", p, "an image fill cannot be an override; put it on the node", key)
             continue
         PROP_CHECKS[prop](c, val, p)
+
+
+def _check_instance(c: _Ctx, path: str, n: dict, scope: str) -> None:
+    from .components import validate_instance
+    validate_instance({"component_sets":c.component_sets}, n, path, c)
+    of = n.get("of")
+    if isinstance(of, str) and of in c.component_sets:
+        from .components import selected_variant
+        try:
+            _, variant, _ = selected_variant(
+                {"component_sets": c.component_sets}, n)
+        except (KeyError, TypeError, ValueError, IndexError, StopIteration):
+            # The closed definition/selection validators already report these.
+            return
+        if isinstance(variant, dict) and isinstance(variant.get("of"), str):
+            target = variant["of"]
+            if target in c.components:
+                _check_overrides(c, path, n, target, c.components[target])
+    elif isinstance(of, str) and of in c.components:
+        _check_overrides(c, path, n, of, c.components[of])
+    elif "of" in n:
+        c.add("UD-COMPONENT-UNKNOWN", join_path(path, "of"), f"no component {of!r}", of)
 
 
 # --- expansion budget ----------------------------------------------------
@@ -825,6 +847,9 @@ def check_expansion(doc: dict) -> int:
     20,000 expanded nodes (a component containing itself hits the depth cap).
     Run on a structurally valid document. Returns the expanded node count of
     the pages."""
+    if doc.get("component_sets"):
+        from .components import conservative_expansion
+        return conservative_expansion(doc)
     comps = doc.get("components") or {}
 
     def expand(n: dict, depth: int, state: list[int], at: str) -> None:

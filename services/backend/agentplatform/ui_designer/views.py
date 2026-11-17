@@ -69,6 +69,62 @@ class Cutter:
 
 
 TOKENS_NODE = "$tokens"
+COMPONENT_SETS_NODE = "$component_sets"
+
+
+def _metadata_entries(value: Any, path: list | None = None):
+    """Bounded leaf records, including chunks for large literal text defaults."""
+    path = path or []
+    if isinstance(value, dict) and value:
+        for key, child in value.items():
+            yield from _metadata_entries(child, path + [key])
+    elif isinstance(value, list) and value:
+        for index, child in enumerate(value):
+            yield from _metadata_entries(child, path + [index])
+    elif isinstance(value, str) and len(value.encode()) > 256:
+        for offset in range(0, len(value), 64):
+            yield {"path": path, "value": value[offset:offset + 64], "offset": offset,
+                   "complete": offset + 64 >= len(value)}
+    else:
+        yield {"path": path, "value": value}
+
+
+def _component_set_cut(c: Cutter, sets: dict, after: str | None, budget: int) -> dict:
+    # Small metadata retains the authored shape. Large metadata has an explicit
+    # leaf cursor, so even one huge definition/default can be read completely.
+    if after is None and size(sets) <= max(0, budget - 384):
+        c.left -= size(sets)
+        return sets
+    entries = list(_metadata_entries(sets))
+    start = 0
+    if after is not None:
+        if len(after) > 12 or not after.isdecimal() or not 0 <= int(after) < len(entries):
+            raise _not_found(f"component set metadata position {after!r}")
+        start = int(after) + 1
+    shown, used = [], 0
+    for index in range(start, len(entries)):
+        cost = size(entries[index]) + 1
+        if used + cost > max(0, budget - 384):
+            if not shown:
+                # The caller can retry with its normal text cap; never emit an
+                # oversized individual record to make artificial progress.
+                c.notes.append("component set metadata needs a larger text budget")
+            break
+        shown.append(entries[index])
+        used += cost
+    out = {"_entries": shown, "_format": "path/value; offset is a character offset for chunked strings"}
+    end = start + len(shown)
+    if end < len(entries):
+        cursor = str(end - 1) if end else None
+        out["_more"] = {"count": len(entries) - end, "after": cursor}
+        c.notes.append(f"more component set metadata; get node={COMPONENT_SETS_NODE}" +
+                       (f" after={cursor}" if cursor is not None else ""))
+        if c.cursor is None:
+            c.cursor = {"node": COMPONENT_SETS_NODE}
+            if cursor is not None:
+                c.cursor["after"] = cursor
+    c.left -= size(out)
+    return out
 
 
 def _token_cut(c: Cutter, tokens: dict, after: str | None, budget: int) -> dict:
@@ -127,7 +183,9 @@ def cut_document(doc: dict, *, node: str | None, depth: int, after: str | None, 
     is cut in order: tokens, then components, then pages (and their leaves);
     whatever is left out sets `truncated` and a cursor."""
     c = Cutter(budget)
-    if node == TOKENS_NODE:
+    if node == COMPONENT_SETS_NODE:
+        body = {"component_sets": _component_set_cut(c, doc.get("component_sets") or {}, after, budget)}
+    elif node == TOKENS_NODE:
         body = {"tokens": _token_cut(c, doc.get("tokens") or {}, after, max(budget, 256))}
     elif node is not None:
         ref = index_nodes(doc).get(node)
@@ -137,8 +195,17 @@ def cut_document(doc: dict, *, node: str | None, depth: int, after: str | None, 
     else:
         if after is not None:
             raise _not_found("a cursor needs `node`")
-        body = {k: v for k, v in doc.items() if k not in ("pages", "components", "tokens")}
+        body = {k: v for k, v in doc.items() if k not in ("pages", "components", "tokens", "component_sets")}
         c.left -= size(body)
+        if doc.get("component_sets"):
+            share = max(0, c.left // 4)
+            if size(doc["component_sets"]) <= share:
+                body["component_sets"] = _component_set_cut(c, doc["component_sets"], None, share + 384)
+            else:
+                body["component_sets"] = {"_cut": True, "count": len(doc["component_sets"])}
+                c.left -= size(body["component_sets"])
+                c.notes.append(f"component sets omitted (budget); get node={COMPONENT_SETS_NODE}")
+                c.cursor = {"node": COMPONENT_SETS_NODE}
         if doc.get("tokens"):
             body["tokens"] = _token_cut(c, doc["tokens"], None, max(c.left // 4, 512))
         comps = [(k, v) for k, v in (doc.get("components") or {}).items()]
@@ -280,7 +347,7 @@ def _own(node: dict) -> dict:
     return {k: v for k, v in node.items() if k != "children"}
 
 
-def inspect_node(doc: dict, node_id: str, trees: dict[str | None, dict]) -> dict:
+def inspect_node(doc: dict, node_id: str, trees: dict[str | None, dict], *, budget: int = 32768) -> dict:
     """What an agent needs to reason about one node: its resolved box and its
     children's, the resolved colours and typography per mode, the tokens its own
     properties name, its text and the component it instances. `trees` maps a mode
@@ -314,14 +381,27 @@ def inspect_node(doc: dict, node_id: str, trees: dict[str | None, dict]) -> dict
         raise _not_found(f"node {node_id!r}")
     own = json.dumps(authored or {}, ensure_ascii=False)
     tokens = sorted({t.lower() for t in _TOKEN_RE.findall(own)})
+    if authored and ("props" in authored or "variant" in authored or
+                     authored.get("of") in (doc.get("component_sets") or {})):
+        from .schema import iter_token_refs
+        tokens = sorted({ref.lower() for _, ref in iter_token_refs({"node": authored})})
     if authored and isinstance(authored.get("text"), str):
         text = authored["text"]
     elif authored and isinstance(authored.get("text"), list):
         text = "".join(str(r.get("text", "")) for r in authored["text"] if isinstance(r, dict))
-    return {"id": node_id, "type": node_type, "title": (authored or {}).get("title"),
+    answer = {"id": node_id, "type": node_type, "title": (authored or {}).get("title"),
             "geometry": geometry, "modes": modes, "tokens": tokens, "text": text,
             "component": (authored or {}).get("of") if node_type == "instance" else None,
             "authored": authored, "warnings": warnings}
+    if authored and authored.get("of") in (doc.get("component_sets") or {}):
+        from .components import describe_instance
+        details = describe_instance(doc, authored)
+        if size(details) > max(0, budget - size(answer) - 512):
+            details = {"component_set": authored["of"], "axes": details.get("axes", {}),
+                       "variant": details.get("variant", {}),
+                       "_cut": True, "get": {"node": COMPONENT_SETS_NODE}}
+        answer["component_set"] = details
+    return answer
 
 
 # --- diff -------------------------------------------------------------------
@@ -332,7 +412,7 @@ def _op_summary(op: dict) -> str:
     if isinstance(target, list):
         target = ",".join(str(t) for t in target[:6]) + ("…" if len(target) > 6 else "")
     keys = ""
-    if isinstance(op.get("set"), dict) and name in ("update", "tokens"):
+    if isinstance(op.get("set"), dict) and name in ("update", "tokens", "component_sets"):
         keys = " {" + ",".join(list(op["set"])[:6]) + "}"
     node = op.get("node")
     added = f" +{node.get('id')}" if isinstance(node, dict) and node.get("id") else ""

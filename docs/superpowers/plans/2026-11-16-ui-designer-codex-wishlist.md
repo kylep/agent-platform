@@ -163,13 +163,23 @@ Then propose (don't build) designs for P2 items 6–8 in the same file.
   expectation passing separately; 378 browser, 465 broker, 39 facade, 91 executor
   tests; 29 fetch tests; render/effects goldens; build, Storybook, tokens,
   SDK regeneration, Helm lint and secret checks.
-- **Quota:** 20% weekly Codex used at the editor verification checkpoint. Stop opening
+- **Quota:** 23% weekly Codex used at the component verification checkpoint. Stop opening
   work at 75%; finish and record the current chunk without consuming the final
   20% reserved for other work.
 - **P1.2 Status:** implemented inspector edits, canvas gestures and safe browser
   undo/redo, including CAS conflicts, uncertain-save receipt recovery and
   navigation/SSE races. All 388 browser tests, web build, Storybook, token
-  checks and focused lint pass. Deployment verification pending. P1.3–P1.5 remain unopened.
+  checks and focused lint pass. LAN-origin receipt fix adds an 11th editor
+  regression test. Pushed through `96fcd86`; deployed web image
+  `ud-editor-fix-20261116` in Helm revision 149. Live browser save/undo/redo
+  verified persisted versions 2/3/4; temporary smoke document removed.
+- **P1.3 Status:** implemented component sets, exhaustive variant axes, typed
+  text/boolean/swap properties, bounded graph validation, atomic metadata ops,
+  inspection and SDK support. Independent review plus 314 malformed probes;
+  3,701 backend tests passed, with the only three socket-denied checks passing
+  in the permitted render/effects rerun (53 passed / 1 platform skip).
+  Broker 465, facade 39, renderer service 14 tests; SDK drift, web build and
+  Helm lint pass. Deployment acceptance pending. P1.4–P1.5 remain unopened.
 - **Standing authorization:** Kyle explicitly authorized unattended deployments,
   frequent commits and direct pushes to main after the importer checkpoint.
   Continue chunk by chunk without asking again; quota stop remains 75%.

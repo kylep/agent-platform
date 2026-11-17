@@ -101,3 +101,26 @@ draft stale; discard and reload that draft before editing again. A failed
 network response offers **Retry save**, reusing the original receipt so a write
 cannot apply twice. This history lasts only for the current browser document
 session; server version history remains available separately.
+
+### Component sets and properties
+
+Use `component_sets` to reuse one component family across states and sizes.
+Each set has named axes, one variant per axis combination, and optional typed
+properties. Variants point to ordinary component trees. Text properties replace
+a bound text node, booleans show/hide a bound node, and instance-swap properties
+choose an allowlisted ordinary component for a bound nested instance.
+
+An instance selects a family using `of`, a combination using `variant`, and
+values using `props`. Missing axes use their first value; missing properties
+use their defaults. Property bindings apply before instance styling and explicit
+legacy overrides. Child overrides must match the selected variant; switching
+variants with stale overrides rejects the batch. Overrides on a swap target must
+work with every allowed replacement. IDs remain globally unique in authored component trees, so
+bindings are declared separately for each variant.
+
+Define or replace families atomically using `{"op":"component_sets","set":{...}}`;
+set an entry to `null` to remove it. Update `variant` and `props` through the usual
+`update` op with `expected_version`. Dangling references, cycles, invalid
+bindings and budget violations reject the whole batch. Ordinary components and
+old documents continue working unchanged. Inspect a family instance to see its
+available axes, effective values, defaults and bindings.

@@ -351,6 +351,7 @@ from .ui_doc_export_out import UiDocExportOut
 from .ui_doc_get_out import UiDocGetOut
 from .ui_doc_get_out_cursor_type_0 import UiDocGetOutCursorType0
 from .ui_doc_inspect_out import UiDocInspectOut
+from .ui_doc_inspect_out_component_set_type_0 import UiDocInspectOutComponentSetType0
 from .ui_doc_inspect_out_modes import UiDocInspectOutModes
 from .ui_doc_inspect_out_modes_additional_property import (
     UiDocInspectOutModesAdditionalProperty,
@@ -752,6 +753,7 @@ __all__ = (
     "UiDocGetOut",
     "UiDocGetOutCursorType0",
     "UiDocInspectOut",
+    "UiDocInspectOutComponentSetType0",
     "UiDocInspectOutModes",
     "UiDocInspectOutModesAdditionalProperty",
     "UiDocInspectOutWarningsItem",

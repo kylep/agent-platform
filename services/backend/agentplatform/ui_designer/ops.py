@@ -23,6 +23,7 @@ OP_FIELDS: dict[str, tuple[set[str], set[str]]] = {  # op -> (required, optional
     "replace": ({"id", "node"}, set()),
     "set_text": ({"id", "text"}, set()),
     "tokens": ({"set"}, set()),
+    "component_sets": ({"set"}, set()),
     "define_component": ({"id", "from"}, set()),
     "set_doc": ({"doc"}, set()),
 }
@@ -113,7 +114,7 @@ def _container(ref: NodeRef, path: str) -> list:
 
 
 def _taken(doc: dict) -> set[str]:
-    return set(index_nodes(doc))
+    return set(index_nodes(doc)) | set(doc.get("component_sets") or {})
 
 
 def _index(idx: Any, n: int, path: str) -> int:
@@ -238,10 +239,26 @@ def _tokens(doc: dict, op: dict, path: str) -> dict:
     return doc
 
 
+def _component_sets(doc: dict, op: dict, path: str) -> dict:
+    """Replace whole definitions; final document validation checks all users."""
+    changes = op["set"]
+    if not isinstance(changes, dict):
+        raise _fail("UD-TYPE", join_path(path, "set"), "expected an object", changes)
+    sets = doc.setdefault("component_sets", {})
+    for key, definition in changes.items():
+        if definition is None:
+            sets.pop(key, None)
+        elif not isinstance(definition, dict):
+            raise _fail("UD-TYPE", join_path(path, "set", key), "expected a definition or null", definition)
+        else:
+            sets[key] = copy.deepcopy(definition)
+    return doc
+
+
 def _define_component(doc: dict, op: dict, path: str) -> dict:
     cid = op["id"]
     ref = _target(doc, op["from"], join_path(path, "from"), ("node",))
-    if not isinstance(cid, str) or cid in index_nodes(doc):
+    if not isinstance(cid, str) or cid in _taken(doc):
         raise _fail("UD-DUPLICATE-ID", join_path(path, "id"),
                     f"{cid!r} is not a free id", cid)
     if ref.in_component:
@@ -273,4 +290,5 @@ def _set_doc(doc: dict, op: dict, path: str) -> dict:
 
 _OPS = {"insert": _insert, "update": _update, "remove": _remove, "move": _move,
         "replace": _replace, "set_text": _set_text, "tokens": _tokens,
-        "define_component": _define_component, "set_doc": _set_doc}
+        "define_component": _define_component, "set_doc": _set_doc,
+        "component_sets": _component_sets}

@@ -1147,3 +1147,36 @@ hides/disables editing for read-only viewers and historical versions. No schema,
 renderer, budget, or agent-tool changes are needed. Browser tests cover saved
 properties, rich-text inverse ops, zoomed gestures, keyboard focus guards,
 conflicts, historical views, stale loads and both own/external SSE races.
+
+## 18. Component sets, variants and typed properties (P1.3 addendum)
+
+Schema 1 gains optional `component_sets`, alongside existing plain component
+node trees. A set defines bounded named axes, exhaustive variants (`when` axis
+selections plus `of` a plain component), and typed properties: `text`, `boolean`
+and `instance-swap`. Each variant binds properties to IDs in its authored tree.
+Every variant binds every declared property. Text bindings replace text,
+booleans control visibility, and swaps choose an
+allowlisted plain component for a nested instance. The instance uses `of` for
+the set, `variant` for axis selections and `props` for property values. Omitted
+axes use their first declared value; omitted properties use declared defaults.
+Apply property bindings before instance placement/style and legacy overrides.
+
+The closed schema rejects ambiguous names, missing combinations, dangling or
+wrongly typed bindings and unsupported values. Limits: 50 sets, four axes,
+eight values per axis, 64 variant combinations, 32 properties and 16 binding
+targets per property. Property definitions and per-instance values each have an
+8 KiB aggregate cap; text values retain the 4 KiB cap. Empty axes plus one
+variant support properties alone.
+Existing document, authored-node, image, text, depth and expanded-effect budgets
+still apply. Validate references and cycles through every possible variant and
+allowed swap with bounded traversal, without enumerating property combinations.
+Text values and component/axis names are literal strings, not token references.
+
+A `component_sets` op atomically sets or removes definitions; `update` sets an
+instance's selection and values. All edits retain CAS and receipt semantics.
+Bounded get/inspect answers expose definitions, effective selections, defaults
+and bindings. No additional grants, database tables or external fetching.
+Expansion produces existing painter nodes; old documents retain identical
+render bytes. Tests cover all property types, defaults, override precedence,
+invalid combinations/bindings, cycles, expansion budgets, literal text, compact
+views and edit rollback. The agent cheatsheet includes a complete small example.

@@ -123,6 +123,7 @@ class _Plan:
 
 class _Builder:
     def __init__(self, doc: dict, mode: str | None):
+        self.doc = doc
         self.comps = doc.get("components") or {}
         self.tokens = doc.get("tokens") or {}
         self.modes = doc.get("modes")
@@ -174,7 +175,8 @@ class _Builder:
         child_prefix = prefix
         if t == "instance":
             of = node.get("of")
-            comp = self.comps.get(of)
+            from .components import resolve_instance
+            effective_of, comp = resolve_instance(self.doc, node)
             if depth + 1 > MAX_INSTANCE_DEPTH:
                 raise UiDesignerError(UD_EXPANSION, f"instance nesting deeper than {MAX_INSTANCE_DEPTH} "
                                       f"at {node.get('id')!r}",
@@ -197,7 +199,7 @@ class _Builder:
             if "title" in node:
                 merged["title"] = node["title"]
             child_prefix = prefix + local + "/"
-            base = join_path("$.components", of) if of in self.comps else base
+            base = join_path("$.components", effective_of) if effective_of in self.comps else base
             node = merged
             shared = False
             t = node.get("type")

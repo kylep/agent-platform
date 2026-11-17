@@ -10,6 +10,7 @@ COPY services/backend/agentplatform/appdata/__init__.py services/backend/agentpl
 COPY services/backend/agentplatform/ui_designer/__init__.py \
      services/backend/agentplatform/ui_designer/errors.py \
      services/backend/agentplatform/ui_designer/schema.py \
+     services/backend/agentplatform/ui_designer/components.py \
      services/backend/agentplatform/ui_designer/layout.py \
      services/backend/agentplatform/ui_designer/text.py \
      services/backend/agentplatform/ui_designer/fonts.py \

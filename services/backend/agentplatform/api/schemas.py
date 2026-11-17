@@ -2035,6 +2035,7 @@ class UiDocInspectOut(BaseModel):
     tokens: list[str] = []
     text: str | None = None
     component: str | None = None
+    component_set: dict[str, Any] | None = None
     authored: Any = None
     warnings: list[dict[str, Any]] = []
 

@@ -752,7 +752,7 @@ async def inspect_ui_document(slug: str, request: Request, node: str = Query(min
     try:
         for m in wanted:
             trees[m] = await _renderer(request).resolved(doc=doc, mode=m)
-        out = views.inspect_node(doc, node, trees)
+        out = views.inspect_node(doc, node, trees, budget=max(1024, _text_cap(request) - 2048))
     except UiDesignerError as e:
         raise ud_http(e)
     return S.UiDocInspectOut(slug=slug, version=view["at_version"] if "at_version" in view else view["version"],
