@@ -51,10 +51,11 @@ per-side `sides` widths; `shadow` is one or a list of drop and `inset` shadows
 with `spread`; `blur` is a layer blur and `backdrop_blur` a background blur;
 `blend` uses CSS blend-mode names. Limits: 8 paints per fill, 32
 shadows, 32 blurred nodes, 8 backdrop blurs per document, blur and spread up to
-64 px. Approximations (resvg is not a browser): `angular` and `diamond` are
-stepped (72 wedges, 48 nested diamonds); `backdrop_blur` re-paints and blurs
-what is already behind the node, clipped to its shape (not inside masks, and a
-single-node render only sees that subtree); `sides` is inside-aligned without
+64 px. `angular` uses a continuous native conic shader; `backdrop_blur` filters the
+composited pixels behind the shape, including nested transforms, clipping and
+masks. A node-only render retains the backdrop context it needs. The web
+inspector provides gradient type/angle/stop controls and backdrop blur editing.
+Remaining approximations: `diamond` uses 48 nested diamonds; `sides` is inside-aligned without
 dash; `plus-lighter` paints as `screen`; "plus darker" and "pass through" are
 not offered (omit `blend` for the latter). Image paints go on frames, rects and
 ellipses, and cannot be instance overrides.

@@ -1412,7 +1412,7 @@ async def ui_document_svg(slug: str, request: Request, node: str | None = None,
     view, sha, cc = await _doc_at(request, caller, slug, version)
     etag = '"' + render_client.cache_key(sha, node, mode, 1, annotate, max_edge=0) + '"'
     headers = {"Cache-Control": cc, "ETag": etag, "X-Content-Type-Options": "nosniff",
-               "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"}
+               "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"}
     if _etag_hit(request, etag):
         return Response(status_code=304, headers=headers)
     shas = {a for _p, a in image_assets(view["doc"])}
@@ -1424,8 +1424,9 @@ async def ui_document_svg(slug: str, request: Request, node: str | None = None,
                     UiDesignerAsset.sha256.in_(shas)))):
                 sizes[sh] = {"w": w, "h": h}
     try:
-        out = await _renderer(request).svg(doc=view["doc"], mode=mode, node=node, annotate=annotate,
-                                           assets=sizes)
+        async with request.app.state.session_factory() as s:
+            out = await _renderer(request).svg(s, doc=view["doc"], mode=mode, node=node, annotate=annotate,
+                                               assets=sizes)
     except UiDesignerError as e:
         raise ud_http(e)
     return Response(content=out["svg"], media_type="image/svg+xml", headers=headers)

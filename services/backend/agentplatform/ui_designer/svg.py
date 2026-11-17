@@ -46,7 +46,7 @@ from .schema import (BLEND_MODES, COLOR_RE, MAX_BACKDROPS, MAX_BLUR, MAX_BLURS, 
 from .text import layout_text, make_style
 
 # Bump with any change to what the painter emits; part of `renderer_version`.
-PAINTER_VERSION = 11
+PAINTER_VERSION = 12
 
 ANNOTATE_COLOR = "#ff2bd6"
 ANNOTATE_HALO = "#000000"
@@ -886,9 +886,15 @@ def boxes(node: dict) -> dict:
 
 def paint(resolved: dict, node_id: str | None = None, *, annotate: bool = False,
           assets: Mapping[str, AssetInfo] | None = None,
-          href: Callable[[str], str | None] | None = None) -> Painted:
+          href: Callable[[str], str | None] | None = None,
+          asset_bytes: Mapping[str, bytes] | None = None, effect_scale: float = 1,
+          effect_budget: Any = None) -> Painted:
     """SVG for one node (or a page) of a resolved tree. `assets` maps an image
     sha256 to its file and size; `href` (sha -> URL or None) covers the rest."""
+    from . import raster_effects
+    if raster_effects.required(resolved, node_id):
+        return raster_effects.paint_effects(resolved, node_id, scale=effect_scale,
+            assets=assets, asset_bytes=asset_bytes, annotate=annotate, effect_budget=effect_budget)
     node, ancestors = find_node(resolved, node_id)
     p = _Painter(assets, href)
     body: list[str] = []

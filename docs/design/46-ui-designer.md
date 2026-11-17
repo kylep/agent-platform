@@ -1525,3 +1525,28 @@ reads and every direct write remain unavailable. Existing wiki sessions retain
 their current fence. The controller alone writes the design. Tests cover native
 proposal composition, malformed/oversized inputs, CAS, restart/replay, deleted
 or replaced targets, exact read-path/query boundaries and browser chip refresh.
+
+## 30. Native conic gradients and backdrop composition (P3.14)
+
+The existing `angular` paint and `backdrop_blur` properties retain their schema
+and limits. Scenes using them dispatch inside the isolated renderer to a
+Skia-backed compositor; unaffected scenes keep their existing SVG/resvg path
+and byte-identical output. Angular paint uses a continuous sweep shader.
+Backdrop blur samples the actual preceding composited pixels, including nested
+transforms and masks, with explicit isolation at opacity/filter/mask/blend
+boundaries. Cropped nodes retain the required preceding page context.
+
+The compositor preserves outlined SVG for ordinary content and embeds trusted
+PNG samples for conic paints and filtered backdrops inside generated SVG,
+keeping web, PNG and export output on one path. No authored markup, arbitrary file path or network URL is admitted.
+Image bytes use the renderer's existing verified cache/missing-asset protocol,
+including the SVG route. Skia and its Linux runtime libraries are renderer-only
+production dependencies; API code remains I/O and validation. The painter
+version changes to invalidate cached effect renders.
+
+Budgets cover intermediate work as well as the final image: 10 million output
+pixels, 64 million aggregate working pixels and 128 MiB live effect surfaces,
+within the existing worker memory/deadline and eight-backdrop limits. Output
+byte limits remain in force. Tests cover sweep cardinals and continuous angles,
+alpha, nested/rotated/masked backdrop sampling, node crops, asset negotiation,
+export parity, budget refusal and unaffected legacy golden images.

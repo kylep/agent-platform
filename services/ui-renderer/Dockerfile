@@ -2,6 +2,8 @@
 #   docker build -f services/ui-renderer/Dockerfile -t agent-platform-ui-renderer:dev .
 # Only the ui_designer modules that need no database, plus the bundled fonts.
 FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends libegl1 libgl1 libfontconfig1 \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY services/ui-renderer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -21,6 +23,7 @@ COPY services/backend/agentplatform/ui_designer/__init__.py \
      services/backend/agentplatform/ui_designer/text.py \
      services/backend/agentplatform/ui_designer/fonts.py \
      services/backend/agentplatform/ui_designer/svg.py \
+     services/backend/agentplatform/ui_designer/raster_effects.py \
      agentplatform/ui_designer/
 COPY services/backend/agentplatform/ui_designer/fonts agentplatform/ui_designer/fonts
 COPY services/backend/agentplatform/ui_designer/licenses agentplatform/ui_designer/licenses

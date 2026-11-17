@@ -347,16 +347,29 @@ class RenderClient:
             raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean warnings exceed bounds')
         return body
 
-    async def svg(self, *, doc: dict, mode: str | None, node: str | None = None, annotate: bool = False,
+    async def svg(self, s=None, *, doc: dict, mode: str | None, node: str | None = None, annotate: bool = False,
                   asset_prefix: str = "/api/ui-designer/assets/", assets: dict | None = None) -> dict:
-        """The server's own SVG for the web: {svg, box, warnings, renderer_version}. `assets`
-        maps sha256 -> {w, h} so images are placed without a second request."""
-        status, body = await self._call("POST", "/svg", json={
-            "doc": doc, "mode": mode, "node": node, "annotate": annotate,
-            "asset_prefix": asset_prefix, "assets": assets or {}})
-        if status != 200 or not isinstance(body, dict):
-            _raise(status, body)
-        return body
+        """SVG stays vector except native-effect patches. Assets are uploaded by
+        verified document SHA only, after a bounded missing-assets response."""
+        from .schema import image_assets
+        req = {"doc": doc, "mode": mode, "node": node, "annotate": annotate,
+               "asset_prefix": asset_prefix, "assets": assets or {}}
+        for attempt in (0, 1):
+            status, body = await self._call("POST", "/svg", json=req)
+            if status == 409 and attempt == 0 and isinstance(body, dict) and body.get("missing"):
+                missing = body["missing"]
+                known = {sha for _, sha in image_assets(doc)}
+                if s is None or not (isinstance(missing, list) and len(missing) <= 5000 and
+                        all(isinstance(sha, str) and sha in known for sha in missing)):
+                    raise UiDesignerError(UD_RENDER_FAILED, "renderer requested unavailable or unrelated SVG assets")
+                await self._send_assets(s, list(dict.fromkeys(missing)))
+                continue
+            if status != 200 or not isinstance(body, dict):
+                _raise(status, body)
+            if not isinstance(body.get("svg"), str) or len(body["svg"].encode()) > 8 << 20:
+                raise UiDesignerError(UD_RENDER_FAILED, "renderer SVG exceeds 8MiB")
+            return body
+        raise UiDesignerError(UD_RENDER_FAILED, "renderer still lacks SVG assets after upload")
 
     async def resolved(self, *, doc: dict, mode: str | None) -> dict:
         """The resolved tree (glyph data cut) for the web overlay and text answers."""

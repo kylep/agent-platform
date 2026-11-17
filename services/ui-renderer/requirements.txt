@@ -6,3 +6,6 @@ Pillow>=10.4
 
 # Native boolean geometry, isolated in renderer workers (BSD-3-Clause).
 skia-pathops==0.9.2
+
+# Native effects compositor, renderer worker only (BSD-3-Clause).
+skia-python==144.1

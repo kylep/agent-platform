@@ -178,15 +178,15 @@ UI_DESIGNER_CHEATSHEET = r"""Document schema (closed: unknown keys are rejected;
     Clear links before deleting targets; play pinned versions at /ui-designer/<slug>/play?version=N (no URLs/scripts).
     fill = paint or a LIST of paints stacked bottom to top (max 8). paint = "#rrggbb"|"$color.name"
     |{color, opacity?}|{gradient: linear|radial|angular|diamond, stops: [[0-1,color],..], angle?,
-    opacity?}|{image: sha256 from `place`, fit?, opacity?}. angular/diamond are stepped
-    approximations (angle 0 = up, clockwise). Image paints: frame/rect/ellipse/path only.
+    opacity?}|{image: sha256 from `place`, fit?, opacity?}. angular is continuous; diamond is stepped
+    (angle 0 = up, clockwise). Image paints: frame/rect/ellipse/path only.
     stroke = {color, width?, align?: inside|center|outside, dash?: [n,..], cap?: butt|round|square,
     join?: miter|round|bevel, sides?: n|[t,r,b,l] per-side widths (frame/rect, inside)};
     radius = n or [tl,tr,br,bl].
     shadow = {x?,y?,blur?,spread?,color,inset?} or a list of them (drop shadows under the node,
     inset ones over it; first listed paints first; 32 per doc). blur = layer blur px (max 64,
     32 nodes). backdrop_blur = px; blurs what is painted behind the node, clipped to its shape
-    (approximate; max 8 nodes; skipped inside masks). blend = normal|darken|multiply|color-burn|
+    (max 8 nodes; nested transforms/masks supported). blend = normal|darken|multiply|color-burn|
     lighten|screen|color-dodge|plus-lighter(drawn as screen)|overlay|soft-light|hard-light|
     difference|exclusion|hue|saturation|color|luminosity.
   frame: layout, children, mask. layout is an OBJECT: {dir:row|column|grid,gap,pad,align:start|center|end|stretch,

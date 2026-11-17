@@ -24,9 +24,9 @@ def bounded(data: bytes, cap: int) -> bytes:
     return data
 
 
-def standalone_svg(resolved: dict, node: str | None, assets: dict, cap: int):
+def standalone_svg(resolved: dict, node: str | None, assets: dict, cap: int, *, asset_bytes=None, effect_scale=1):
     # All hrefs are synthesized by the renderer from cached, verified PNGs.
-    painted = svg.paint(resolved, node, assets=assets)
+    painted = svg.paint(resolved, node, assets=assets, asset_bytes=asset_bytes, effect_scale=effect_scale)
     data = bounded(painted.svg.encode(), cap)
     return data, painted
 
@@ -72,7 +72,7 @@ def _token_vars(doc: dict, mode: str | None):
     return ';'.join(declarations)
 
 
-def html_document(doc: dict, resolved: dict, node: str | None, assets: dict, cap: int):
+def html_document(doc: dict, resolved: dict, node: str | None, assets: dict, cap: int, *, asset_bytes=None, effect_scale=1):
     root = svg.find_node(resolved, node)[0]
     pending, count = [root], 0
     while pending:
@@ -82,7 +82,7 @@ def html_document(doc: dict, resolved: dict, node: str | None, assets: dict, cap
             raise UiDesignerError('UD-IMAGE-TOO-LARGE', 'HTML export is at most 200 expanded nodes')
         pending.extend(current.get('children', []))
     cap = min(cap, 1 << 20)
-    painted = svg.paint(resolved, node, assets=assets)
+    painted = svg.paint(resolved, node, assets=assets, asset_bytes=asset_bytes, effect_scale=effect_scale)
     authored = index_nodes(doc)
     warnings = ['HTML uses fixed absolute layout; components are expanded and prototype links are omitted.']
     def complex_node(n):

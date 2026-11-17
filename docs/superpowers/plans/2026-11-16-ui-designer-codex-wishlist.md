@@ -387,5 +387,17 @@ syntax, with authorized, bounded live thumbnails.
   sink, including bounded frame validation, UUID/CAS fences, crash receipt
   recovery and post-commit refresh events. Backend 4,006 passed / 21 skipped;
   browser 455, broker 472, facade 40 pass. Web build, Storybook, tokens, SDK
-  drift and Helm lint pass. Deployment/live acceptance follows this commit.
+  drift and Helm lint pass. Pushed `fc2c8bb`, deployed `ud-relay-20261117` in Helm revision 162.
+  Live Relay preview refreshed v1→v2 through the real API/event stream and
+  opened the selected node; the deployed controller passed isolated database
+  receipt-recovery and external-edit checks. The test message existed only in
+  the browser fixture. Temporary documents were removed.
   Fresh weekly quota: 49% used. No paid agent sprint was started for testing.
+
+- **P3.14 Status:** implemented continuous native conic gradients, composited
+  backdrop blur, shared intermediate-work budgets, verified image negotiation
+  and friendly inspector controls with exact undo. Unaffected SVG/PNG goldens
+  remain unchanged; the visual sample and Linux/amd64 native render passed.
+  Backend 4,021 passed / 21 skipped; browser 457, renderer 117, broker 472,
+  facade 40 pass. Web build, Storybook, tokens, SDK drift and Helm lint pass.
+  Deployment/live acceptance follows this commit. Fresh weekly quota: 51%.

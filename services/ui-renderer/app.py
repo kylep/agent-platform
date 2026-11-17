@@ -174,6 +174,42 @@ def _node_assets(node: dict) -> list[str]:
     return assets_used({"pages": [{"children": kids}]})
 
 
+def _paint_assets(resolved: dict, node_id: str | None) -> list[str]:
+    """Effects read preceding page context; ordinary crops keep narrow assets."""
+    from agentplatform.ui_designer import svg, raster_effects
+    from agentplatform.ui_designer.errors import UiDesignerError
+    node = svg.find_node(resolved, node_id)[0]
+    if not raster_effects.required(resolved, node_id):
+        return _node_assets(node)
+    for page in resolved.get("pages", []):
+        try:
+            svg.find_node({"pages": [page]}, node_id)
+        except UiDesignerError as error:
+            if error.code == "UD-OP-TARGET":
+                continue
+            raise
+        return svg.assets_used({"pages": [page]})
+    return []
+
+
+def _effect_bytes(cfg: Config, resolved: dict, node_id: str | None, need: list[str]) -> dict:
+    from agentplatform.ui_designer import raster_effects
+    from agentplatform.ui_designer.errors import UiDesignerError
+    if not raster_effects.required(resolved, node_id):
+        return {}
+    # Cache files are created only by job_asset after source-hash verification.
+    # No renderer inputs are interpreted as paths or network locations.
+    total = 0
+    result = {}
+    for sha in need:
+        path = _asset_path(cfg, sha)
+        total += path.stat().st_size
+        if total > 128 << 20:
+            raise UiDesignerError("UD-IMAGE-TOO-LARGE", "effects asset inputs exceed 128MiB")
+        result[sha] = path.read_bytes()
+    return result
+
+
 def job_render(cfg: Config, req: dict) -> dict:
     from agentplatform.ui_designer import svg
     from agentplatform.ui_designer.layout import layout_document
@@ -182,16 +218,23 @@ def job_render(cfg: Config, req: dict) -> dict:
     nodes = req["nodes"] or [None]
     found = [svg.find_node(resolved, n)[0] for n in nodes]
     need: dict[str, None] = {}
-    for n in found:
-        for s in _node_assets(n):
+    for nid in nodes:
+        for s in _paint_assets(resolved, nid):
             need.setdefault(s)
     missing = [s for s in need if not _asset_path(cfg, s).is_file()]
     if missing:
         return {"ok": False, "code": "MISSING-ASSETS", "missing": missing}
     infos = {s: _asset_info(cfg, s) for s in need}
     images = []
+    from agentplatform.ui_designer.raster_effects import new_budget
+    effect_budget = new_budget()
     for nid, node in zip(nodes, found):
-        p = svg.paint(resolved, nid, annotate=req["annotate"], assets=infos)
+        # Match the actual ladder viewport, including small thumbnails.
+        box = svg._box(node)
+        effect_scale = min(req["scale"], req["max_edge"] / max(1, box[2], box[3]))
+        p = svg.paint(resolved, nid, annotate=req["annotate"], assets=infos,
+                      asset_bytes=_effect_bytes(cfg, resolved, nid, list(need)), effect_scale=effect_scale,
+                      effect_budget=effect_budget)
         out = ladder(p.svg, p, req["scale"], req["max_edge"], req["max_bytes"], req["background"],
                      cfg.asset_dir)
         out.update(node=nid if nid is not None else p.node.get("id"), bytes=len(out["data"]),
@@ -208,8 +251,18 @@ def job_svg(cfg: Config, req: dict) -> dict:
     prefix = svg.safe_prefix(req["asset_prefix"])
     dims = req["assets"]
     infos = {s: svg.AssetInfo(prefix + s, d.get("w"), d.get("h")) for s, d in dims.items()}
+    need = _paint_assets(resolved, req["node"])
+    from agentplatform.ui_designer import raster_effects
+    if raster_effects.required(resolved, req["node"]):
+        missing = [sha for sha in need if not _asset_path(cfg, sha).is_file()]
+        if missing:
+            return {"ok": False, "code": "MISSING-ASSETS", "missing": missing}
+        # Effects sample actual verified cache pixels, including preceding
+        # siblings absent from the selected subtree and caller size hints.
+        infos = {sha: _asset_info(cfg, sha) for sha in need}
     p = svg.paint(resolved, req["node"], annotate=req["annotate"], assets=infos,
-                  href=lambda s: prefix + s)
+                  href=lambda s: prefix + s,
+                  asset_bytes=_effect_bytes(cfg, resolved, req["node"], need))
     return {"ok": True, "renderer_version": svg.renderer_version(), "svg": p.svg,
             "box": [p.x, p.y, p.w, p.h], "warnings": resolved.get("warnings", [])}
 
@@ -220,7 +273,7 @@ def job_export(cfg: Config, req: dict) -> dict:
     from agentplatform.ui_designer.layout import layout_document
     resolved = layout_document(req["doc"], req["mode"])
     node = svg.find_node(resolved, req["node"])[0]
-    need = list(dict.fromkeys(_node_assets(node)))
+    need = _paint_assets(resolved, req["node"])
     missing = [sha for sha in need if not _asset_path(cfg, sha).is_file()]
     if missing:
         return {"ok": False, "code": "MISSING-ASSETS", "missing": missing}
@@ -237,10 +290,12 @@ def job_export(cfg: Config, req: dict) -> dict:
         infos[sha] = svg.AssetInfo("data:image/png;base64," + base64.b64encode(raw).decode(), info.w, info.h)
     warnings_ = []
     if req["format"] == "html":
-        data, painted, notes = html_document(req["doc"], resolved, req["node"], infos, req["max_bytes"])
+        data, painted, notes = html_document(req["doc"], resolved, req["node"], infos, req["max_bytes"],
+            asset_bytes=_effect_bytes(cfg, resolved, req["node"], need), effect_scale=req["scale"])
         warnings_.extend(notes)
     else:
-        data, painted = standalone_svg(resolved, req["node"], infos, req["max_bytes"])
+        data, painted = standalone_svg(resolved, req["node"], infos, req["max_bytes"],
+            asset_bytes=_effect_bytes(cfg, resolved, req["node"], need), effect_scale=req["scale"])
         if req["format"] == "pdf":
             width, height = max(1, round(painted.w * req["scale"])), max(1, round(painted.h * req["scale"]))
             if width * height > MAX_PIXELS or max(width, height) > 4096:
@@ -274,12 +329,14 @@ def _job_diff_uncached(cfg: Config, req: dict) -> dict:
             selected.append(None)
     if not any(selected):
         raise UiDesignerError('UD-OP-TARGET', 'selected node is missing from both versions')
-    need = list(dict.fromkeys(sha for node in selected if node for sha in _node_assets(node)))
+    need = list(dict.fromkeys(sha for tree,node in zip(resolved,selected) if node for sha in _paint_assets(tree, req['node'])))
     missing = [sha for sha in need if not _asset_path(cfg, sha).is_file()]
     if missing:
         return {'ok': False, 'code': 'MISSING-ASSETS', 'missing': missing}
     infos = {sha:_asset_info(cfg, sha) for sha in need}
-    paints = [svg.paint(tree, req['node'], assets=infos) if node else None for tree,node in zip(resolved,selected)]
+    from agentplatform.ui_designer.raster_effects import new_budget
+    effect_budget = new_budget()
+    paints = [svg.paint(tree, req['node'], assets=infos, asset_bytes=_effect_bytes(cfg, tree, req['node'], need), effect_scale=req['scale'], effect_budget=effect_budget) if node else None for tree,node in zip(resolved,selected)]
     box, width, height = visual_diff.union_box([[p.x,p.y,p.w,p.h] for p in paints if p], req['scale'])
     images = []
     for painted in paints:

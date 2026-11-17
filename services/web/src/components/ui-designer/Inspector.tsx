@@ -1,4 +1,6 @@
 import "./Inspector.css";
+import PaintControls from "./PaintControls";
+import { editedPaint } from "../../lib/uiPaintEditing";
 import { useEffect, useState } from "react";
 import { Button } from "@ap/ui/button";
 import { Input, Select, Textarea } from "@ap/ui/field";
@@ -12,7 +14,7 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
   useEffect(() => { setDraft({}); setError(""); }, [inspection.id, inspection.version]);
   if (!authored) return <p className="muted">This expanded component node cannot be edited directly.</p>;
   const value = (key: string) => draft[key] ?? (typeof authored[key] === "string" || typeof authored[key] === "number" ? String(authored[key]) : "");
-  const change = (key: string, next: string) => setDraft((d) => ({ ...d, [key]: next }));
+  const change = (key: string, next: string) => setDraft((d) => ({ ...Object.fromEntries(Object.entries(d).filter(([k]) => key !== "fill" || !k.startsWith("paint."))), [key]: next }));
   const layout = authored.layout && typeof authored.layout === "object" ? authored.layout as Record<string, unknown> : {};
   const layoutDirection = draft["layout.dir"] ?? String(layout.dir ?? "");
   const constraints = authored.constraints && typeof authored.constraints === "object" ? authored.constraints as Record<string, unknown> : {};
@@ -22,13 +24,14 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
     try {
       const patch: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(draft)) {
-        if (key.startsWith("layout.") || key.startsWith("link.") || key.startsWith("constraints.")) continue;
-        if (["x", "y", "w", "h", "opacity", "min_w", "max_w", "min_h", "max_h"].includes(key)) {
+        if (key.startsWith("layout.") || key.startsWith("link.") || key.startsWith("constraints.") || key.startsWith("paint.")) continue;
+        if (["x", "y", "w", "h", "opacity", "min_w", "max_w", "min_h", "max_h", "backdrop_blur"].includes(key)) {
           if (!val.trim()) patch[key] = null;
           else if (["w", "h"].includes(key) && ["hug", "fill"].includes(val.trim())) patch[key] = val.trim();
-          else { const num = Number(val); if (!Number.isFinite(num) || (["w", "h"].includes(key) && num <= 0)) throw new Error("Enter valid dimensions and coordinates."); if (["min_w", "max_w", "min_h", "max_h"].includes(key) && (num < 0 || num > 100000)) throw new Error("Minimum and maximum sizes must be from 0 to 100000."); patch[key] = num; }
+          else { const num = Number(val); if (!Number.isFinite(num) || (["w", "h"].includes(key) && num <= 0)) throw new Error("Enter valid dimensions and coordinates."); if (["min_w", "max_w", "min_h", "max_h"].includes(key) && (num < 0 || num > 100000)) throw new Error("Minimum and maximum sizes must be from 0 to 100000."); if (key === "backdrop_blur" && (num < 0 || num > 64)) throw new Error("Backdrop blur must be from 0 to 64 pixels."); patch[key] = num; }
         } else patch[key] = ["fill", "color", "align", "vertical_align", "decoration", "text_case"].includes(key) && !val.trim() ? null : val;
       }
+      if (Object.keys(draft).some((key) => key.startsWith("paint."))) patch.fill = editedPaint(draft.fill === "" ? {} : authored?.fill, draft);
       const layoutChanges = Object.entries(draft).filter(([key]) => key.startsWith("layout."));
       if (layoutChanges.length) {
         const next = { ...layout };
@@ -83,6 +86,12 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
       <p className="muted">Constraints affect free-positioned or absolute children when their parent is resized with numeric dimensions.</p>
     </fieldset>
     {inspection.type !== "text" && <p className="ud-edit-field"><label htmlFor="ud-fill">Fill (colour or token)</label><Input id="ud-fill" value={value("fill")} onChange={(e) => change("fill", e.target.value)} disabled={disabled} placeholder={authored.fill && typeof authored.fill === "object" ? "Mixed paints (preserved unless edited)" : "#rrggbb or $color.name"} /></p>}
+    {inspection.type !== "text" && <>
+      <Button disabled={disabled} onClick={() => { change("fill", ""); change("paint.0.gradient", "angular"); const styles = getComputedStyle(document.documentElement); change("paint.0.stops", JSON.stringify([[0, styles.getPropertyValue("--ds-text").trim()], [1, styles.getPropertyValue("--ds-surface").trim()]])); }}>Replace fill with conic gradient</Button>
+      {(draft["paint.0.gradient"] || (Array.isArray(authored.fill) ? authored.fill : [authored.fill]).some((p) => p && typeof p === "object" && "gradient" in p)) && <PaintControls fill={draft.fill === "" ? { gradient: "angular", stops: [] } : authored.fill} draft={draft} change={change} disabled={disabled} />}
+    </>}
+    <p className="ud-edit-field"><label htmlFor="ud-backdrop">Backdrop blur (px)</label><Input id="ud-backdrop" inputMode="decimal" value={value("backdrop_blur")} placeholder="None" disabled={disabled} onChange={(e)=>change("backdrop_blur",e.target.value)} /></p>
+    <p className="muted">Backdrop blur softens content behind the selected shape. Clear the value to remove it.</p>
     {inspection.type === "text" && <><p className="ud-edit-field"><label htmlFor="ud-text">Text</label><Textarea id="ud-text" value={draft.text ?? (typeof authored.text === "string" ? authored.text : inspection.text ?? "")} onChange={(e) => change("text", e.target.value)} disabled={disabled} rows={4} /></p>
       {Array.isArray(authored.text) && <p className="muted">Editing text replaces its inline formatting. Undo restores it.</p>}
       <p className="ud-edit-field"><label htmlFor="ud-color">Text colour or token</label><Input id="ud-color" value={value("color")} onChange={(e) => change("color", e.target.value)} disabled={disabled} /></p>

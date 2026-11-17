@@ -300,3 +300,52 @@ test('canvas resizing starts at resolved clamped size instead of authored size',
   await page.mouse.move(handle.x + handle.width / 2 + 20, handle.y + handle.height / 2 + 10); await page.mouse.up();
   await expect.poll(() => state.writes.length).toBe(1); expect(state.writes[0].ops).toEqual([{ op: 'resize', id: 'box', set: { w: 220, h: 90 } }]);
 });
+
+test('conic paint and backdrop controls preserve layers and exact undo with CAS', async ({ page }) => {
+  const state = await setup(page);
+  const fill = [{ color: '$color.surface', opacity: 0.3 }, { gradient: 'angular', angle: 17, opacity: 0.7, stops: [[0,'#000000'],[1,'#ffffff']] }, { image: 'a'.repeat(64), fit: 'cover' }];
+  state.nodes[0].fill = structuredClone(fill); state.nodes[0].backdrop_blur = 8;
+  await pick(page);
+  await page.getByLabel('Gradient angle, layer 2').fill('90');
+  await page.getByRole('button',{name:'Add stop, layer 2',exact:true}).click();
+  await page.getByLabel('Colour or token, layer 2 stop 1',{exact:true}).fill('#ff0000');
+  await page.getByLabel('Position, layer 2 stop 2',{exact:true}).fill('0.5');
+  await page.getByLabel('Colour or token, layer 2 stop 2',{exact:true}).fill('#00ff00');
+  await page.getByLabel('Colour or token, layer 2 stop 3',{exact:true}).fill('#0000ff');
+  await page.getByLabel('Backdrop blur (px)').fill('20');
+  await page.getByRole('button', {name:'Save node'}).click();
+  await expect(page.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();
+  expect(state.writes[0].expected_version).toBe(1);
+  expect(state.writes[0].ops[0].set).toEqual({backdrop_blur:20,fill:[fill[0],{...fill[1],angle:90,stops:[[0,'#ff0000'],[0.5,'#00ff00'],[1,'#0000ff']]},fill[2]]});
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Redo',exact:true})).toBeEnabled();
+  expect(state.writes[1].ops[0].set).toEqual({backdrop_blur:8,fill});
+  await page.getByLabel('Title',{exact:true}).fill('Preserved');
+  await page.getByRole('button',{name:'Save node'}).click();
+  await expect.poll(()=>state.writes.length).toBe(3);
+  expect(state.writes[2].ops[0].set).toEqual({title:'Preserved'});
+});
+
+test('conic creation, bounded validation and clearing backdrop blur', async ({page})=>{
+  const state=await setup(page); await pick(page);
+  await page.getByRole('button',{name:'Replace fill with conic gradient'}).click();
+  await expect(page.getByLabel('Gradient type, layer 1')).toHaveValue('angular');
+  await page.getByLabel('Backdrop blur (px)').fill('65');
+  await page.getByRole('button',{name:'Save node'}).click();
+  await expect(page.getByRole('alert')).toContainText('0 to 64'); expect(state.writes).toHaveLength(0);
+  await page.getByLabel('Backdrop blur (px)').fill('');
+  await page.getByLabel('Position, layer 1 stop 1',{exact:true}).fill('1');
+  await page.getByLabel('Position, layer 1 stop 2',{exact:true}).fill('0');
+  await page.getByRole('button',{name:'Save node'}).click(); await expect(page.getByRole('alert')).toContainText('ascending');
+  await page.getByLabel('Position, layer 1 stop 1',{exact:true}).fill('0');
+  await page.getByLabel('Position, layer 1 stop 2',{exact:true}).fill('1');
+  await page.getByLabel('Colour or token, layer 1 stop 1',{exact:true}).fill('#000000');
+  await page.getByLabel('Colour or token, layer 1 stop 2',{exact:true}).fill('#ffffff');
+  await expect(page.getByRole('button',{name:'Remove stop 1, layer 1',exact:true})).toBeDisabled();
+  for(let i=0;i<6;i++) await page.getByRole('button',{name:'Add stop, layer 1',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Add stop, layer 1',exact:true})).toBeDisabled();
+  for(let i=8;i>2;i--) await page.getByRole('button',{name:`Remove stop ${i}, layer 1`,exact:true}).click();
+  await page.getByRole('button',{name:'Save node'}).click();
+  await expect.poll(()=>state.writes.length).toBe(1);
+  expect(state.writes[0].ops[0].set).toEqual({backdrop_blur:null,fill:{gradient:'angular',stops:[[0,'#000000'],[1,'#ffffff']]}});
+});
