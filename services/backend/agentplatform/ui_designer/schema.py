@@ -24,6 +24,7 @@ SCHEMA_VERSION = 1
 MAX_DOC_BYTES = 1 << 20
 MAX_NODES = 5000
 MAX_PAGES = 50
+MAX_LINKS = 500
 MAX_COMPONENTS = 200
 MAX_INSTANCE_DEPTH = 6
 MAX_EXPANDED_NODES = 20_000
@@ -65,7 +66,7 @@ NODE_TYPES = ("frame", "text", "rect", "ellipse", "line", "path", "image", "inst
 
 _SHARED = {"id", "type", "title", "w", "h", "x", "y", "absolute", "rotate", "fill", "stroke",
            "radius", "opacity", "visible", "clip", "shadow", "blur", "backdrop_blur", "blend",
-           "meta"}
+           "meta", "link_to"}
 TYPE_KEYS: dict[str, set[str]] = {
     "frame": _SHARED | {"layout", "children", "mask"},
     "text": _SHARED | {"text", "style", "color", "align", "max_lines"},
@@ -82,7 +83,7 @@ TYPE_KEYS: dict[str, set[str]] = {
 _NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset", "variant", "props"}
 
 # Value positions that are text, not token references (resolution skips them).
-_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image", "props", "variant", "axes", "properties", "when", "bindings"}
+_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image", "props", "variant", "axes", "properties", "when", "bindings", "link_to", "target"}
 
 
 # --- ids -----------------------------------------------------------------
@@ -250,6 +251,9 @@ class _Ctx:
     path_bytes: int = 0
     instances: list[tuple[str, dict, str]] = field(default_factory=list)  # path, node, scope
     comp_nodes: dict[str, dict[str, dict]] = field(default_factory=dict)
+    link_targets: set[str] = field(default_factory=set)
+    links: dict[str, dict] = field(default_factory=dict)
+    link_count: int = 0
 
     def add(self, code: str, path: str, message: str, value: Any = None,
             fix: str | None = None) -> None:
@@ -594,8 +598,30 @@ def _asset(c: _Ctx, v: Any, path: str) -> None:
         c.add("UD-FORMAT", path, "an asset is a lowercase sha256 hex digest", v)
 
 
+def _link_to(c: _Ctx, value: Any, path: str) -> None:
+    """A closed, inert interaction. Defaults are applied by the viewer."""
+    if not _obj(c, value, path, {"target", "trigger", "transition", "duration_ms", "delay_ms"},
+                ("target",)):
+        return
+    c.links[path] = value
+    target = value.get("target")
+    if not isinstance(target, str) or not ID_RE.fullmatch(target):
+        c.add("UD-FORMAT", join_path(path, "target"), "target must be an authored frame id", target)
+    trigger = value.get("trigger", "tap")
+    transition = value.get("transition", "instant")
+    _enum(c, trigger, join_path(path, "trigger"), ("tap", "hover", "after-delay"))
+    _enum(c, transition, join_path(path, "transition"), ("instant", "dissolve", "slide"))
+    for field, lo, hi in (("duration_ms", 0, 2000), ("delay_ms", 100, 60000)):
+        if field in value:
+            number = value[field]
+            if isinstance(number, bool) or not isinstance(number, int) or not lo <= number <= hi:
+                c.add("UD-BOUNDS", join_path(path, field), f"expected an integer from {lo} to {hi}", number)
+    if "delay_ms" in value and trigger != "after-delay":
+        c.add("UD-VALUE", join_path(path, "delay_ms"), "delay_ms is only for after-delay interactions")
+
+
 PROP_CHECKS = {
-    "title": _title,
+    "title": _title, "link_to": _link_to,
     "w": _size, "h": _size,
     "x": lambda c, v, p: _num(c, v, p), "y": lambda c, v, p: _num(c, v, p),
     "absolute": _bool, "clip": _bool, "visible": _bool,
@@ -643,8 +669,15 @@ def _node(c: _Ctx, n: Any, path: str, depth: int, scope: str, root_key: str | No
         c.add("UD-ID", join_path(path, "id"),
               f"a component's root id is its key {root_key!r}", n["id"])
     nid = n.get("id") if isinstance(n.get("id"), str) else None
+    if scope == "page" and t == "frame" and nid:
+        c.link_targets.add(nid)
     if scope != "page" and nid:
         c.comp_nodes.setdefault(scope, {})[nid] = n
+    if "link_to" in n:
+        c.link_count += 1
+    if isinstance(n.get("overrides"), dict):
+        c.link_count += sum(isinstance(key, str) and key.rsplit(".", 1)[-1] == "link_to"
+                            for key in n["overrides"])
     for k, v in n.items():
         if k in PROP_CHECKS and k in allowed:
             PROP_CHECKS[k](c, v, join_path(path, k))
@@ -769,6 +802,13 @@ def collect_issues(doc: Any) -> list[Issue]:
     validate_sets(doc, c)
     for path, n, scope in c.instances:
         _check_instance(c, path, n, scope)
+    if c.link_count > MAX_LINKS:
+        c.add("UD-LIMIT", "$", f"at most {MAX_LINKS} authored interactions, including overrides")
+    for path, link in c.links.items():
+        target = link.get("target")
+        if isinstance(target, str) and ID_RE.fullmatch(target) and target not in c.link_targets:
+            c.add("UD-VALUE", join_path(path, "target"),
+                  "target must name an existing frame authored in a page tree", target)
     if c.nodes > MAX_NODES:
         c.add("UD-LIMIT", "$", f"{c.nodes} authored nodes; the limit is {MAX_NODES}")
     if c.shadows > MAX_SHADOWS:

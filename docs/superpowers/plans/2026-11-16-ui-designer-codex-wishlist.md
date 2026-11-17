@@ -179,7 +179,14 @@ Then propose (don't build) designs for P2 items 6–8 in the same file.
   3,701 backend tests passed, with the only three socket-denied checks passing
   in the permitted render/effects rerun (53 passed / 1 platform skip).
   Broker 465, facade 39, renderer service 14 tests; SDK drift, web build and
-  Helm lint pass. Deployment acceptance pending. P1.4–P1.5 remain unopened.
+  Helm lint pass. Pushed `0aa846d`, deployed `ud-components-20261116`
+  in Helm revision 150. Live create/edit/inspect/render verified a state change,
+  text property and icon swap; temporary smoke document removed.
+- **P1.4 Status:** implemented prototype interactions, inspector controls and a
+  version-pinned click-through viewer. Backend 3,744 passed / 20 skipped;
+  browser 397, renderer 14, broker 465, facade 39 tests pass, plus builds,
+  Storybook, tokens, SDK drift and Helm lint. Deployment acceptance pending.
+  P1.5 implementation remains unopened.
 - **Standing authorization:** Kyle explicitly authorized unattended deployments,
   frequent commits and direct pushes to main after the importer checkpoint.
   Continue chunk by chunk without asking again; quota stop remains 75%.

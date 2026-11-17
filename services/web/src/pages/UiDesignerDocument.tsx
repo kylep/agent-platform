@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage } from "../api";
+import { prototypeFrames } from "../lib/prototype";
 import Inspector from "../components/ui-designer/Inspector";
 import { Button } from "@ap/ui/button";
 import { useDesignerEditing } from "../lib/useDesignerEditing";
@@ -218,6 +219,7 @@ export default function UiDesignerDocument() {
           </select>
         </label>
         <div className="ud-actions">
+          {(version ?? pinned) && <Link to={`/ui-designer/${encodeURIComponent(slug)}/play?${new URLSearchParams({ version: String(version ?? pinned), mode, ...(page && page.children?.find((n)=>n.type === "frame" && !n.of) ? { frame: page.children.find((n)=>n.type === "frame" && !n.of)!.id } : {}) })}`}>Play prototype</Link>}
           {canWrite && !version && <><Button onClick={editing.undo} disabled={stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
           <button type="button" onClick={labelVersion}>Label this version</button>
           <button type="button" onClick={() => (cmp ? setCmp(null) : openCompare())}>
@@ -293,7 +295,7 @@ export default function UiDesignerDocument() {
         </div>
         <aside className="ud-inspector" aria-label="Inspector">
           <h2>Inspector</h2>
-          {picked && inspection?.id === picked.id ? <Inspector inspection={inspection} disabled={!editable} freePosition={freePosition} onSave={(changes) => saveNode(inspection.id, changes)} /> : <p className="muted">{picked ? "Loading node…" : "Click a node."}</p>}
+          {picked && inspection?.id === picked.id ? <Inspector inspection={inspection} disabled={!editable} freePosition={freePosition} frames={resolved ? prototypeFrames(resolved) : []} onSave={(changes) => saveNode(inspection.id, changes)} /> : <p className="muted">{picked ? "Loading node…" : "Click a node."}</p>}
           <section className="ud-comments" aria-label="Comments">
             <h2>Comments</h2>
             <ul>

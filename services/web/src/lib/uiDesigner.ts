@@ -10,6 +10,7 @@ export type UiVersionRow = {
 export type RNode = {
   id: string; type?: string; name?: string; title?: string;
   x?: number; y?: number; w?: number; h?: number; children?: RNode[];
+  of?: string; visible?: boolean; clip?: boolean; rotate?: number; bounds?: [number, number, number, number]; link_to?: UiPrototypeLink;
 };
 export type RPage = { id: string; name?: string; title?: string; children?: RNode[] };
 export type Resolved = { pages?: RPage[] };
@@ -54,3 +55,5 @@ export const opSummary = (o: Record<string, unknown>) =>
 export type UiEditOp = { op: "update"; id: string; set: Record<string, unknown> };
 export type UiWriteResult = { version: number; replayed?: boolean; warnings?: Record<string, unknown>[] };
 export type UiInspection = { version: number; id: string; type?: string; authored: Record<string, unknown> | null; text?: string; warnings?: Record<string, unknown>[] };
+
+export type UiPrototypeLink = { target: string; trigger?: "tap" | "hover" | "after-delay"; transition?: "instant" | "dissolve" | "slide"; duration_ms?: number; delay_ms?: number };

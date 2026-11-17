@@ -194,3 +194,17 @@ test('save undo and redo work when secure-context randomUUID is unavailable', as
   expect(state.writes.every((w) => /^[0-9a-f]{32}$/.test(w.request_id))).toBe(true);
   expect(new Set(state.writes.map((w) => w.request_id)).size).toBe(3);
 });
+
+test('prototype link fields save atomically and undo restores absent link', async ({ page }) => {
+  const state = await setup(page); await pick(page);
+  await page.getByLabel('Destination frame').selectOption('frame');
+  await page.getByLabel('Trigger', { exact: true }).selectOption('after-delay');
+  await page.getByLabel('Transition', { exact: true }).selectOption('dissolve');
+  await page.getByLabel('Delay (ms)', { exact: true }).fill('500');
+  await page.getByRole('button', { name: 'Save node' }).click();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  expect(state.writes[0].ops[0].set).toEqual({ link_to: { target: 'frame', trigger: 'after-delay', transition: 'dissolve', duration_ms: 200, delay_ms: 500 } });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(() => state.writes.length).toBe(2); expect(state.writes[1].ops[0].set).toEqual({ link_to: null });
+  await expect(page.getByRole('link', { name: 'Play prototype' })).toHaveAttribute('href', /version=3/);
+});

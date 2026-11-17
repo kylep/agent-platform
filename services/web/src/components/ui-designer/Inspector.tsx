@@ -4,8 +4,8 @@ import { Button } from "@ap/ui/button";
 import { Input, Select, Textarea } from "@ap/ui/field";
 import type { UiInspection } from "../../lib/uiDesigner";
 
-type Props = { inspection: UiInspection; disabled: boolean; freePosition: boolean; onSave: (changes: Record<string, unknown>) => void };
-export default function Inspector({ inspection, disabled, freePosition, onSave }: Props) {
+type Props = { inspection: UiInspection; disabled: boolean; freePosition: boolean; frames?: { id: string; title?: string }[]; onSave: (changes: Record<string, unknown>) => void };
+export default function Inspector({ inspection, disabled, freePosition, frames = [], onSave }: Props) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const authored = inspection.authored;
@@ -14,11 +14,13 @@ export default function Inspector({ inspection, disabled, freePosition, onSave }
   const value = (key: string) => draft[key] ?? (typeof authored[key] === "string" || typeof authored[key] === "number" ? String(authored[key]) : "");
   const change = (key: string, next: string) => setDraft((d) => ({ ...d, [key]: next }));
   const layout = authored.layout && typeof authored.layout === "object" ? authored.layout as Record<string, unknown> : {};
+  const link = authored.link_to && typeof authored.link_to === "object" ? authored.link_to as Record<string, unknown> : {};
+  const linkValue = (key: string, fallback = "") => draft[`link.${key}`] ?? String(link[key] ?? fallback);
   function save() {
     try {
       const patch: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(draft)) {
-        if (key.startsWith("layout.")) continue;
+        if (key.startsWith("layout.") || key.startsWith("link.")) continue;
         if (["x", "y", "w", "h", "opacity"].includes(key)) {
           if (!val.trim()) patch[key] = null;
           else if (["w", "h"].includes(key) && ["hug", "fill"].includes(val.trim())) patch[key] = val.trim();
@@ -36,6 +38,20 @@ export default function Inspector({ inspection, disabled, freePosition, onSave }
         }
         patch.layout = draft["layout.dir"] === "" ? null : Object.keys(next).length ? next : null;
       }
+      if (Object.keys(draft).some((key) => key.startsWith("link."))) {
+        if (!linkValue("target")) patch.link_to = null;
+        else {
+          const trigger = linkValue("trigger", "tap"), transition = linkValue("transition", "instant");
+          const next: Record<string, unknown> = { ...link, target: linkValue("target"), trigger, transition };
+          for (const [field, fallback, lo, hi] of [["duration_ms", transition === "instant" ? "0" : "200", 0, 2000], ["delay_ms", "1000", 100, 60000]] as const) {
+            if (field === "delay_ms" && trigger !== "after-delay") { delete next.delay_ms; continue; }
+            const raw = linkValue(field, fallback), num = Number(raw);
+            if (!raw.trim() || !Number.isInteger(num) || num < lo || num > hi) throw new Error(`${field === "delay_ms" ? "Delay" : "Duration"} must be an integer from ${lo} to ${hi} ms.`);
+            next[field] = num;
+          }
+          patch.link_to = next;
+        }
+      }
       setError(""); onSave(patch);
     } catch (e) { setError(e instanceof Error ? e.message : "Check the form values."); }
   }
@@ -51,6 +67,15 @@ export default function Inspector({ inspection, disabled, freePosition, onSave }
       {["gap", "pad"].map((key) => <p className="ud-edit-field" key={key}><label htmlFor={`ud-layout-${key}`}>{key === "gap" ? "Gap" : "Padding"}</label><Input id={`ud-layout-${key}`} inputMode="decimal" value={draft[`layout.${key}`] ?? (typeof layout[key] === "number" ? String(layout[key]) : "")} onChange={(e) => change(`layout.${key}`, e.target.value)} placeholder={Array.isArray(layout[key]) ? "Mixed padding (preserved unless edited)" : "0"} /></p>)}
       {([['align', ['start','center','end','stretch']], ['justify', ['start','center','end','space-between']]] as const).map(([key, choices]) => <p className="ud-edit-field" key={key}><label htmlFor={`ud-layout-${key}`}>{key === 'align' ? 'Align' : 'Justify'}</label><Select id={`ud-layout-${key}`} value={draft[`layout.${key}`] ?? String(layout[key] ?? '')} onChange={(e) => change(`layout.${key}`,e.target.value)}><option value="">Default</option>{choices.map((v) => <option key={v} value={v}>{v}</option>)}</Select></p>)}
     </fieldset>}
+    <fieldset disabled={disabled}><legend>Prototype link</legend>
+      <p className="ud-edit-field"><label htmlFor="ud-link-target">Destination frame</label><Select id="ud-link-target" value={linkValue("target")} onChange={(e)=>change("link.target",e.target.value)}><option value="">No link</option>{frames.map((f)=><option key={f.id} value={f.id}>{f.title || f.id}</option>)}</Select></p>
+      {linkValue("target") && <>
+        <p className="ud-edit-field"><label htmlFor="ud-link-trigger">Trigger</label><Select id="ud-link-trigger" value={linkValue("trigger","tap")} onChange={(e)=>change("link.trigger",e.target.value)}><option value="tap">Tap</option><option value="hover">Hover</option><option value="after-delay">After delay</option></Select></p>
+        <p className="ud-edit-field"><label htmlFor="ud-link-transition">Transition</label><Select id="ud-link-transition" value={linkValue("transition","instant")} onChange={(e)=>change("link.transition",e.target.value)}><option value="instant">Instant</option><option value="dissolve">Dissolve</option><option value="slide">Slide</option></Select></p>
+        <p className="ud-edit-field"><label htmlFor="ud-link-duration">Transition duration (ms)</label><Input id="ud-link-duration" inputMode="numeric" value={linkValue("duration_ms",linkValue("transition","instant")==="instant" ? "0":"200")} onChange={(e)=>change("link.duration_ms",e.target.value)} /></p>
+        {linkValue("trigger","tap")==="after-delay" && <p className="ud-edit-field"><label htmlFor="ud-link-delay">Delay (ms)</label><Input id="ud-link-delay" inputMode="numeric" value={linkValue("delay_ms","1000")} onChange={(e)=>change("link.delay_ms",e.target.value)} /></p>}
+      </>}
+    </fieldset>
     {error && <p role="alert">{error}</p>}
     <Button disabled={disabled || !Object.keys(draft).length} onClick={save}>Save node</Button>
   </section>;

@@ -124,3 +124,25 @@ set an entry to `null` to remove it. Update `variant` and `props` through the us
 bindings and budget violations reject the whole batch. Ordinary components and
 old documents continue working unchanged. Inspect a family instance to see its
 available axes, effective values, defaults and bindings.
+
+### Prototype playback
+
+Add an interaction with an ordinary node update, for example:
+
+```json
+{"op":"update","id":"next-button","set":{"link_to":{"target":"details","trigger":"tap","transition":"dissolve","duration_ms":200}}}
+```
+
+The target must be an authored frame in a document page. Triggers are `tap`,
+`hover`, and `after-delay`; transitions are `instant`, `dissolve`, and `slide`.
+After-delay links use `delay_ms` (100–60,000 ms); animated transitions use
+`duration_ms` (0–2,000 ms). Omitting trigger/transition means tap/instant.
+Use `link_to: null` in an update to remove the interaction. Deleting a target
+while links still refer to it rejects the entire edit.
+
+Use **Play** in the editor, or open `/ui-designer/<slug>/play?version=<version>`.
+Playback pins that version, with frame selection, back and restart controls.
+The inspector's prototype controls use normal save/undo. Playback uses server
+renders with rectangular interaction regions, respects reduced motion and
+pauses automatic loops after 25 transitions. Rotated hit regions use bounding
+boxes. It does not run arbitrary JavaScript or navigate to external URLs.

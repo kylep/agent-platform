@@ -84,7 +84,7 @@ CONTRAST_MIN = 3.0
 _STYLE_KEYS = ("fill", "stroke", "radius", "opacity", "shadow", "blur", "backdrop_blur", "blend", "clip",
                "mask", "d", "asset", "fit")
 _INSTANCE_KEYS = ("w", "h", "x", "y", "absolute", "rotate", "fill", "stroke", "radius", "opacity",
-                  "visible", "clip", "shadow", "blur", "backdrop_blur", "blend")
+                  "visible", "clip", "shadow", "blur", "backdrop_blur", "blend", "link_to")
 _LEAF = ("rect", "ellipse", "line", "path", "image")
 
 
@@ -97,7 +97,7 @@ _RESOLVABLE = (str, dict, list)
 
 class Item:
     __slots__ = ("id", "type", "w", "h", "x", "y", "absolute", "rotate", "visible", "title", "of",
-                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache")
+                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to")
     # class-level defaults would clash with __slots__, so they are set in __init__
     def __init__(self):
         self.w = self.h = self.x = self.y = self.title = self.of = self.layout = self.text = None
@@ -110,6 +110,7 @@ class Item:
         self.idx = 0
         self.base = None            # JSON path of an authored top-level node / a component root
         self.cache = None
+        self.link_to = None
 
 
 class _Plan:
@@ -238,6 +239,8 @@ class _Builder:
                 it.rotate = rv(v) or 0
             elif k == "visible":
                 it.visible = v is not False
+            elif k == "link_to":
+                it.link_to = dict(v)
             elif k == "title":
                 it.title = v
             elif k == "layout":
@@ -702,6 +705,8 @@ class _Emit:
             d["of"] = it.of
         if it.title:
             d["title"] = it.title
+        if it.link_to is not None:
+            d["link_to"] = it.link_to
         if not it.visible:
             d["visible"] = False
             return d

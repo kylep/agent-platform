@@ -2528,7 +2528,11 @@ Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
   doc: {schema:1, title?, tokens?, modes?, components?: {id: node}, component_sets?, pages: [{id, title?, children: [node]}]}
   node = {id, type, ...props}; type is frame|text|rect|ellipse|line|path|image|instance.
   All nodes: title w h (number|"fill"|"hug") x y absolute rotate fill stroke radius
-    opacity(0-1) visible clip shadow blur backdrop_blur blend meta.
+    opacity(0-1) visible clip shadow blur backdrop_blur blend meta link_to.
+    link_to = {target: authored page-frame id, trigger?: tap|hover|after-delay, transition?: instant|dissolve|slide,
+    duration_ms?: 0..2000, delay_ms?: 100..60000 (after-delay only)}; defaults tap/instant, duration 0 instant else 200, delay 1000.
+    Example update: {"op":"update","id":"next","set":{"link_to":{"target":"finish"}}}. Clear links before deleting targets.
+    Play a pinned version at /ui-designer/<slug>/play?version=N (no URLs/scripts in links).
     fill = paint or a LIST of paints stacked bottom to top (max 8). paint = "#rrggbb"|"$color.name"
     |{color, opacity?}|{gradient: linear|radial|angular|diamond, stops: [[0-1,color],..], angle?,
     opacity?}|{image: sha256 from `place`, fit?, opacity?}. angular/diamond are stepped

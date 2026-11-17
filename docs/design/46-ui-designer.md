@@ -1180,3 +1180,37 @@ Expansion produces existing painter nodes; old documents retain identical
 render bytes. Tests cover all property types, defaults, override precedence,
 invalid combinations/bindings, cycles, expansion budgets, literal text, compact
 views and edit rollback. The agent cheatsheet includes a complete small example.
+
+## 19. Click-through prototypes (P1.4 addendum)
+
+An optional shared node property `link_to` describes one interaction: `target`
+is the ID of an authored frame in a document page; `trigger` is `tap`, `hover`
+or `after-delay`; `transition` is `instant`, `dissolve` or `slide`. Tap and
+instant are the defaults. Animated durations are bounded to 0–2,000 ms;
+after-delay waits are bounded to 100–60,000 ms. Targets are internal IDs,
+never URLs or executable expressions. Component nodes can carry links to page
+frames; instance fields and supported overrides follow the existing precedence.
+
+Closed validation checks target existence/type after collecting the whole
+document and rejects dangling links atomically. Removing a target requires
+removing or retargeting its links in the same CAS batch. At most 500 authored
+interactions; existing document and expansion limits still apply. Resolved nodes
+carry interaction metadata only when present; the SVG painter ignores it, so
+existing document renders remain unchanged. Agent guidance uses ordinary update
+ops. No new grants, persistence tables or tool actions.
+
+`/ui-designer/<slug>/play` pins an immutable version once and uses the existing
+resolved-tree and image routes. It offers frame selection, back, restart and
+exit. The editor links to its current version; the inspector edits interaction
+fields through ordinary undoable CAS edits. Read-only viewers can play retained
+versions. Hotspots follow server geometry and paint order, with clipping and
+hidden nodes excluded; more than 1,000 active hotspots refuses playback with a
+clear message. Rotated bounds are approximate hit regions.
+
+Transitions respect reduced motion. Navigation cancels obsolete loads and
+timers, and a delayed response cannot replace a newer frame or document.
+Automatic transition chains stop after 25 steps until explicitly resumed;
+self-links and hover loops must not cause uncontrolled timers/navigation.
+Tests cover all triggers/transitions, timing limits, invalid targets, inherited
+links, atomic edits, pinned historical versions, stale loads, loop guards,
+keyboard/mobile operation and unchanged render goldens.

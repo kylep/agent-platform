@@ -33,6 +33,7 @@ import Help from "./pages/Help";
 import Schedules from "./pages/Schedules";
 import Tasks from "./pages/Tasks";
 import UiDesigner from "./pages/UiDesigner";
+import UiDesignerPlay from "./pages/UiDesignerPlay";
 import UiDesignerDocument from "./pages/UiDesignerDocument";
 import RapidChats from "./pages/RapidChats";
 import Skills from "./pages/Skills";
@@ -97,6 +98,7 @@ export default function App() {
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/ui-designer" element={<UiDesigner />} />
+            <Route path="/ui-designer/:slug/play" element={<UiDesignerPlay />} />
             <Route path="/ui-designer/:slug" element={<UiDesignerDocument />} />
             <Route path="/rapid-chats" element={<RapidChats />} />
             <Route path="/secrets" element={<Secrets />} />
