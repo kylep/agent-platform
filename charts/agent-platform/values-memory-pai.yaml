@@ -3,7 +3,7 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ud-presence-20261117
+    tag: ud-presence-leave-20261117
   web:
     tag: ud-presence-20261117
   runner:

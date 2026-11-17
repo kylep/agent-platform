@@ -24,13 +24,16 @@ async def test_ttl_cooldown_new_tab_leave_and_no_history(sf):
         got=await presence.refresh(s,identifier,who,'a'*32,body(identifier),now);await s.commit()
         assert got['sessions'][0]['label']=='owner' and got['sessions'][0]['sequence']==1
         for session in ['a'*32,'b'*32]:
-            with pytest.raises(HTTPException) as exc:await presence.refresh(s,identifier,who,session,body(identifier),now+timedelta(milliseconds=499))
+            with pytest.raises(HTTPException) as exc:await presence.refresh(s,identifier,who,session,body(identifier),now+timedelta(milliseconds=99))
             assert exc.value.status_code==429
-        signal=await presence.leave(s,identifier,who,'a'*32,now+timedelta(milliseconds=500));await s.commit()
-        assert signal['sequence']==2 and not (await presence.roster(s,identifier,who,now+timedelta(seconds=1)))['sessions']
-        assert (await presence.event_current(s,identifier,who,'user:owner','a'*32,2,now+timedelta(seconds=1)))['state']=='left'
-        with pytest.raises(HTTPException):await presence.refresh(s,identifier,who,'b'*32,body(identifier),now+timedelta(milliseconds=999))
-        await presence.refresh(s,identifier,who,'b'*32,body(identifier),now+timedelta(seconds=1));await s.commit()
+        signal=await presence.leave(s,identifier,who,'a'*32,now+timedelta(milliseconds=100));await s.commit()
+        assert await presence.leave(s,identifier,who,'a'*32,now+timedelta(milliseconds=200)) is None
+        row=await s.get(UiDesignerPresence,(identifier,who.participant,'a'*32))
+        assert row.sequence==2 and presence._utc(row.updated_at)==now+timedelta(milliseconds=100)
+        assert signal['sequence']==2 and not (await presence.roster(s,identifier,who,now+timedelta(milliseconds=500)))['sessions']
+        assert (await presence.event_current(s,identifier,who,'user:owner','a'*32,2,now+timedelta(milliseconds=500)))['state']=='left'
+        with pytest.raises(HTTPException):await presence.refresh(s,identifier,who,'b'*32,body(identifier),now+timedelta(milliseconds=599))
+        await presence.refresh(s,identifier,who,'b'*32,body(identifier),now+timedelta(milliseconds=600));await s.commit()
         assert len((await presence.roster(s,identifier,who,now+timedelta(seconds=45)))['sessions'])==1
         assert (await presence.roster(s,identifier,who,now+timedelta(seconds=46)))['sessions']==[]
         assert await presence.purge_expired(s,now+timedelta(seconds=48))==2

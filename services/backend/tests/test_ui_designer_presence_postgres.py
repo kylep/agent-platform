@@ -56,13 +56,14 @@ async def test_cross_api_cap_refresh_cooldown_and_acl_wait_recheck():
             await presence.refresh(session,identifier,access.AccessSubject('user:seed0'),'0'*32,payload(identifier),now);await session.commit()
         # Another API process cannot bypass the actor cooldown with a new tab.
         async with factories[1]() as session:
-            with pytest.raises(HTTPException) as error:await presence.refresh(session,identifier,access.AccessSubject('user:seed0'),'f'*32,payload(identifier),now+timedelta(milliseconds=499))
+            with pytest.raises(HTTPException) as error:await presence.refresh(session,identifier,access.AccessSubject('user:seed0'),'f'*32,payload(identifier),now+timedelta(milliseconds=99))
             assert error.value.status_code==429;await session.rollback()
-            await presence.leave(session,identifier,access.AccessSubject('user:seed0'),'0'*32,now+timedelta(milliseconds=500));await session.commit()
+            await presence.leave(session,identifier,access.AccessSubject('user:seed0'),'0'*32,now+timedelta(milliseconds=100));await session.commit()
+            assert await presence.leave(session,identifier,access.AccessSubject('user:seed0'),'0'*32,now+timedelta(milliseconds=200)) is None
         async with factories[0]() as session:
-            with pytest.raises(HTTPException) as error:await presence.refresh(session,identifier,access.AccessSubject('user:seed0'),'f'*32,payload(identifier),now+timedelta(milliseconds=999))
+            with pytest.raises(HTTPException) as error:await presence.refresh(session,identifier,access.AccessSubject('user:seed0'),'f'*32,payload(identifier),now+timedelta(milliseconds=599))
             assert error.value.status_code==429;await session.rollback()
-            await presence.refresh(session,identifier,access.AccessSubject('user:seed0'),'f'*32,payload(identifier),now+timedelta(seconds=1));await session.commit()
+            await presence.refresh(session,identifier,access.AccessSubject('user:seed0'),'f'*32,payload(identifier),now+timedelta(milliseconds=600));await session.commit()
         # Revoke while refresh is waiting for doc lock: policy must be read after wait.
         waiting=asyncio.Event()
         class WaitingSession(AsyncSession):

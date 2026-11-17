@@ -461,4 +461,11 @@ syntax, with authorized, bounded live thumbnails.
   Backend 4,117 passed / 23 skipped; browser 490, broker 475, facade 40 and
   renderer 150 passed, plus build, Storybook, tokens, stable SDK and Helm lint.
   Twelve focused service checks and an actual two-engine PostgreSQL race test
-  prove capacity, cooldown and revocation ordering. Deploy/live acceptance next.
+  prove capacity, cooldown and revocation ordering. Pushed `ec8f114`; deployed
+  backend/web/facade `ud-presence-20261117` in Helm revision 167. Live API
+  verified two identities, role/spoof gates, cross-tab throttling, own leave,
+  actual 45-second expiry, revocation and unchanged document version. Browser
+  verified real SSE cursors and pan/zoom; a last-pointer-update/leave throttle
+  edge was fixed with idempotent immediate leave; 32 API/service/pruning
+  regressions and the real PostgreSQL concurrency check passed. Backend-only
+  patch deployment and final browser acceptance follow.

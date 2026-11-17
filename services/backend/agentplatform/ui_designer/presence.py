@@ -118,7 +118,7 @@ async def purge_expired(session,now=None,document_id=None,limit=1000):
     if document_id is not None:query=query.where(UiDesignerPresence.document_id==document_id)
     keys=(await session.execute(query.order_by(UiDesignerPresence.expires_at).limit(limit))).all()
     for doc,participant,client in keys:
-        await session.execute(delete(UiDesignerPresence).where(UiDesignerPresence.document_id==doc,UiDesignerPresence.participant==participant,UiDesignerPresence.client_session==client,UiDesignerPresence.expires_at<=now-LEFT_RETENTION))
+        await session.execute(delete(UiDesignerPresence).where(UiDesignerPresence.document_id==doc,UiDesignerPresence.participant==participant,UiDesignerPresence.client_session==client,UiDesignerPresence.expires_at<=now-LEFT_RETENTION).execution_options(synchronize_session='fetch'))
     return len(keys)
 
 
@@ -192,9 +192,11 @@ async def refresh(session,document_id,who,client_session,payload,now=None,creden
 
 async def leave(session,document_id,who,client_session,now=None):
     _ids(document_id,client_session);await _document(session,document_id,who,lock=True)
-    now=await _now(session,now);await _cooldown(session,document_id,who.participant,now)
+    now=await _now(session,now)
     row=await session.get(UiDesignerPresence,(document_id,who.participant,client_session))
-    if row is None:return None
+    # Leaving releases capacity immediately, even after a pointer update. Keep
+    # the timestamp as admission throttle evidence; repeats do not extend it.
+    if row is None or row.state=='left':return None
     row.state='left';row.x=row.y=None;row.updated_at=now;row.expires_at=now;row.sequence+=1
     await session.flush()
     return {'participant':who.participant,'client_session':client_session,'sequence':row.sequence}
