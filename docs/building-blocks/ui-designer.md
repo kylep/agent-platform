@@ -292,3 +292,17 @@ Paths can use images already placed in the document. **Load placed images** show
 the available choices; **Apply image fill** replaces the path's fill paints while
 preserving other properties. The image is clipped to the path. Image placement
 permissions and the existing asset budgets still apply.
+
+### Built-in icons
+
+Open **Icons**, search the bundled catalog and choose an icon to preview it. Set
+its size, colour and stroke width, then insert it into the selected frame or
+current page. Icons are editable native components: their vector coordinates and
+stroke scale to the chosen size, and identical definitions can be reused.
+Locally edited definitions are protected from accidental replacement.
+
+Agents can discover the catalog through the `icons` action, then use one edit
+operation `{op:"icon",icon:"camera",revision:1,parent:"frame",id:"camera-instance",
+size:24,color:"#64748b",stroke_width:2}` with an expected version and request ID.
+Use the returned `undo_ops` for exact undo. The catalog is bundled from Lucide;
+its source revision and license notices ship with the application.

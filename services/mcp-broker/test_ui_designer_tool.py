@@ -266,3 +266,15 @@ def test_templates_catalogue_and_explicit_create_receipt(api):
         'template_id':'desk-buddy','template_revision':1})
     assert 'request_id' in ud(action='create',slug='starter',template={'id':'desk-buddy','revision':1})
     assert 'choose doc or template' in ud(action='create',slug='starter',template={'id':'desk-buddy'})
+
+
+def test_icons_search_and_pinned_detail_without_document_slug(api):
+    ud(action='icons', q='arrow', limit=24, after='page-two')
+    assert api[-1] == ('GET', '/api/ui-designer/icons',
+                       {'q': 'arrow', 'limit': 24, 'cursor': 'page-two'}, None)
+    ud(action='icons', icon={'id': 'arrow-right', 'revision': 1})
+    assert api[-1] == ('GET', '/api/ui-designer/icons/arrow-right', {'revision': 1}, None)
+    before = len(api)
+    assert 'error:' in ud(action='icons', icon={'id': '../bad', 'revision': 1})
+    assert 'error:' in ud(action='icons', icon={'id': 'arrow', 'revision': True})
+    assert len(api) == before

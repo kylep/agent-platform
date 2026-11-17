@@ -1464,3 +1464,37 @@ paths, exact replay/undo, sibling order, safe image clipping and legacy goldens.
 
 Geometry sources: [Skia PathOps bindings](https://github.com/fonttools/skia-pathops)
 (BSD-3-Clause) and [FontTools path parser](https://fonttools.readthedocs.io/en/latest/svgLib/path/).
+
+## 28. Bundled icons as native components (P2.12)
+
+Bundle a pinned, licensed Lucide catalog with deterministic native path data and
+searchable metadata. Catalog revision `1` identifies immutable shipped content;
+a manifest records the exact upstream release/commit and source checksums. The
+build packages the catalog and its ISC/Feather MIT notices. Runtime discovery and
+insertion require no internet access. Brand/logo entries are excluded. Catalog
+search is bounded and paginated; detail supplies ordered trusted 24-unit path records and their paint flags,
+not arbitrary SVG markup or external references.
+
+A sole edit operation `{op:"icon",icon,revision:1,parent,id,index?,size?,color?,
+stroke_width?,x?,y?}` requires a request ID and expected version. Size (16–128)
+scales the actual path coordinates and stroke; stroke width is specified in the
+source's 24-unit coordinate system (0.5–4). The generated component is a native
+frame with native path children, retaining open contours and per-element paints. Colour is explicit.
+No new node type or special painter is introduced.
+
+The planner uses ordinary `insert` plus `define_component` operations to create
+a definition and its placed instance atomically. A canonical matching definition
+can be reused; a locally changed collision is refused. Stable IDs incorporate
+semantic options and fit the existing ID limit. The document's 200-component,
+node and byte budgets still apply. Exact inverse operations remove only the
+inserted instance and any definition created by that write. Receipts bind the
+original catalog recipe before lookup, so retries survive later catalog changes;
+history replays literal operations without consulting the catalog.
+
+The browser picker offers search, a safe React SVG preview, size/colour/stroke
+controls and a clear selected-frame/page destination. It uses the existing
+uncertain-save lock, CAS and server inverse. Source attribution links to Lucide.
+The agent tool exposes catalog discovery and the same atomic edit operation.
+Tests cover deterministic conversion, source/license packaging, path/stroke
+scaling, canonical reuse/collisions, component budgets, undo, receipt replay,
+permissions and browser insertion. Existing renderer goldens remain unchanged.

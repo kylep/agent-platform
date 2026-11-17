@@ -530,6 +530,28 @@ async def list_ui_documents(request: Request, q: str | None = Query(None, max_le
     return S.UiDocList(docs=rows, next_before=rows[-1]["slug"] if more and rows else None)
 
 
+@router.get(PREFIX + "/icons", response_model=S.UiIconsOut)
+async def list_ui_icons(request: Request, q: str = Query("", max_length=100),
+                        limit: int = Query(40, ge=1, le=100),
+                        cursor: str | None = Query(None, max_length=256),
+                        caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.ui_designer.icons import search_icons
+    try:
+        return search_icons(q=q, limit=limit, cursor=cursor)
+    except UiDesignerError as error:
+        raise ud_http(error)
+
+
+@router.get(PREFIX + "/icons/{icon_id}", response_model=S.UiIconOut)
+async def get_ui_icon(icon_id: str, request: Request, revision: int = Query(..., ge=1),
+                      caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.ui_designer.icons import get_icon
+    try:
+        return get_icon(icon_id, revision=revision)
+    except UiDesignerError as error:
+        raise ud_http(error)
+
+
 @router.get(PREFIX + "/templates", response_model=S.UiTemplatesOut)
 async def list_ui_templates(request: Request,
                              caller: Caller = Depends(require_ui_designer_access(*READ))):
@@ -651,10 +673,12 @@ async def edit_ui_document(slug: str, body: S.UiDocEditIn, request: Request,
     await refuse_runless_snapshot(request, caller, body.snapshot)
     nodes = _snapshot_nodes(request, body.snapshot, body.scale)
     run_id = await caller_run_id(request, caller)
-    if any(op.get("op") == "boolean" for op in body.ops):
+    if any(op.get("op") in ("boolean", "icon") for op in body.ops):
         if len(body.ops) != 1:
-            raise ud_http(invalid([issue("UD-LIMIT", "$.ops", "boolean must be the only op in its edit batch")]))
-        res = await _edit_boolean(slug, body, request, caller, run_id, bool(nodes))
+            raise ud_http(invalid([issue("UD-LIMIT", "$.ops", "boolean or icon must be the only op in its edit batch")]))
+        if body.ops[0]["op"] == "icon" and not body.request_id:
+            raise ud_http(invalid([issue("UD-MISSING", "$.request_id", "icon insertion requires request_id")]))
+        res = await _edit_prepared(slug, body, request, caller, run_id, bool(nodes))
     else:
         await _check_write_budget(request, caller)
         if nodes:
@@ -677,10 +701,11 @@ async def edit_ui_document(slug: str, body: S.UiDocEditIn, request: Request,
     return out
 
 
-async def _edit_boolean(slug: str, body: S.UiDocEditIn, request: Request, caller: Caller,
+async def _edit_prepared(slug: str, body: S.UiDocEditIn, request: Request, caller: Caller,
                          run_id: str | None, wants_snapshot: bool) -> dict:
     from agentplatform.ui_designer.ops import apply_ops, prepare_boolean, boolean_literal_ops
-    op = "edit-boolean"
+    operation = body.ops[0]["op"]
+    op = "edit-" + operation
     stable_args = {"ops": body.ops}
     scope = _scope(caller, run_id)
     fingerprint = store.edit_fingerprint(op=op, slug=slug, ops=None,
@@ -700,14 +725,22 @@ async def _edit_boolean(slug: str, body: S.UiDocEditIn, request: Request, caller
             if view["version"] != body.expected_version:
                 apply_ops(view["doc"], [], version=view["version"], expected_version=body.expected_version,
                           ops_since=await store.chunks_after(s, view["id"], body.expected_version))
-            prepared = prepare_boolean(view["doc"], body.ops[0])
-            result = await _renderer(request).boolean_geometry(body.ops[0]["kind"], prepared["operands"])
-            literal = boolean_literal_ops(prepared, result["geometry"])
+            if operation == "icon":
+                from agentplatform.ui_designer.icons import plan_icon
+                prepared = plan_icon(view["doc"], body.ops[0])
+                literal = prepared["ops"]
+                warnings = prepared.get("warnings", [])
+            else:
+                prepared = prepare_boolean(view["doc"], body.ops[0])
+                result = await _renderer(request).boolean_geometry(body.ops[0]["kind"], prepared["operands"])
+                literal = boolean_literal_ops(prepared, result["geometry"])
+                warnings = [{"code": "UD-WARN-BOOLEAN", "message": warning}
+                            for warning in result.get("warnings", [])]
             res = await store.edit_document(s, slug, ops=literal, expected_version=body.expected_version,
                 author=caller.participant, run_id=run_id, reason=body.reason, request_id=body.request_id,
                 scope=scope, wants_snapshot=wants_snapshot, caps=caps(request), op=op,
                 _stable_args=stable_args, _undo_ops=prepared["undo_ops"],
-                _extra_warnings=[{"code": "UD-WARN-BOOLEAN", "message": warning} for warning in result.get("warnings", [])])
+                _extra_warnings=warnings)
             await s.commit()
             return res
         except UiDesignerError as error:

@@ -23,6 +23,7 @@ OP_FIELDS: dict[str, tuple[set[str], set[str]]] = {  # op -> (required, optional
     "update": ({"id", "set"}, set()),
     "resize": ({"id", "set"}, set()),
     "boolean": ({"kind", "ids"}, set()),
+    "icon": ({"icon", "revision", "parent", "id"}, {"index", "size", "color", "stroke_width", "x", "y"}),
     "remove": ({"ids"}, set()),
     "move": ({"id", "parent"}, {"index"}),
     "replace": ({"id", "node"}, set()),
@@ -144,8 +145,8 @@ def _apply_one(doc: dict, op: Any, path: str, resize_capture: dict | None = None
         raise invalid(problems)
     if name == "resize":
         return _resize(doc, op, path, resize_capture)
-    if name == "boolean":
-        raise _fail("UD-OP-FIELD", path, "boolean geometry must be prepared by the edit API renderer worker")
+    if name in ("boolean", "icon"):
+        raise _fail("UD-OP-FIELD", path, "boolean/icon operations must be prepared by the edit API")
     return _OPS[name](doc, op, path)
 
 

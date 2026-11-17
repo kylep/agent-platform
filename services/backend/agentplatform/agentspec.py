@@ -210,11 +210,11 @@ Ops (one batch applies atomically; each op is an object with "op"):
   replace {id, node}                               set_text {id, text}
   tokens {set:{color:{name:value|null}}} (merges; null deletes); define_component {id:new component id,from:node id}.
   boolean {kind:union|subtract|intersect|exclude,ids:[2..8 ordered siblings]} (sole op; filled contours, not stroke outlines; first ID/style retained).
-  component_sets {set:{id:whole-definition|null}} (replaces each definition; null removes)
+  icon {icon,revision:1,parent,id,size?:16..128,color?:hex,stroke_width?:0.5..4,x?,y?,index?} (sole op; request_id required). component_sets {set:{id:whole-definition|null}} replaces/removes definitions.
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
-  update is literal and cannot set id/type/children; a page only takes title. resize/boolean return exact literal undo_ops (128 ops/8KiB max); redo the original request.
-Other actions: templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+  update is literal and cannot set id/type/children; a page only takes title. resize/boolean/icon return exact literal undo_ops (128 ops/8KiB max); redo the original request.
+Other actions: icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes need expected_version+request_id and exact-input retries. Pins render offline; preview catches conflicts; UUID updates never follow reused slugs; node="$libraries" pages provenance.
   lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}

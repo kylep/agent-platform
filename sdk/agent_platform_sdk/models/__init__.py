@@ -374,6 +374,11 @@ from .ui_doc_summary import UiDocSummary
 from .ui_doc_write_out import UiDocWriteOut
 from .ui_doc_write_out_undo_ops_type_0_item import UiDocWriteOutUndoOpsType0Item
 from .ui_doc_write_out_warnings_item import UiDocWriteOutWarningsItem
+from .ui_icon_out import UiIconOut
+from .ui_icon_path import UiIconPath
+from .ui_icon_source import UiIconSource
+from .ui_icon_summary import UiIconSummary
+from .ui_icons_out import UiIconsOut
 from .ui_library_apply_in import UiLibraryApplyIn
 from .ui_library_conflict import UiLibraryConflict
 from .ui_library_import_in import UiLibraryImportIn
@@ -801,6 +806,11 @@ __all__ = (
     "UiDocWriteOut",
     "UiDocWriteOutUndoOpsType0Item",
     "UiDocWriteOutWarningsItem",
+    "UiIconOut",
+    "UiIconPath",
+    "UiIconSource",
+    "UiIconsOut",
+    "UiIconSummary",
     "UiLibraryApplyIn",
     "UiLibraryConflict",
     "UiLibraryImportIn",

@@ -54,4 +54,5 @@ build-backend = "setuptools.build_meta"
 include = ["agentplatform*"]
 [tool.setuptools.package-data]
 agentplatform = ["live_operation_catalog.json", "system_agent_prompts.json",
-  "ui_designer/fonts/*.ttf", "ui_designer/fonts/OFL-*.txt"]
+  "ui_designer/fonts/*.ttf", "ui_designer/fonts/OFL-*.txt",
+  "ui_designer/icon_data/*.json", "ui_designer/icon_data/*.txt"]

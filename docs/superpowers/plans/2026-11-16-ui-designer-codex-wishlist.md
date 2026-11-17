@@ -331,4 +331,18 @@ Fresh starting Codex weekly usage: 26% (74% left).
   21 skipped, plus the former image-path rejection test updated for this feature;
   final effects/API checks: 42 passed. Browser 446, renderer 105 plus 26 final
   focused geometry checks, broker 470, facade 40 pass. Builds, Storybook, tokens,
-  SDK drift and Helm lint pass. Live deployment acceptance pending.
+  SDK drift and Helm lint pass. Pushed `1dc7fa0`, deployed
+  `ud-vector-20261116` in Helm revision 160. Live all-four Boolean areas matched
+  exact pixel counts, with exact undo/redo and receipt replay. Browser cubic pen,
+  Boolean edit and path image fill passed through versions 2–8; image clipping
+  checked and temporary documents/artifacts removed. Fresh weekly quota: 44%.
+  P2.12 icons are underway; this is the last P2 item.
+
+- **P2.12 Status:** implemented 2,053 bundled Lucide icons with reproducible
+  pinned conversion, packaged licenses, native component insertion/reuse, actual
+  path/stroke scaling, catalog discovery and the browser picker. Open contours
+  and filled details are preserved; locally edited definitions are protected.
+  Canonical catalog regeneration is byte-identical and the visual sample was
+  reviewed. Backend 3,990 passed / 21 skipped; browser 451, broker 471, facade 40
+  pass. Builds, Storybook, tokens, SDK drift and Helm lint pass. The existing
+  renderer is unchanged. Live deployment acceptance pending.

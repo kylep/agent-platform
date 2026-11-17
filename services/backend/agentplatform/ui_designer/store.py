@@ -415,8 +415,8 @@ def edit_fingerprint(*, op: str, slug: str, ops: Any, expected_version: Any,
                      reason: str, stable_args: dict | None = None) -> str:
     """Library receipts bind caller inputs, before any source lookup or planning."""
     if stable_args is not None:
-        if op not in ("library-import", "library-apply", "edit-boolean"):
-            raise ValueError("stable input fingerprints are only for library mutations or edit-boolean")
+        if op not in ("library-import", "library-apply", "edit-boolean", "edit-icon"):
+            raise ValueError("stable input fingerprints are only for library mutations or edit-boolean/edit-icon")
         return args_hash(op=op, slug=slug, expected_version=expected_version,
                          reason=reason, stable_args=stable_args)
     return args_hash(op=op, slug=slug, ops=ops, expected_version=expected_version, reason=reason)
@@ -452,14 +452,14 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
     res = apply_ops(row.doc, ops, version=row.version, expected_version=expected_version,
                     ops_since=since, known_assets=await placed_assets(s, row.id))
     if _extra_warnings is not None:
-        if op != "edit-boolean":
-            raise ValueError("external warnings are only for prepared boolean edits")
+        if op not in ("edit-boolean", "edit-icon"):
+            raise ValueError("external warnings are only for prepared boolean/icon edits")
         res.warnings.extend(copy.deepcopy(_extra_warnings))
     if _undo_ops is not None:
-        if op != "edit-boolean" or not isinstance(_undo_ops, list):
-            raise ValueError("external inverse ops are only for prepared boolean edits")
+        if op not in ("edit-boolean", "edit-icon") or not isinstance(_undo_ops, list):
+            raise ValueError("external inverse ops are only for prepared boolean/icon edits")
         if len(_undo_ops) > 128 or len(_canon(_undo_ops)) > 8 << 10:
-            raise invalid([issue("UD-LIMIT", "$.ops", "boolean exact undo exceeds 128 ops or 8192 bytes")])
+            raise invalid([issue("UD-LIMIT", "$.ops", "prepared exact undo exceeds 128 ops or 8192 bytes")])
         res.undo_ops = copy.deepcopy(_undo_ops)
     new = res.doc
     shas = {a for _, a in image_assets(new)}

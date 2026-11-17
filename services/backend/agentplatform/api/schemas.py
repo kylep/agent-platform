@@ -2293,3 +2293,38 @@ class UiPlacedAssetsOut(BaseModel):
     version: int
     assets: list[UiPlacedAsset]
     next_cursor: str | None = None
+
+
+class UiIconSource(BaseModel):
+    name: str
+    version: str
+    commit: str
+    license: str
+
+
+class UiIconSummary(BaseModel):
+    id: str
+    name: str
+    tags: list[str]
+    categories: list[str]
+
+
+class UiIconsOut(BaseModel):
+    revision: int
+    source: UiIconSource
+    icons: list[UiIconSummary]
+    total: int
+    next_cursor: str | None = None
+
+
+class UiIconPath(BaseModel):
+    d: str
+    fill: bool
+
+
+class UiIconOut(UiIconSummary):
+    revision: int
+    source: UiIconSource
+    view_box: list[float]
+    d: str
+    paths: list[UiIconPath]

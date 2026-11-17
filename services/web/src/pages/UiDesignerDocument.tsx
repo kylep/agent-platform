@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage } from "../api";
 import { prototypeFrames } from "../lib/prototype";
+import IconPicker from "../components/ui-designer/IconPicker";
 import VectorTools from "../components/ui-designer/VectorTools";
 import LibrariesPanel from "../components/ui-designer/LibrariesPanel";
 import FindingsPanel from "../components/ui-designer/FindingsPanel";
@@ -70,6 +71,7 @@ export default function UiDesignerDocument() {
   const [showLibraries, setShowLibraries] = useState(false);
   const [libraryLocked, setLibraryLocked] = useState(false);
   const [vectorEpoch, setVectorEpoch] = useState(0);
+  const [showIcons, setShowIcons] = useState(false);
   const base = `${UD}/${encodeURIComponent(slug)}`;
 
   const [canWrite, setCanWrite] = useState(false);
@@ -89,7 +91,7 @@ export default function UiDesignerDocument() {
   useEffect(() => {
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
-    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false); setVectorEpoch(0); setHl(null); setErr("");
+    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false); setVectorEpoch(0); setShowIcons(false); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -216,6 +218,7 @@ export default function UiDesignerDocument() {
         <div className="ud-actions">
           {(version ?? pinned) && <Link to={`/ui-designer/${encodeURIComponent(slug)}/play?${new URLSearchParams({ version: String(version ?? pinned), mode, ...(page && page.children?.find((n)=>n.type === "frame" && !n.of) ? { frame: page.children.find((n)=>n.type === "frame" && !n.of)!.id } : {}) })}`}>Play prototype</Link>}
           {canWrite && !version && <><Button onClick={editing.undo} disabled={libraryLocked || stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={libraryLocked || stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
+          <Button onClick={() => setShowIcons((open) => !open)}>{showIcons ? "Close icons" : "Icons"}</Button>
           <Button disabled={libraryLocked} onClick={() => setShowLibraries((open) => !open)}>{showLibraries ? "Close libraries" : "Libraries"}</Button>
           <Button onClick={() => setShowFindings((open) => !open)}>{showFindings ? "Close findings" : "Findings"}</Button>
           <button type="button" onClick={labelVersion}>Label this version</button>
@@ -226,6 +229,9 @@ export default function UiDesignerDocument() {
       </div>
       {(version ?? pinned) && <ExportControls key={`${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canExport={canWrite} />}
       {comparing && page && (version ?? pinned) && <CompareVersions key={base} base={base} versions={versions} initialVersion={(version ?? pinned)!} pageId={page.id} selectedId={picked?.id ?? null} mode={mode} onSelectNode={(id) => { const node = known.find((n) => n.id === id); if (node) setSel(node); }} />}
+      {showIcons && page && <IconPicker key={base} pageId={page.id} pageTitle={page.title || page.id} selected={picked} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || libraryLocked} onInsert={(op) => {
+        if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !libraryLocked) editing.commit([op], []);
+      }} />}
       {showLibraries && (version ?? pinned) && <LibrariesPanel key={base} base={base} version={(version ?? pinned)!} canWrite={canWrite && !version} editorBusy={editing.busy || editing.uncertain} onWriteLock={setLibraryLocked} onCommitted={(savedVersion) => {
         editing.reset("Library changes saved. Undo history was cleared."); editing.pin(savedVersion); refresh(Math.max(pinned ?? 0, savedVersion), true);
       }} onConflict={() => { editing.reset("The document changed before the library save. Reloaded the latest version; undo history was cleared."); refresh(undefined, true); }} />}

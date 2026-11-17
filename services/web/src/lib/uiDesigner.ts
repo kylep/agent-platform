@@ -56,6 +56,7 @@ export type UiEditOp = { op: "update" | "resize"; id: string; set: Record<string
   | { op: "insert"; parent: string; node: Record<string, unknown>; index?: number }
   | { op: "remove"; ids: string[] }
   | { op: "replace"; id: string; node: Record<string, unknown> }
+  | { op: "icon"; icon: string; revision: number; parent: string; id: string; size?: number; color?: string; stroke_width?: number; x?: number; y?: number; index?: number }
   | { op: "boolean"; kind: "union" | "subtract" | "intersect" | "exclude"; ids: string[] };
 export type UiWriteResult = { version: number; replayed?: boolean; undo_ops?: UiEditOp[]; warnings?: Record<string, unknown>[] };
 export type UiInspection = { version: number; id: string; type?: string; authored: Record<string, unknown> | null; text?: string; warnings?: Record<string, unknown>[] };
