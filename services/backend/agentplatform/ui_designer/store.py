@@ -41,7 +41,7 @@ MAX_ASSET_BYTES = 8 << 20
 MAX_ASSET_BYTES_PER_VERSION = 16 << 20
 MAX_RECEIPT_BYTES = 16 << 10
 MAX_RECEIPT_WARNINGS = 20
-RECEIPT_KEYS = {"version", "warnings", "text", "wants_snapshot", "slug", "ok"}
+RECEIPT_KEYS = {"version", "warnings", "text", "wants_snapshot", "slug", "ok", "undo_ops"}
 _SHA_IN_TEXT = re.compile(r"[0-9a-f]{64}")
 
 
@@ -453,6 +453,15 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
             raise invalid([issue("UD-LIMIT", "$.ops", f"images in one document version total {total} "
                                  f"bytes; the limit is {MAX_ASSET_BYTES_PER_VERSION}")])
     n = res.version
+    receipt = {"version": n, "warnings": cap_warnings(res.warnings), "slug": slug,
+               "text": f"applied {len(ops)} op(s); document is at version {n}",
+               "wants_snapshot": bool(wants_snapshot)}
+    if res.undo_ops is not None:
+        receipt["undo_ops"] = res.undo_ops
+        try:
+            _check_receipt_response(receipt)
+        except ValueError as error:
+            raise invalid([issue("UD-LIMIT", "$.ops", "resize undo and warnings exceed the 16384-byte receipt budget")]) from error
     chunk = {"version": n, "ops": res.ops, "reason": reason, "at": _iso(now)}
     latest = (await s.execute(select(UiDesignerVersion).where(
         UiDesignerVersion.document_id == row.id, UiDesignerVersion.version == row.version))).scalars().first()
@@ -477,13 +486,11 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
     row.title = str(new.get("title") or row.title)[:120]
     row.last_reader = author
     if scope:
-        await _receipt_write(s, scope, request_id, row.id, op, h,
-                             {"version": n, "warnings": cap_warnings(res.warnings), "slug": slug,
-                              "text": f"applied {len(ops)} op(s); document is at version {n}",
-                              "wants_snapshot": bool(wants_snapshot)}, now)
+        await _receipt_write(s, scope, request_id, row.id, op, h, receipt, now)
     await s.flush()
     return {"version": n, "warnings": res.warnings, "doc": copy.deepcopy(new), "replayed": False,
-            "folded": fold_into is not None}
+            "folded": fold_into is not None,
+            **({"undo_ops": copy.deepcopy(res.undo_ops)} if res.undo_ops is not None else {})}
 
 
 async def restore_version(s, slug: str, version: int, *, expected_version: int, author: str,

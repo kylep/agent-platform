@@ -84,7 +84,8 @@ CONTRAST_MIN = 3.0
 _STYLE_KEYS = ("fill", "stroke", "radius", "opacity", "shadow", "blur", "backdrop_blur", "blend", "clip",
                "mask", "d", "asset", "fit")
 _INSTANCE_KEYS = ("w", "h", "x", "y", "absolute", "rotate", "fill", "stroke", "radius", "opacity",
-                  "visible", "clip", "shadow", "blur", "backdrop_blur", "blend", "link_to")
+                  "visible", "clip", "shadow", "blur", "backdrop_blur", "blend", "link_to",
+                  "min_w", "max_w", "min_h", "max_h")
 _LEAF = ("rect", "ellipse", "line", "path", "image")
 
 
@@ -97,7 +98,7 @@ _RESOLVABLE = (str, dict, list)
 
 class Item:
     __slots__ = ("id", "type", "w", "h", "x", "y", "absolute", "rotate", "visible", "title", "of",
-                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to", "typography")
+                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to", "typography", "grid", "limits")
     # class-level defaults would clash with __slots__, so they are set in __init__
     def __init__(self):
         self.w = self.h = self.x = self.y = self.title = self.of = self.layout = self.text = None
@@ -112,6 +113,7 @@ class Item:
         self.cache = None
         self.link_to = None
         self.typography = {}
+        self.grid = self.limits = None
 
 
 class _Plan:
@@ -197,6 +199,12 @@ class _Builder:
                     child_ov.setdefault(child, {})[prop] = val
                 else:
                     merged[prop] = val
+            # Pins adapt a copy, never the shared component definition. Geometry
+            # overrides on descendants are reapplied by build() afterwards.
+            from .constraints import prepare_instance_resize
+            adapted = prepare_instance_resize(comp, merged, self.rv)
+            if adapted is not comp and "children" in adapted:
+                merged["children"] = adapted["children"]
             merged["id"] = local
             if "title" in node:
                 merged["title"] = node["title"]
@@ -251,6 +259,11 @@ class _Builder:
             elif k == "children":
                 kids = v
         it.style = style
+        if any(key in node for key in ("min_w", "max_w", "min_h", "max_h")):
+            it.limits = (float(node.get("min_w", 0)), float(node.get("max_w", INF)),
+                         float(node.get("min_h", 0)), float(node.get("max_h", INF)))
+            if isinstance(it.w, float): it.w = min(it.limits[1], max(it.limits[0], it.w))
+            if isinstance(it.h, float): it.h = min(it.limits[3], max(it.limits[2], it.h))
         if not it.visible:
             return it
         if t == "frame":
@@ -262,9 +275,13 @@ class _Builder:
                     pad = (pad[0], pad[1], pad[0], pad[1]) if len(pad) == 2 else tuple(pad)
                 else:
                     pad = (pad, pad, pad, pad)
-                it.layout = (lay.get("dir", "row") == "row", float(lay.get("gap", 0)),
-                             tuple(float(p) for p in pad), lay.get("align", "start"),
-                             lay.get("justify", "start"), bool(lay.get("wrap")))
+                if lay.get("dir") == "grid":
+                    it.grid = (lay.get("columns", 2), float(lay.get("column_gap", lay.get("gap", 0))),
+                               float(lay.get("row_gap", lay.get("gap", 0))), tuple(float(p) for p in pad), lay.get("align", "start"))
+                else:
+                    it.layout = (lay.get("dir", "row") == "row", float(lay.get("gap", 0)),
+                                 tuple(float(p) for p in pad), lay.get("align", "start"),
+                                 lay.get("justify", "start"), bool(lay.get("wrap")))
             if kids:
                 out = it.kids = []
                 for i, k in enumerate(kids):
@@ -342,21 +359,38 @@ def _measure(it: Item, cons: tuple) -> _Plan:
             return hit
     if not it.visible:
         plan = _EMPTY
-    elif it.type == "text":
-        plan = _measure_text(it, cons)
-    elif it.type == "frame":
-        if it.layout is not None:
-            plan = _measure_flow(it, cons)
-        else:
-            plan = _measure_free(it, cons)
+    elif it.limits is None:
+        plan = _measure_raw(it, cons)
     else:
-        minw, maxw, minh, maxh = cons
-        w = _known(it.w, minw, maxw)
-        h = _known(it.h, minh, maxh)
-        plan = _Plan(minw if w is None else w, minh if h is None else h)
+        lo_w, hi_w, lo_h, hi_h = it.limits
+        clamp_w = lambda value: min(hi_w, max(lo_w, value))
+        clamp_h = lambda value: min(hi_h, max(lo_h, value))
+        bounded = (clamp_w(cons[0]), clamp_w(cons[1]), clamp_h(cons[2]), clamp_h(cons[3]))
+        plan = _measure_raw(it, bounded)
+        # Width may change text wrapping and height; height may change child
+        # alignment. Two bounded adjustment passes avoid a recursive fixpoint.
+        for attempt in range(2):
+            width, height = clamp_w(plan.w), clamp_h(plan.h)
+            changed = abs(width-plan.w) >= 1e-9 or abs(height-plan.h) >= 1e-9
+            minimum_box = attempt == 0 and (
+                (it.w in (None, "hug") and lo_w > 0 and abs(width-lo_w) < 1e-9) or
+                (it.h in (None, "hug") and lo_h > 0 and abs(height-lo_h) < 1e-9))
+            if not changed and not minimum_box: break
+            plan = _measure_raw(it, (width, width, height, height))
+        plan.w, plan.h = clamp_w(plan.w), clamp_h(plan.h)
     if cache is not None:
         cache[cons] = plan
     return plan
+
+
+def _measure_raw(it: Item, cons: tuple) -> _Plan:
+    if it.type == "text": return _measure_text(it, cons)
+    if it.type == "frame":
+        if it.grid is not None: return _measure_grid(it, cons)
+        return _measure_flow(it, cons) if it.layout is not None else _measure_free(it, cons)
+    minw, maxw, minh, maxh = cons
+    w, h = _known(it.w, minw, maxw), _known(it.h, minh, maxh)
+    return _Plan(minw if w is None else w, minh if h is None else h)
 
 
 def _measure_text(it: Item, cons: tuple) -> _Plan:
@@ -393,6 +427,58 @@ def _measure_free(it: Item, cons: tuple) -> _Plan:
         right = max(right, x + plan.w)
         bottom = max(bottom, y + plan.h)
     return _Plan(max(right, minw) if w is None else w, max(bottom, minh) if h is None else h, kids)
+
+
+def _measure_grid(it: Item, cons: tuple) -> _Plan:
+    minw, maxw, minh, maxh = cons
+    columns, column_gap, row_gap, (pt, pr, pb, pl), align = it.grid
+    W, H = _known(it.w, minw, maxw), _known(it.h, minh, maxh)
+    flow, absolute = [], []
+    for index, child in enumerate(it.kids):
+        if not child.visible: continue
+        if child.absolute or (index == 0 and it.style.get("mask")): absolute.append(index)
+        else: flow.append(index)
+    gaps = column_gap * (columns-1) if flow else 0
+    if W is not None:
+        track = max(0, (W-pl-pr-gaps)/columns)
+    else:
+        intrinsic = max((_measure(it.kids[i], (0, INF, 0, INF)).w for i in flow), default=0)
+        available = max(0, (maxw-pl-pr-gaps)/columns) if maxw != INF else INF
+        track = min(intrinsic, available)
+    natural_w = pl+pr+(track*columns+gaps if flow else 0)
+    outer_w = W if W is not None else max(minw, natural_w)
+    if flow and W is None and outer_w > natural_w:
+        track = max(0, (outer_w-pl-pr-gaps)/columns)
+    sizes, heights = {}, []
+    for index, i in enumerate(flow):
+        child = it.kids[i]
+        stretch = child.w == "fill" or (align == "stretch" and child.w in (None,"hug"))
+        sizes[i] = _measure(child, (track if stretch else 0, track, 0, INF))
+        row_index = index // columns
+        if row_index == len(heights): heights.append(0)
+        heights[row_index] = max(heights[row_index], sizes[i].h)
+    content_h = sum(heights)+row_gap*max(0,len(heights)-1)
+    outer_h = H if H is not None else max(minh, pt+pb+content_h)
+    if heights:
+        extra = max(0, outer_h-pt-pb-content_h)/len(heights)
+        heights = [height+extra for height in heights]
+    tops, top = [], pt
+    for height in heights: tops.append(top); top += height+row_gap
+    placed = {}
+    for index, i in enumerate(flow):
+        child = it.kids[i]; row_index, column = divmod(index, columns)
+        height = heights[row_index]
+        tight_w = child.w == "fill" or (align == "stretch" and child.w in (None,"hug"))
+        tight_h = child.h == "fill" or (align == "stretch" and child.h in (None,"hug"))
+        p = _measure(child, (track if tight_w else 0,track,height if tight_h else 0,height))
+        dx = (track-p.w)*(.5 if align == "center" else 1 if align == "end" else 0)
+        dy = (height-p.h)*(.5 if align == "center" else 1 if align == "end" else 0)
+        placed[i] = (pl+column*(track+column_gap)+dx, tops[row_index]+dy, p)
+    for i in absolute:
+        child=it.kids[i]
+        p=_measure(child,(outer_w if child.w=="fill" else 0,outer_w,outer_h if child.h=="fill" else 0,outer_h))
+        placed[i]=(child.x or 0,child.y or 0,p)
+    return _Plan(outer_w,outer_h,[(child,*placed[i]) if i in placed else (child,0,0,_EMPTY) for i,child in enumerate(it.kids)])
 
 
 def _measure_flow(it: Item, cons: tuple) -> _Plan:
@@ -536,7 +622,7 @@ def _measure_flow(it: Item, cons: tuple) -> _Plan:
                 msz = p.w if row else p.h
                 p = _measure(c, mk(0.0, INF, lc, lc) if mspec in (None, "hug")
                              else mk(msz, msz, lc, lc))
-                cs = lc
+                cs = p.h if row else p.w
             if align == "center":
                 off = (lc - cs) / 2
             elif align == "end":

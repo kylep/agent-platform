@@ -11,6 +11,7 @@ COPY services/backend/agentplatform/ui_designer/__init__.py \
      services/backend/agentplatform/ui_designer/errors.py \
      services/backend/agentplatform/ui_designer/schema.py \
      services/backend/agentplatform/ui_designer/components.py \
+     services/backend/agentplatform/ui_designer/constraints.py \
      services/backend/agentplatform/ui_designer/export_formats.py \
      services/backend/agentplatform/ui_designer/visual_diff.py \
      services/backend/agentplatform/ui_designer/lint.py \

@@ -66,7 +66,7 @@ NODE_TYPES = ("frame", "text", "rect", "ellipse", "line", "path", "image", "inst
 
 _SHARED = {"id", "type", "title", "w", "h", "x", "y", "absolute", "rotate", "fill", "stroke",
            "radius", "opacity", "visible", "clip", "shadow", "blur", "backdrop_blur", "blend",
-           "meta", "link_to"}
+           "meta", "link_to", "min_w", "max_w", "min_h", "max_h", "constraints"}
 TYPE_KEYS: dict[str, set[str]] = {
     "frame": _SHARED | {"layout", "children", "mask"},
     "text": _SHARED | {"text", "style", "color", "align", "max_lines", "vertical_align", "text_case", "decoration"},
@@ -80,7 +80,7 @@ TYPE_KEYS: dict[str, set[str]] = {
 # Never overridable on an instance's target.
 # asset is not overridable: image_assets() walks node assets only, so an
 # override would place an image the asset check never saw.
-_NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset", "variant", "props"}
+_NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset", "variant", "props", "constraints"}
 
 # Value positions that are text, not token references (resolution skips them).
 _LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image", "props", "variant", "axes", "properties", "when", "bindings", "link_to", "target", "libraries"}
@@ -492,10 +492,25 @@ def _backdrop(c: _Ctx, v: Any, path: str) -> None:
 
 
 def _layout(c: _Ctx, v: Any, path: str) -> None:
-    if not _obj(c, v, path, {"dir", "gap", "pad", "align", "justify", "wrap"}):
+    if not _obj(c, v, path, {"dir", "gap", "pad", "align", "justify", "wrap", "columns", "row_gap", "column_gap"}):
         return
     if "dir" in v:
-        _enum(c, v["dir"], join_path(path, "dir"), ("row", "column"))
+        _enum(c, v["dir"], join_path(path, "dir"), ("row", "column", "grid"))
+    if v.get("dir") == "grid":
+        for key in ("wrap", "justify"):
+            if key in v:
+                c.add("UD-VALUE", join_path(path, key), f"grid does not use {key}")
+    else:
+        for key in ("columns", "row_gap", "column_gap"):
+            if key in v:
+                c.add("UD-VALUE", join_path(path, key), f"{key} is only for grid layout")
+    if "columns" in v:
+        value = v["columns"]
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 12:
+            c.add("UD-BOUNDS", join_path(path, "columns"), "columns is an integer from 1 to 12", value)
+    for key in ("row_gap", "column_gap"):
+        if key in v:
+            _num(c, v[key], join_path(path, key), 0, MAX_NUMBER, groups=())
     if "gap" in v:
         _num(c, v["gap"], join_path(path, "gap"), 0, MAX_NUMBER)
     if "pad" in v:
@@ -620,8 +635,25 @@ def _link_to(c: _Ctx, value: Any, path: str) -> None:
         c.add("UD-VALUE", join_path(path, "delay_ms"), "delay_ms is only for after-delay interactions")
 
 
+def _constraints(c: _Ctx, value: Any, path: str) -> None:
+    if not _obj(c, value, path, {"horizontal", "vertical"}):
+        return
+    for axis, pin in value.items():
+        if axis in ("horizontal", "vertical"):
+            _enum(c, pin, join_path(path, axis), ("start", "end", "center", "stretch", "scale"))
+
+
+def _check_bounds(c: _Ctx, node: dict, path: str) -> None:
+    for axis in ("w", "h"):
+        minimum, maximum = node.get("min_" + axis), node.get("max_" + axis)
+        if _isnum(minimum) and _isnum(maximum) and minimum > maximum:
+            c.add("UD-VALUE", join_path(path, "min_" + axis), f"min_{axis} exceeds max_{axis}")
+
+
 PROP_CHECKS = {
-    "title": _title, "link_to": _link_to,
+    "title": _title, "link_to": _link_to, "constraints": _constraints,
+    **{key: (lambda c, v, p: _num(c, v, p, 0, MAX_NUMBER, groups=()))
+       for key in ("min_w", "max_w", "min_h", "max_h")},
     "w": _size, "h": _size,
     "x": lambda c, v, p: _num(c, v, p), "y": lambda c, v, p: _num(c, v, p),
     "absolute": _bool, "clip": _bool, "visible": _bool,
@@ -684,6 +716,7 @@ def _node(c: _Ctx, n: Any, path: str, depth: int, scope: str, root_key: str | No
     for k, v in n.items():
         if k in PROP_CHECKS and k in allowed:
             PROP_CHECKS[k](c, v, join_path(path, k))
+    _check_bounds(c, n, path)
     if t not in ("frame", "rect", "ellipse") and any(
             isinstance(x, dict) and "image" in x for x in paints_of(n.get("fill"))):
         c.add("UD-VALUE", join_path(path, "fill"),
@@ -852,12 +885,50 @@ def _check_overrides(c: _Ctx, path: str, n: dict, of: str, root: dict) -> None:
             c.add("UD-OVERRIDE", p, "an image fill cannot be an override; put it on the node", key)
             continue
         PROP_CHECKS[prop](c, val, p)
+    merged = {"": dict(root)} if isinstance(root, dict) else {}
+    for key, value in ov.items():
+        child, _, prop = key.rpartition(".")
+        if prop in ("min_w", "max_w", "min_h", "max_h"):
+            target = root if not child else targets.get(child)
+            if isinstance(target, dict):
+                merged.setdefault(child, dict(target))[prop] = value
+    for child, target in merged.items():
+        _check_bounds(c, target, join_path(op, child or "root"))
+
+
+def _instance_bounds(c: _Ctx, node: dict, seen: set[str]) -> dict:
+    from .components import selected_variant
+    of = node.get("of")
+    if not isinstance(of, str) or of in seen or len(seen) > MAX_INSTANCE_DEPTH:
+        return {}
+    target = of
+    if of in c.component_sets:
+        try:
+            _, variant, _ = selected_variant({"component_sets": c.component_sets}, node)
+            target = variant["of"]
+        except (KeyError, TypeError, ValueError, IndexError, StopIteration):
+            return {}
+    if not isinstance(target, str):
+        return {}
+    root = c.components.get(target)
+    if not isinstance(root, dict):
+        return {}
+    bounds = _instance_bounds(c, root, seen | {of}) if root.get("type") == "instance" else {}
+    keys = ("min_w", "max_w", "min_h", "max_h")
+    bounds.update({key: root[key] for key in keys if key in root})
+    bounds.update({key: node[key] for key in keys if key in node})
+    overrides = node.get("overrides")
+    if isinstance(overrides, dict):
+        bounds.update({key: overrides[key] for key in keys if key in overrides})
+    return bounds
 
 
 def _check_instance(c: _Ctx, path: str, n: dict, scope: str) -> None:
     from .components import validate_instance
     validate_instance({"component_sets":c.component_sets}, n, path, c)
     of = n.get("of")
+    bounds = _instance_bounds(c, n, set())
+    _check_bounds(c, bounds, path)
     if isinstance(of, str) and of in c.component_sets:
         from .components import selected_variant
         try:

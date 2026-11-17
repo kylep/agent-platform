@@ -167,6 +167,51 @@ async def test_edit_cas_replay_and_reuse(admin_client):
     assert (await edit(admin_client, 1, slug="nope")).status_code == 404
 
 
+async def test_resize_returns_exact_inverse_and_receipt_replays_it(admin_client):
+    doc = base_doc()
+    root = doc["pages"][0]["children"][0]
+    root.update(w=300, h=160, max_w=400, children=[
+        {"id": "pinned", "type": "rect", "w": 100, "h": 30, "max_w": 120,
+         "constraints": {"horizontal": "stretch"}},
+        {"id": "right", "type": "rect", "x": 250, "w": 30, "h": 30,
+         "constraints": {"horizontal": "end"}},
+    ])
+    await mk(admin_client, doc=doc)
+    ops = [{"op": "resize", "id": root["id"], "set": {"w": 500}}]
+    response = await edit(admin_client, 1, ops, request_id="resize-one")
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    assert saved["version"] == 2 and saved["undo_ops"]
+    current = (await admin_client.get(f"{P}/docs/{SLUG}?depth=5")).json()["doc"]
+    changed = current["pages"][0]["children"][0]
+    assert changed["w"] == 500
+    assert changed["children"][0]["w"] == 120
+    assert changed["children"][1]["x"] == 350
+    # A stale expected_version is accepted only for the identical saved request.
+    replay = (await edit(admin_client, 1, ops, request_id="resize-one")).json()
+    assert replay["replayed"] and replay["version"] == 2
+    assert replay["undo_ops"] == saved["undo_ops"]
+    assert (await edit(admin_client, 1, ops, request_id="resize-other")).status_code == 409
+    undo = await edit(admin_client, 2, saved["undo_ops"], request_id="undo-resize")
+    assert undo.status_code == 200, undo.text
+    assert undo.json()["undo_ops"] is None
+    restored = (await admin_client.get(f"{P}/docs/{SLUG}?depth=5")).json()["doc"]
+    assert restored["pages"][0]["children"][0] == root
+    redo = await edit(admin_client, 3, ops, request_id="redo-resize")
+    assert redo.status_code == 200 and redo.json()["undo_ops"] == saved["undo_ops"]
+
+
+@pytest.mark.parametrize("changes", [
+    {"max_w": "bad"}, {"min_w": True}, {"min_w": 500, "max_w": 400},
+    {"constraints": []}, {"layout": {"dir": "grid", "columns": 13}},
+])
+async def test_resize_bad_parent_fields_are_atomic_validation_errors(admin_client, changes):
+    await mk(admin_client)
+    response = await edit(admin_client, 1, [{"op": "resize", "id": "root", "set": {"w": 400, **changes}}])
+    assert response.status_code == 422, response.text
+    assert (await admin_client.get(f"{P}/docs/{SLUG}")).json()["version"] == 1
+
+
 async def test_edit_snapshot_for_agent_runs(sf, seed_agent, agent_store, admin_client, token_client, renderer):
     await mk(admin_client)
     h = await _agent(sf, seed_agent, agent_store, "pai")

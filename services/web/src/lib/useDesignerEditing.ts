@@ -44,6 +44,7 @@ export function useDesignerEditing(base: string, onRefresh: (version?: number, e
       }) });
       if (session !== generation.current) return;
       head.current = result.version;
+      if (payload.kind !== "undo" && payload.ops.some((op) => op.op === "resize") && result.undo_ops) payload.entry.inverse = result.undo_ops;
       if (payload.kind === "edit") { history.current.undo.push(payload.entry); history.current.redo = []; }
       else if (payload.kind === "undo") { history.current.undo.pop(); history.current.redo.push(payload.entry); }
       else { history.current.redo.pop(); history.current.undo.push(payload.entry); }

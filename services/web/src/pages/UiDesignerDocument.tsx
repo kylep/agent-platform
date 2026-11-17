@@ -166,7 +166,8 @@ export default function UiDesignerDocument() {
   function saveNode(id: string, changes: Record<string, unknown>) {
     if (!editable || inspection?.id !== id || picked?.id !== id || !inspection.authored) return;
     const before = Object.fromEntries(Object.keys(changes).map((key) => [key, inspection.authored![key] ?? null]));
-    editing.commit([{ op: "update", id, set: changes }], [{ op: "update", id, set: before }]);
+    const resize = Object.entries(changes).some(([key, value]) => ["min_w", "max_w", "min_h", "max_h"].includes(key) || (["w", "h"].includes(key) && typeof value === "number"));
+    editing.commit([{ op: resize ? "resize" : "update", id, set: changes }], [{ op: "update", id, set: before }]);
   }
 
   async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -10,6 +10,9 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.ui_doc_snapshot import UiDocSnapshot
+    from ..models.ui_library_write_out_undo_ops_type_0_item import (
+        UiLibraryWriteOutUndoOpsType0Item,
+    )
     from ..models.ui_library_write_out_warnings_item import (
         UiLibraryWriteOutWarningsItem,
     )
@@ -30,6 +33,7 @@ class UiLibraryWriteOut:
         replayed (bool | Unset):  Default: False.
         snapshots (list[UiDocSnapshot] | Unset):
         text (str | Unset):  Default: ''.
+        undo_ops (list[UiLibraryWriteOutUndoOpsType0Item] | None | Unset):
         warnings (list[UiLibraryWriteOutWarningsItem] | Unset):
     """
 
@@ -41,6 +45,7 @@ class UiLibraryWriteOut:
     replayed: bool | Unset = False
     snapshots: list[UiDocSnapshot] | Unset = UNSET
     text: str | Unset = ""
+    undo_ops: list[UiLibraryWriteOutUndoOpsType0Item] | None | Unset = UNSET
     warnings: list[UiLibraryWriteOutWarningsItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -65,6 +70,18 @@ class UiLibraryWriteOut:
                 snapshots.append(snapshots_item)
 
         text = self.text
+
+        undo_ops: list[dict[str, Any]] | None | Unset
+        if isinstance(self.undo_ops, Unset):
+            undo_ops = UNSET
+        elif isinstance(self.undo_ops, list):
+            undo_ops = []
+            for undo_ops_type_0_item_data in self.undo_ops:
+                undo_ops_type_0_item = undo_ops_type_0_item_data.to_dict()
+                undo_ops.append(undo_ops_type_0_item)
+
+        else:
+            undo_ops = self.undo_ops
 
         warnings: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.warnings, Unset):
@@ -92,6 +109,8 @@ class UiLibraryWriteOut:
             field_dict["snapshots"] = snapshots
         if text is not UNSET:
             field_dict["text"] = text
+        if undo_ops is not UNSET:
+            field_dict["undo_ops"] = undo_ops
         if warnings is not UNSET:
             field_dict["warnings"] = warnings
 
@@ -100,6 +119,9 @@ class UiLibraryWriteOut:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.ui_doc_snapshot import UiDocSnapshot
+        from ..models.ui_library_write_out_undo_ops_type_0_item import (
+            UiLibraryWriteOutUndoOpsType0Item,
+        )
         from ..models.ui_library_write_out_warnings_item import (
             UiLibraryWriteOutWarningsItem,
         )
@@ -128,6 +150,32 @@ class UiLibraryWriteOut:
 
         text = d.pop("text", UNSET)
 
+        def _parse_undo_ops(
+            data: object,
+        ) -> list[UiLibraryWriteOutUndoOpsType0Item] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                undo_ops_type_0 = []
+                _undo_ops_type_0 = data
+                for undo_ops_type_0_item_data in _undo_ops_type_0:
+                    undo_ops_type_0_item = UiLibraryWriteOutUndoOpsType0Item.from_dict(
+                        undo_ops_type_0_item_data
+                    )
+
+                    undo_ops_type_0.append(undo_ops_type_0_item)
+
+                return undo_ops_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[UiLibraryWriteOutUndoOpsType0Item] | None | Unset, data)
+
+        undo_ops = _parse_undo_ops(d.pop("undo_ops", UNSET))
+
         _warnings = d.pop("warnings", UNSET)
         warnings: list[UiLibraryWriteOutWarningsItem] | Unset = UNSET
         if _warnings is not UNSET:
@@ -148,6 +196,7 @@ class UiLibraryWriteOut:
             replayed=replayed,
             snapshots=snapshots,
             text=text,
+            undo_ops=undo_ops,
             warnings=warnings,
         )
 

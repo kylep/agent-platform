@@ -65,7 +65,7 @@ export function Canvas({ slug, page, version, mode, selected, onSelect, highligh
     gesture.current = {
       kind: corner ? "resize" : "move", id: n.id, px: e.clientX, py: e.clientY, pointer: e.pointerId,
       node: n, x: number(selectedAuthored?.x, 0), y: number(selectedAuthored?.y, 0),
-      w: number(selectedAuthored?.w, n.w ?? 1), h: number(selectedAuthored?.h, n.h ?? 1),
+      w: number(n.w, number(selectedAuthored?.w, 1)), h: number(n.h, number(selectedAuthored?.h, 1)),
       corner, changes: {}, moved: false,
     };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -78,14 +78,15 @@ export function Canvas({ slug, page, version, mode, selected, onSelect, highligh
       const dx = (e.clientX - g.px) / view.s, dy = (e.clientY - g.py) / view.s;
       if (Math.abs(e.clientX - g.px) + Math.abs(e.clientY - g.py) < 3 && !g.moved) return;
       g.moved = true;
+      const boundedSize = (value: number, axis: "w" | "h") => Math.min(number(selectedAuthored?.[`max_${axis}`], 100_000), Math.max(number(selectedAuthored?.[`min_${axis}`], 0), size(value)));
       let x = g.x, y = g.y, w = g.w, h = g.h;
       if (g.kind === "move") {
         x = rounded(g.x + dx); y = rounded(g.y + dy);
         g.changes = { x, y };
       } else {
         const west = g.corner?.includes("w"), north = g.corner?.includes("n");
-        if (g.corner?.includes("e") || west) w = size(g.w + (west ? -dx : dx));
-        if (g.corner?.includes("s") || north) h = size(g.h + (north ? -dy : dy));
+        if (g.corner?.includes("e") || west) w = boundedSize(g.w + (west ? -dx : dx), "w");
+        if (g.corner?.includes("s") || north) h = boundedSize(g.h + (north ? -dy : dy), "h");
         if (west) x = rounded(g.x + g.w - w);
         if (north) y = rounded(g.y + g.h - h);
         g.changes = { w, h, ...(west ? { x } : {}), ...(north ? { y } : {}) };

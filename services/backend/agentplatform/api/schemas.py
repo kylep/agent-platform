@@ -1971,6 +1971,8 @@ class UiDocWriteOut(BaseModel):
     replayed: bool = False
     folded: bool = False
     snapshots: list[UiDocSnapshot] = []
+    # Exact literal inverse for dependent geometry changes; replayed with the receipt.
+    undo_ops: list[dict[str, Any]] | None = None
 
 
 class UiDocGetOut(UiDocSummary):

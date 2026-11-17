@@ -372,6 +372,7 @@ from .ui_doc_snapshot import UiDocSnapshot
 from .ui_doc_snapshot_boxes_type_0 import UiDocSnapshotBoxesType0
 from .ui_doc_summary import UiDocSummary
 from .ui_doc_write_out import UiDocWriteOut
+from .ui_doc_write_out_undo_ops_type_0_item import UiDocWriteOutUndoOpsType0Item
 from .ui_doc_write_out_warnings_item import UiDocWriteOutWarningsItem
 from .ui_library_apply_in import UiLibraryApplyIn
 from .ui_library_conflict import UiLibraryConflict
@@ -384,6 +385,7 @@ from .ui_library_spec import UiLibrarySpec
 from .ui_library_summary import UiLibrarySummary
 from .ui_library_summary_counts import UiLibrarySummaryCounts
 from .ui_library_write_out import UiLibraryWriteOut
+from .ui_library_write_out_undo_ops_type_0_item import UiLibraryWriteOutUndoOpsType0Item
 from .ui_library_write_out_warnings_item import UiLibraryWriteOutWarningsItem
 from .ui_lint_finding import UiLintFinding
 from .ui_lint_finding_severity import UiLintFindingSeverity
@@ -795,6 +797,7 @@ __all__ = (
     "UiDocSnapshotBoxesType0",
     "UiDocSummary",
     "UiDocWriteOut",
+    "UiDocWriteOutUndoOpsType0Item",
     "UiDocWriteOutWarningsItem",
     "UiLibraryApplyIn",
     "UiLibraryConflict",
@@ -807,6 +810,7 @@ __all__ = (
     "UiLibrarySummary",
     "UiLibrarySummaryCounts",
     "UiLibraryWriteOut",
+    "UiLibraryWriteOutUndoOpsType0Item",
     "UiLibraryWriteOutWarningsItem",
     "UiLintFinding",
     "UiLintFindingSeverity",

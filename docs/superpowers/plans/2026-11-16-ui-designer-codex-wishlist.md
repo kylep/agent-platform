@@ -306,5 +306,16 @@ Fresh starting Codex weekly usage: 26% (74% left).
   case and decorations with inspector CAS/undo and faithful HTML SVG fallback.
   Legacy SVG/PNG goldens remain unchanged; visual sample reviewed. Backend 3,886
   passed / 21 skipped; browser 434, renderer 81, broker 470, facade 40 pass, plus
-  builds, Storybook, tokens, SDK drift and Helm lint. Deployment acceptance
-  pending. P2.10b has a coordinated layout/resize design; code remains unopened.
+  builds, Storybook, tokens, SDK drift and Helm lint. Pushed `38c8045`,
+  deployed `ud-type-20261116` in Helm revision 158. Live browser save/undo/redo
+  versions 2/3/4 preserved original text and rendered case/alignment/decoration;
+  smoke document removed. Fresh weekly quota: 37%. P2.10b is underway.
+
+- **P2.10b Status:** implemented grid layout, numeric min/max limits, row/column
+  wrap controls and resize constraints. Resize stores literal forward history and
+  exact bounded undo operations, including receipt replay; instance preflight
+  shares the renderer's expansion rules. Visual sample reviewed; legacy goldens
+  unchanged. Backend 3,933 passed / 21 skipped; browser 438, renderer 81, broker
+  470, facade 40 pass. Focused resize/schema/store checks also pass, including
+  folded-history replay without rerunning resize math. Builds, Storybook, tokens,
+  SDK drift and Helm lint pass. Live deployment acceptance pending.

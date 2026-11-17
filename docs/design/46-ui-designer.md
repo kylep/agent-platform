@@ -1392,3 +1392,34 @@ SVG and PNG use the same shaped geometry; PDF inherits the raster result. HTML
 uses a trusted SVG fallback for these new properties and reports that limitation.
 Tests cover Unicode/rich runs/newlines, fixed and fill dimensions, wrapping,
 truncation, decorations, legacy goldens, exports and browser undo/clear behavior.
+
+## 26. Grid, size limits and resize constraints (P2.10b)
+
+Frames gain `layout.dir: "grid"`, with 1–12 equal-width `columns` (default 2),
+`row_gap` and `column_gap` falling back to `gap`, existing padding and alignment.
+Grid uses natural row heights and distributes positive extra fixed height across
+rows. Absolute children and masks stay outside the cell flow. Row/column wrapping
+is unchanged and exposed in the inspector; grid rejects wrap/justify settings.
+Nodes gain optional numeric `min_w`, `max_w`, `min_h`, `max_h` in 0–100000;
+contradictory bounds are invalid. Limits clamp resolved dimensions while keeping
+authored dimensions intact, with bounded remeasurement for wrapped text.
+
+`constraints` has optional `horizontal` and `vertical` values `start`, `end`,
+`center`, `stretch` or `scale` (default `start`). Pins use local unrotated boxes
+of free-positioned or absolute children. An explicit sole-op
+`{op:"resize", id, set:{...}}` applies the parent changes and dependent child
+geometry atomically under the existing expected-version fence. Ordinary update
+remains literal. Deltas use effective clamped parent dimensions; unsupported
+indeterminate pin axes and scaling from zero are refused explicitly. Instances
+apply the same calculation to copied component geometry before legacy overrides,
+without modifying the shared component.
+
+Resize returns exact literal `undo_ops`, preserving absent fields and original
+raw values; the same inverse is saved in the existing request receipt. The inverse
+is bounded to 128 operations / 8 KiB, and the complete receipt must fit its existing
+16 KiB cap before any write. Stored forward history contains literal updates so
+history compaction never reinterprets resize rules. Browser redo retains the
+original resize request, while undo uses the returned inverse. Existing uncertain
+save retry and CAS conflict behavior remain in force. No new grants or external
+references are introduced. Verification covers grid flow, fill/hug limits,
+instance isolation, exact undo/replay and unchanged legacy render goldens.

@@ -247,3 +247,23 @@ Justification distributes space between words on non-final paragraph lines; it
 does not stretch single words or ellipsis lines. Vertical alignment uses available
 space in a definite text box. HTML exports use an SVG fallback for these settings
 to preserve the renderer's typography.
+
+### Grid, bounds and resizing
+
+Select a frame and choose **Grid** under Direction to arrange children in equal
+columns. Set Grid columns (1–12), Row gap, Column gap and Padding; empty row/column
+gaps inherit Gap. Row and Column layouts also expose Wrap. Absolute children keep
+their positions outside the grid.
+
+Minimum/maximum width and height limit a node's rendered size while preserving
+its authored width/height. Resize constraints control how free-positioned or
+absolute children respond to a parent's resize: Start, End, Center, Stretch or
+Scale on each axis. Active constraints require numeric parent and child geometry;
+Scale also requires a positive original parent size. Geometry uses the local
+unrotated box, then rendering applies rotation.
+
+Inspector dimension changes and canvas resizing use an atomic `resize` operation.
+Agents can use `{op:"resize", id:"frame", set:{w:480}}` as the only operation in
+an edit batch. It returns exact `undo_ops`, including dependent child geometry;
+apply those literal operations to undo. A normal `update` changes only the named
+fields. The same request ID replays the saved result, including its undo data.

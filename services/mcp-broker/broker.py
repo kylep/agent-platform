@@ -2482,6 +2482,8 @@ def _ud_write(out: str, what: str):
     if r.get("replayed"):
         head += " (replayed: this request_id was already applied; nothing applied twice)"
     lines = [head] + ([_flat(r["text"])] if r.get("text") else []) + _ud_warnings(r.get("warnings"))
+    if r.get("undo_ops") is not None:
+        lines.append("undo_ops: " + _json.dumps(r["undo_ops"], separators=(",", ":")))
     return _with_pictures(lines, _ud_snapshots(r.get("snapshots")))
 
 
@@ -2530,10 +2532,11 @@ Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
   node = {id, type, ...props}; type is frame|text|rect|ellipse|line|path|image|instance.
   All nodes: title w h (number|"fill"|"hug") x y absolute rotate fill stroke radius
     opacity(0-1) visible clip shadow blur backdrop_blur blend meta link_to.
+    Bounds: min_w/max_w/min_h/max_h are numbers 0..100000, min<=max. constraints={horizontal,vertical}: start|end|center|stretch|scale.
+    Pins need numeric authored geometry on free/absolute children; scale needs positive original parent size. constraints are structural, not legacy overrides.
     link_to = {target: authored page-frame id, trigger?: tap|hover|after-delay, transition?: instant|dissolve|slide,
     duration_ms?: 0..2000, delay_ms?: 100..60000 (after-delay only)}; defaults tap/instant, duration 0 instant else 200, delay 1000.
-    Example update: {"op":"update","id":"next","set":{"link_to":{"target":"finish"}}}. Clear links before deleting targets.
-    Play a pinned version at /ui-designer/<slug>/play?version=N (no URLs/scripts in links).
+    Clear links before deleting targets; play pinned versions at /ui-designer/<slug>/play?version=N (no URLs/scripts).
     fill = paint or a LIST of paints stacked bottom to top (max 8). paint = "#rrggbb"|"$color.name"
     |{color, opacity?}|{gradient: linear|radial|angular|diamond, stops: [[0-1,color],..], angle?,
     opacity?}|{image: sha256 from `place`, fit?, opacity?}. angular/diamond are stepped
@@ -2547,9 +2550,9 @@ Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
     (approximate; max 8 nodes; skipped inside masks). blend = normal|darken|multiply|color-burn|
     lighten|screen|color-dodge|plus-lighter(drawn as screen)|overlay|soft-light|hard-light|
     difference|exclusion|hue|saturation|color|luminosity.
-  frame: layout, children, mask. layout is an OBJECT: {dir: row|column, gap, pad, align:
-    start|center|end|stretch, justify: start|center|end|space-between, wrap}; pad is
-    n, [v,h] or [t,r,b,l].
+  frame: layout, children, mask. layout is an OBJECT: {dir:row|column|grid,gap,pad,align:start|center|end|stretch,
+    justify:start|center|end|space-between,wrap (row/column only),columns:1..12,row_gap,column_gap (grid only)}.
+    pad=n,[v,h] or [t,r,b,l]. Grid defaults to 2 equal columns; gap fills missing row_gap/column_gap.
   text: text (string or runs [{text,style?,color?}]), style, color, max_lines; align:left|center|right|justify; vertical_align:top|center|bottom.
     text_case:none|uppercase|lowercase|capitalize (display only); decoration:none|underline|line-through. Justify skips paragraph-final lines; vertical alignment needs spare height.
     style={family:Inter|JetBrains Mono|Noto Sans|Nunito|Fredoka,size,weight,line,letter} or "$type.name". Text colour is `color`, not `fill`.
@@ -2563,7 +2566,7 @@ Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
   tokens = {color: {name: "#hex" | {mode: "#hex"}}, space: {name: n}, radius: {name: n},
     type: {name: style}}; reference as "$color.name", "$space.name", "$radius.name", "$type.name".
 Ops (one batch applies atomically; each op is an object with "op"):
-  insert {parent: page|frame id, node, index?}      update {id, set: {prop: value|null}}
+  insert {parent: page|frame id,node,index?}  update {id,set:{prop:value|null}}  resize {id,set} (sole op; dimension/bound edits apply pins).
   remove {ids: [id]}                               move {id, parent, index?}
   replace {id, node}                               set_text {id, text}
   tokens {set: {color: {name: value|null}}}  (merges; null deletes)
@@ -2571,11 +2574,10 @@ Ops (one batch applies atomically; each op is an object with "op"):
   component_sets {set:{id:whole-definition|null}} (replaces each definition; null removes)
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
-  update cannot set id/type/children; a page only takes title.
+  update is literal and cannot set id/type/children; a page only takes title. resize returns exact literal undo_ops (128 ops/8KiB max); redo the original resize.
 Other actions: templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
-  preview/apply spec={library_id:namespace,source_version}; writes require expected_version+request_id, retry exact same inputs after uncertain saves.
-  Pins copy dependencies/assets and render offline; preview detects local conflicts; updates never follow reused slugs. Read provenance with node="$libraries" and after cursor.
+  preview/apply spec={library_id:namespace,source_version}; writes need expected_version+request_id and exact-input retries. Pins render offline; preview catches conflicts; UUID updates never follow reused slugs; node="$libraries" pages provenance.
   lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
   (read-only findings; bounded pages; approximate contrast is advisory, not a compliance audit); inspect {node, mode?} (resolved box, colours, tokens, component of one node);
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history

@@ -512,7 +512,8 @@ async def ui_designer_stream(request: Request,
 def _write_out(out: dict, slug: str) -> S.UiDocWriteOut:
     return S.UiDocWriteOut(slug=out.get("slug", slug), version=out["version"],
                            text=out.get("text", ""), warnings=out.get("warnings", []),
-                           replayed=bool(out.get("replayed")), folded=bool(out.get("folded")))
+                           replayed=bool(out.get("replayed")), folded=bool(out.get("folded")),
+                           undo_ops=out.get("undo_ops"))
 
 
 @router.get(PREFIX + "/docs", response_model=S.UiDocList)

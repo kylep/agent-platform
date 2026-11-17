@@ -5,6 +5,7 @@ to a copy of the document and validated as a whole afterwards. Pure; the store
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
@@ -14,10 +15,13 @@ from agentplatform.ui_designer.schema import (NodeRef, assign_ids, index_nodes, 
                                               normalize_document, subtree_ids, validate_document)
 
 MAX_OPS = 500
+MAX_RESIZE_UNDO_OPS = 128
+MAX_RESIZE_UNDO_BYTES = 8 << 10
 
 OP_FIELDS: dict[str, tuple[set[str], set[str]]] = {  # op -> (required, optional)
     "insert": ({"parent", "node"}, {"index"}),
     "update": ({"id", "set"}, set()),
+    "resize": ({"id", "set"}, set()),
     "remove": ({"ids"}, set()),
     "move": ({"id", "parent"}, {"index"}),
     "replace": ({"id", "node"}, set()),
@@ -29,7 +33,8 @@ OP_FIELDS: dict[str, tuple[set[str], set[str]]] = {  # op -> (required, optional
 }
 # What `define_component` leaves on the instance that replaces the node: its
 # place in the parent, not its look.
-_PLACEMENT = ("title", "w", "h", "x", "y", "absolute", "rotate")
+_PLACEMENT = ("title", "w", "h", "x", "y", "absolute", "rotate",
+              "min_w", "max_w", "min_h", "max_h", "constraints")
 _NOT_UPDATABLE = {"id", "type", "children"}
 
 
@@ -39,6 +44,7 @@ class ApplyResult:
     version: int
     ops: list
     warnings: list[dict] = field(default_factory=list)
+    undo_ops: list[dict] | None = None
 
 
 def apply_ops(doc: dict, ops: Any, *, version: int, expected_version: int | None,
@@ -65,18 +71,32 @@ def apply_ops(doc: dict, ops: Any, *, version: int, expected_version: int | None
         raise invalid([issue("UD-TYPE", "$.ops", "expected a non-empty list of ops", ops)])
     if len(ops) > MAX_OPS:
         raise invalid([issue("UD-LIMIT", "$.ops", f"at most {MAX_OPS} ops per batch")])
+    resizing = any(isinstance(op, dict) and op.get("op") == "resize" for op in ops)
+    if resizing and len(ops) != 1:
+        raise invalid(
+            [issue("UD-LIMIT", "$.ops", "resize must be the only op in its edit batch")]
+        )
     work = copy.deepcopy(doc)
+    captured = {}
     for i, op in enumerate(ops):
-        work = _apply_one(work, op, join_path("$.ops", i))
+        work = _apply_one(
+            work, op, join_path("$.ops", i), captured if resizing else None
+        )
     validate_document(work, known_assets=known_assets)
-    return ApplyResult(doc=work, version=version + 1, ops=copy.deepcopy(ops), warnings=lint(work))
+    return ApplyResult(
+        doc=work,
+        version=version + 1,
+        ops=captured.get("forward", copy.deepcopy(ops)),
+        warnings=lint(work),
+        undo_ops=captured.get("undo"),
+    )
 
 
 def _fail(code: str, path: str, message: str, value: Any = None) -> UiDesignerError:
     return invalid([issue(code, path, message, value)])
 
 
-def _apply_one(doc: dict, op: Any, path: str) -> dict:
+def _apply_one(doc: dict, op: Any, path: str, resize_capture: dict | None = None) -> dict:
     if not isinstance(op, dict):
         raise _fail("UD-TYPE", path, "an op is an object", op)
     name = op.get("op")
@@ -92,6 +112,8 @@ def _apply_one(doc: dict, op: Any, path: str) -> dict:
             problems.append(issue("UD-MISSING", join_path(path, k), f"`{name}` needs `{k}`"))
     if problems:
         raise invalid(problems)
+    if name == "resize":
+        return _resize(doc, op, path, resize_capture)
     return _OPS[name](doc, op, path)
 
 
@@ -156,6 +178,93 @@ def _update(doc: dict, op: dict, path: str) -> dict:
             ref.node.pop(k, None)
         else:
             ref.node[k] = copy.deepcopy(v)
+    return doc
+
+
+def _resize(doc: dict, op: dict, path: str, captured: dict | None) -> dict:
+    from .constraints import effective_size, has_pins, resize_children
+    from .components import nodes
+
+    ref = _target(doc, op["id"], join_path(path, "id"), ("node", "component"))
+    changes = op["set"]
+    dimensions = {"w", "h", "min_w", "max_w", "min_h", "max_h"}
+    if not isinstance(changes, dict) or not dimensions.intersection(changes):
+        raise _fail(
+            "UD-OP-FIELD", path, "resize needs a dimension or min/max bound in set"
+        )
+    original = copy.deepcopy(ref.node)
+    original_geometry = {
+        n["id"]: {
+            key: copy.deepcopy(n[key]) for key in ("x", "y", "w", "h") if key in n
+        }
+        for n in nodes(original)
+    }
+    doc = _update(doc, op, path)
+    # Untrusted parent fields must be validated before helper numeric conversions.
+    validate_document(doc)
+    updated = index_nodes(doc)[op["id"]].node
+    before, after = effective_size(original), effective_size(updated)
+    for index, (axis, extent) in enumerate((("horizontal", "w"), ("vertical", "h"))):
+        if (
+            original.get(extent) != updated.get(extent)
+            and (before[index] is None or after[index] is None)
+            and has_pins(updated, axis)
+        ):
+            raise _fail(
+                "UD-VALUE", path, "active pins require fixed numeric parent dimensions"
+            )
+    result = resize_children(updated, before, after)
+    updated.clear()
+    updated.update(result)
+    forward = [{"op": "update", "id": op["id"], "set": copy.deepcopy(changes)}]
+    inverse = [
+        {
+            "op": "update",
+            "id": op["id"],
+            "set": {key: copy.deepcopy(original.get(key)) for key in changes},
+        }
+    ]
+    changed_instances = []
+    for node in nodes(updated):
+        if node["id"] == op["id"]:
+            if node.get("type") == "instance":
+                changed_instances.append(node)
+            continue
+        old = original_geometry[node["id"]]
+        patch = {
+            key: copy.deepcopy(node.get(key))
+            for key in ("x", "y", "w", "h")
+            if (key in old) != (key in node) or old.get(key) != node.get(key)
+        }
+        if patch:
+            forward.append({"op": "update", "id": node["id"], "set": patch})
+            inverse.append(
+                {
+                    "op": "update",
+                    "id": node["id"],
+                    "set": {key: copy.deepcopy(old.get(key)) for key in patch},
+                }
+            )
+            if node.get("type") == "instance":
+                changed_instances.append(node)
+    # Instance expansion is non-mutating and can resolve each declared mode.
+    if changed_instances:
+        from .constraints import validate_instance_resize
+
+        for instance in changed_instances:
+            validate_instance_resize(doc, instance)
+    if (
+        len(inverse) > MAX_RESIZE_UNDO_OPS
+        or len(json.dumps(inverse, ensure_ascii=False, separators=(",", ":")).encode())
+        > MAX_RESIZE_UNDO_BYTES
+    ):
+        raise _fail(
+            "UD-LIMIT",
+            path,
+            "resize undo exceeds 128 literal updates or 8192 bytes; resize a smaller subtree",
+        )
+    if captured is not None:
+        captured.update(forward=forward, undo=inverse)
     return doc
 
 
@@ -274,7 +383,7 @@ def _define_component(doc: dict, op: dict, path: str) -> dict:
             inst[k] = root[k]
     new_root = copy.deepcopy(root)
     new_root["id"] = cid
-    for k in ("x", "y", "absolute"):  # position belongs to each instance
+    for k in ("x", "y", "absolute", "constraints"):  # placement belongs to each instance
         new_root.pop(k, None)
     doc.setdefault("components", {})[cid] = new_root
     ref.siblings[:] = [inst if s is root else s for s in ref.siblings]
