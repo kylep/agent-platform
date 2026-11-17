@@ -1673,6 +1673,10 @@ export async function mockApi(page: Page): Promise<string[]> {
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if (/^\/api\/ui-designer\/docs\/[^/]+\/access$/.test(path) && route.request().method()==="GET") {
+      await route.fulfill({json:{document_id:"d".repeat(32),owner:"user:kyle",visibility:"workspace",readers:[],editors:[],access_version:0,can_read:true,can_write:true,can_manage_sharing:true}});return;
+    }
+    if(path==="/api/ui-designer/sharing-choices") {await route.fulfill({json:{principals:[{principal:"user:kyle",label:"Kyle",kind:"user"}],teams:[],truncated:false}});return;}
     if (path === "/api/maintenance/status") {
       await route.fulfill({ json: { mode: "running" } });
       return;

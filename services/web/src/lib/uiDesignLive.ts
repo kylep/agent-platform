@@ -6,7 +6,7 @@ export function watchUiDesign(slug:string,listener:Listener){
   const room=listeners.get(slug)??new Set<Listener>();room.add(listener);listeners.set(slug,room);
   if(!events&&typeof EventSource!=="undefined"){
     events=new EventSource("/api/ui-designer/events",{withCredentials:true});
-    events.addEventListener("design",(message)=>{try{const event=JSON.parse(message.data);if(typeof event.slug!=="string"||!["version","restored","imported","deleted"].includes(event.type))return;for(const callback of listeners.get(event.slug)??[])callback(event);}catch{/* ignore malformed stream frames */}});
+    events.addEventListener("design",(message)=>{try{const event=JSON.parse(message.data);if(typeof event.slug!=="string"||!["version","restored","imported","deleted","access"].includes(event.type))return;for(const callback of listeners.get(event.slug)??[])callback(event);}catch{/* ignore malformed stream frames */}});
   }
   return()=>{room.delete(listener);if(!room.size)listeners.delete(slug);if(!listeners.size){events?.close();events=null;}};
 }

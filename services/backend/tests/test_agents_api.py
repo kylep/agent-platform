@@ -970,6 +970,21 @@ async def test_the_image_must_be_a_live_image(admin_client):
     assert r.status_code == 422, r.text
 
 
+async def test_document_scoped_image_cannot_become_a_global_agent_portrait(admin_client, sf):
+    from agentplatform.db import Artifact
+    art = await _image(admin_client)
+    async with sf() as session:
+        row = await session.get(Artifact, art['id'])
+        row.ui_provenance = True
+        row.ui_document_id = 'a' * 32
+        await session.commit()
+    response = await admin_client.put('/api/agents/hello-world/image',
+        json={'artifact_id': art['id']})
+    assert response.status_code == 404
+    async with sf() as session:
+        assert (await session.get(AgentDef, 'hello-world')).image_artifact_id is None
+
+
 async def test_the_image_is_set_by_admin_editor_or_the_agent_itself(
         admin_client, token_client, sf, seed_agent, agent_store):
     from .test_relay_api import _human_token

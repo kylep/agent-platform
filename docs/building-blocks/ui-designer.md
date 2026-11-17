@@ -33,7 +33,21 @@ Document writes publish on the `ui_designer.events` topic, which feeds the
 `/api/ui-designer/events` live stream the web UI refreshes from. An export, and
 a version someone gives a label, also post a card to the `#design` channel (an
 event row, so a frame title can never summon an agent). Motion exports create
-artifacts without automatically posting to Relay.
+artifacts without automatically posting to Relay. Restricted documents never
+post these public cards.
+
+Open **Sharing** to keep a document available to the workspace or restrict it
+to named people, agents and teams. Readers can view; editors can change content.
+Only the owner or an administrator can change sharing. Existing platform roles
+and agent tool grants still apply. Restoring an old design version leaves
+current sharing unchanged. The **Design** team is available for membership
+management; no agents are automatically added.
+
+Exports and derived artifacts retain their source document's access rules.
+Document-scoped reference images work with direct image generation; the
+subscription artist currently refuses them before starting. Agents use
+`action=sharing op=get|choices|set`; sharing saves require a request ID and
+`expected_access_version` from the current policy.
 
 The editor's motion controls preview or export two frames from a retained
 document version. Matching `meta.motion_key` values animate position, size,

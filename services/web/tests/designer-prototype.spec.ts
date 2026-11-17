@@ -15,6 +15,7 @@ async function mockPrototype(page:Page, tree = documentTree()) {
   await mockApi(page); const requests: string[]=[]; let head=7, failImage=false;
   await page.route('**/api/ui-designer/**', async (r)=>{
     const url=new URL(r.request().url()); requests.push(url.pathname+url.search);
+    if(url.pathname.endsWith('/access'))return r.fallback();
     if(url.pathname.endsWith('/versions')) return r.fulfill({json:{version:head,versions:[{version:head,author:'kyle'}]}});
     if(url.pathname.endsWith('/resolved')) return r.fulfill({json:tree});
     if(url.pathname.endsWith('/comments')) return r.fulfill({json:{comments:[]}});

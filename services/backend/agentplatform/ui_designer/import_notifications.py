@@ -5,12 +5,13 @@ import re
 
 from sqlalchemy import select
 
-from agentplatform.db import RelayMessage, UiDesignerImport
+from agentplatform.db import RelayMessage, UiDesignerDocument, UiDesignerImport
 from agentplatform.events import TOPIC_UI_DESIGNER_EVENTS
 from agentplatform.relay import SYSTEM_AUTHOR
 from agentplatform.relay_store import (channel_by_name, outbound_for_message,
                                       post_relay_message, publish_relay_message)
 from agentplatform.tickets import one_line
+from agentplatform.ui_designer import access
 
 
 def _safe(text: str) -> str:
@@ -30,7 +31,14 @@ async def notify_import(session_factory, producer, job_id: str) -> None:
             UiDesignerImport.id == job_id).with_for_update())).scalar_one_or_none()
         if job is None or job.state != "done" or not job.report.get("notification_pending"):
             return
-        conv = await channel_by_name(s, "design")
+        identifier = job.report.get('document_id')
+        document = (await s.execute(select(UiDesignerDocument).where(
+            UiDesignerDocument.id == identifier).with_for_update())).scalar_one_or_none() if identifier else None
+        if document is None or document.deleted_at is not None or document.slug != job.slug:
+            job.report = {**job.report, 'notification_pending': False}
+            await s.commit()
+            return
+        conv = await channel_by_name(s, "design") if await access.is_workspace(s, document.id) else None
         msg = None
         if conv is not None:
             msg_id = job.report.get("notification_message_id")
@@ -44,7 +52,7 @@ async def notify_import(session_factory, producer, job_id: str) -> None:
                           "version": 1, "import_id": job.id, "author": job.initiated_by})
                 job.report = {**job.report, "notification_message_id": msg.id}
             outbound = await outbound_for_message(s, conv, msg)
-        payload = {"type": "imported", "slug": job.slug, "version": 1,
+        payload = {"type": "imported", "slug": job.slug, "version": 1, "document_id": document.id,
                    "author": job.initiated_by, "run_id": None, "import_id": job.id}
         await s.commit()
     if producer is None:

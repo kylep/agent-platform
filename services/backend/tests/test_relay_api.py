@@ -687,7 +687,11 @@ async def test_channel_list_ordering_unread_and_last_message(admin_client, token
     # Channels by name, then the private rooms by last activity (the DM spoke last).
     assert [c["name"] for c in listed[:8]] == ["art", "design", "eng", "general", "ops",
                                                "qa", "standup", "wiki"]
-    assert [c["id"] for c in listed[8:]] == [dm["id"], group["id"]]
+    from agentplatform.db import Team
+    async with sf() as session:
+        design_team = (await session.execute(select(Team).where(Team.slug == "design"))).scalar_one()
+    assert [c["id"] for c in listed[8:]] == [dm["id"], group["id"], design_team.relay_channel_id]
+    assert listed[-1]["message_count"] == 0
 
     by_id = {c["id"]: c for c in listed}
     assert by_id[ops]["unread"] == 2

@@ -21,7 +21,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.db import (UiDesignerAsset, UiDesignerComment, UiDesignerDocument,
-                              UiDesignerDocumentAsset, UiDesignerFont, UiDesignerDocumentFont, UiDesignerImport, UiDesignerReceipt,
+                              UiDesignerDocumentAsset, UiDesignerFont, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerImport, UiDesignerReceipt,
                               UiDesignerRender, UiDesignerVersion, utcnow)
 from agentplatform.ui_designer import errors
 from agentplatform.ui_designer.errors import UiDesignerError, invalid, issue
@@ -43,7 +43,7 @@ MAX_RECEIPT_BYTES = 16 << 10
 MAX_RECEIPT_WARNINGS = 20
 RECEIPT_KEYS = {"version", "warnings", "text", "wants_snapshot", "slug", "ok", "undo_ops",
                 "document_id", "artifact_id", "name", "mime", "width", "height", "size",
-                "url", "frames", "duration_ms", "fonts"}
+                "url", "frames", "duration_ms", "fonts", "access"}
 _SHA_IN_TEXT = re.compile(r"[0-9a-f]{64}")
 
 
@@ -290,11 +290,13 @@ async def create_document(s, *, slug: str, title: str = "", owner: str, author: 
 
 
 async def list_documents(s, *, include_deleted: bool = False, limit: int = 100, q: str | None = None,
-                         before: str | None = None) -> list[dict]:
+                         before: str | None = None, readable=None) -> list[dict]:
     """Newest-updated first. `q` matches slug or title (case-insensitive);
     `before` is the slug of the last row of the previous page (the cursor)."""
     stmt = select(UiDesignerDocument).order_by(UiDesignerDocument.updated_at.desc(),
                                                UiDesignerDocument.id.desc()).limit(limit)
+    if readable is not None:
+        stmt = stmt.where(readable)
     if not include_deleted:
         stmt = stmt.where(UiDesignerDocument.deleted_at.is_(None))
     if q:
@@ -303,6 +305,11 @@ async def list_documents(s, *, include_deleted: bool = False, limit: int = 100, 
                           | func.lower(UiDesignerDocument.title).like(like, escape="\\"))
     if before:
         anchor = await _live(s, before)
+        if readable is not None:
+            allowed = (await s.execute(select(UiDesignerDocument.id).where(
+                UiDesignerDocument.id == anchor.id, readable))).scalar_one_or_none()
+            if allowed is None:
+                raise _not_found("document cursor")
         stmt = stmt.where((UiDesignerDocument.updated_at < anchor.updated_at)
                           | ((UiDesignerDocument.updated_at == anchor.updated_at)
                              & (UiDesignerDocument.id < anchor.id)))
@@ -593,12 +600,12 @@ async def restore_deleted(s, document_id: str) -> None:
 
 
 async def _purge(s, document_id: str) -> None:
-    for model in (UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerDocumentFont, UiDesignerRender):
+    for model in (UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerRender):
         await s.execute(delete(model).where(model.document_id == document_id))
     # An upload retry must remain bound to its original UUID after slug reuse.
     # The normal receipt TTL pruner reclaims these small tombstones later.
     await s.execute(delete(UiDesignerReceipt).where(UiDesignerReceipt.document_id == document_id,
-                                                  UiDesignerReceipt.op.notin_(("font-upload", "motion-export"))))
+                                                  UiDesignerReceipt.op.notin_(("font-upload", "motion-export", "access"))))
     await s.execute(delete(UiDesignerDocument).where(UiDesignerDocument.id == document_id))
 
 

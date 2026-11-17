@@ -17,6 +17,7 @@ async function setup(page:Page,options:{existing?:boolean;role?:string;historica
   await page.route('**/api/ui-designer/**',async(r)=>{
     const url=new URL(r.request().url());
     if(url.pathname==='/api/ui-designer/docs/source'){sourceReads.push(url.search);return r.fulfill({json:{id:sourceId,doc:{}}});}
+    if(url.pathname.endsWith('/access'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version,versions:Array.from({length:version},(_,i)=>({version:version-i,author:'kyle'}))}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[{id:'page',title:'Main',children:[node]}]}});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});

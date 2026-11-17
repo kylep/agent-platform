@@ -335,6 +335,10 @@ from .tool_wizard_secret import ToolWizardSecret
 from .typed_block import TypedBlock
 from .typed_block_kind import TypedBlockKind
 from .typed_definition import TypedDefinition
+from .ui_access_in import UiAccessIn
+from .ui_access_in_visibility import UiAccessInVisibility
+from .ui_access_out import UiAccessOut
+from .ui_access_out_visibility import UiAccessOutVisibility
 from .ui_asset_gc_out import UiAssetGcOut
 from .ui_comment import UiComment
 from .ui_comment_in import UiCommentIn
@@ -420,6 +424,10 @@ from .ui_motion_preview_out_easing import UiMotionPreviewOutEasing
 from .ui_motion_preview_out_fps import UiMotionPreviewOutFps
 from .ui_placed_asset import UiPlacedAsset
 from .ui_placed_assets_out import UiPlacedAssetsOut
+from .ui_sharing_choices import UiSharingChoices
+from .ui_sharing_principal import UiSharingPrincipal
+from .ui_sharing_principal_kind import UiSharingPrincipalKind
+from .ui_sharing_team import UiSharingTeam
 from .ui_template_summary import UiTemplateSummary
 from .ui_templates_out import UiTemplatesOut
 from .ui_version_list import UiVersionList
@@ -791,6 +799,10 @@ __all__ = (
     "TypedBlock",
     "TypedBlockKind",
     "TypedDefinition",
+    "UiAccessIn",
+    "UiAccessInVisibility",
+    "UiAccessOut",
+    "UiAccessOutVisibility",
     "UiAssetGcOut",
     "UiComment",
     "UiCommentIn",
@@ -874,6 +886,10 @@ __all__ = (
     "UiMotionPreviewOutFps",
     "UiPlacedAsset",
     "UiPlacedAssetsOut",
+    "UiSharingChoices",
+    "UiSharingPrincipal",
+    "UiSharingPrincipalKind",
+    "UiSharingTeam",
     "UiTemplatesOut",
     "UiTemplateSummary",
     "UiVersionList",

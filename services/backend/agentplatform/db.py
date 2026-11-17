@@ -976,6 +976,8 @@ class Artifact(Base):
     source: Mapped[str] = mapped_column(String(12), default="upload")
     # Provenance, shaped by the source: a generation's model and prompt, a
     # derivative's parent, a tool's name. Capped at 8 KB of JSON at the door.
+    ui_document_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    ui_provenance: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
     tags: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -1064,6 +1066,24 @@ class UiDesignerImport(Base):
     initiated_by: Mapped[str] = mapped_column(String(160), default="")
     created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerAccess(Base):
+    """Sharing is independent of restorable document JSON and content versions."""
+    __tablename__ = "ui_designer_access"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    visibility: Mapped[str] = mapped_column(String(16), default="workspace")
+    access_version: Mapped[int] = mapped_column(Integer, default=0)
+    readers: Mapped[list] = mapped_column(_UD_JSON, default=list)
+    editors: Mapped[list] = mapped_column(_UD_JSON, default=list)
+
+
+class UiDesignerAccessEntry(Base):
+    """Normalized sharing entries make filtered pagination portable and indexed."""
+    __tablename__ = "ui_designer_access_entries"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    principal: Mapped[str] = mapped_column(String(160), primary_key=True, index=True)
+    role: Mapped[str] = mapped_column(String(8), primary_key=True)
 
 
 class UiDesignerFont(Base):
@@ -4305,6 +4325,10 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_wiki_seed)
         await conn.run_sync(_ensure_art_channel)
         await conn.run_sync(_ensure_design_channel)
+        from agentplatform.ui_designer.team_seed import ensure_design_team
+        await conn.run_sync(ensure_design_team)
+        from agentplatform.ui_designer.artifact_migration import migrate_design_artifacts
+        await migrate_design_artifacts(conn)
         await conn.run_sync(_ensure_wiki_default_grant, wiki_grant)
         await conn.run_sync(_ensure_quota_default_grant, quota_grant)
         await conn.run_sync(_ensure_artifacts_default_grant, artifacts_grant)

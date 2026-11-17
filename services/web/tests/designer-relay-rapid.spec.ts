@@ -49,3 +49,9 @@ test('Rapid Chat UI Designer output is replace-only and links its pinned documen
 test('Rapid Chat wiki output keeps append mode and its existing wiki link',async({page})=>{
   const bodies=await rapid(page);await page.getByLabel('Wiki output slug').fill('sprint-notes');await page.getByLabel('Mode',{exact:true}).selectOption('append');await page.getByRole('button',{name:'Launch',exact:true}).click();await expect(page.getByRole('link',{name:'sprint-notes',exact:true})).toHaveAttribute('href','/wiki/sprint-notes');expect(bodies[0].sink).toEqual({kind:'wiki',slug:'sprint-notes',mode:'append'});
 });
+
+
+test('Relay access revocation immediately removes an already loaded design thumbnail',async({page})=>{
+  const state=await relay(page,'[[ui:demo]]');await expect(page.getByAltText('Latest design preview for demo',{exact:true})).toBeVisible();
+  state.deny();await emit(page,{type:'access',slug:'demo',access_version:2});await expect(page.getByText('Design unavailable or private.',{exact:true})).toBeVisible();await expect(page.getByAltText('Latest design preview for demo',{exact:true})).toHaveCount(0);
+});

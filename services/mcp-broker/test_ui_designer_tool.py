@@ -323,3 +323,16 @@ def test_fonts_list_is_pinned_compact_and_upload_is_browser_only(api):
     before = len(api)
     assert 'error:' in ud(action='fonts', slug='hud', op='upload')
     assert len(api) == before
+
+
+def test_sharing_versions_are_separate_from_content_versions(api):
+    ud(action='sharing', slug='hud')
+    assert api[-1] == ('GET', f'{DOCS}/hud/access', None, None)
+    ud(action='sharing', slug='hud', op='choices')
+    assert api[-1] == ('GET', '/api/ui-designer/sharing-choices', {'slug': 'hud'}, None)
+    spec = {'expected_access_version': 0, 'visibility': 'restricted', 'readers': ['team:design'], 'editors': []}
+    ud(action='sharing', slug='hud', op='set', sharing=spec, request_id='sharing-one')
+    assert api[-1] == ('PUT', f'{DOCS}/hud/access', None, {**spec, 'request_id': 'sharing-one'})
+    before = len(api)
+    assert 'error:' in ud(action='sharing', slug='hud', op='set', expected_version=1)
+    assert len(api) == before

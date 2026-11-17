@@ -4,15 +4,17 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import select
 
-from agentplatform.db import RelayMessage, UiDesignerImport
+from agentplatform.db import RelayMessage, UiDesignerAccess, UiDesignerImport
+from agentplatform.ui_designer import store
 from agentplatform.ui_designer.import_notifications import notify_import
 
 
 async def test_notification_retry_keeps_one_card(sf):
     async with sf() as s:
+        document = await store.create_document(s, slug='imported-design', owner='user:kyle')
         job = UiDesignerImport(slug='imported-design', file_key='filekey', state='done',
                                initiated_by='user:kyle', report={
-                                   'pages_imported': 2, 'notification_pending': True})
+                                   'document_id': document['id'], 'pages_imported': 2, 'notification_pending': True})
         s.add(job)
         await s.commit()
         job_id = job.id
@@ -37,6 +39,40 @@ async def test_notification_retry_keeps_one_card(sf):
             RelayMessage.id == message_id))).scalars().all()
         assert len(cards) == 1 and cards[0].kind == 'event' and cards[0].mentions == []
         assert cards[0].card['import_id'] == job_id
+
+
+async def test_import_notification_uses_uuid_and_never_posts_a_private_card(sf):
+    async with sf() as session:
+        document = await store.create_document(session, slug='private-import', owner='user:kyle')
+        session.add(UiDesignerAccess(document_id=document['id'], visibility='restricted', access_version=1))
+        job = UiDesignerImport(slug='private-import', file_key='filekey', state='done',
+            initiated_by='user:kyle', report={'document_id': document['id'], 'notification_pending': True})
+        session.add(job)
+        await session.commit()
+        identifier = job.id
+    producer = AsyncMock()
+    await notify_import(sf, producer, identifier)
+    assert producer.publish.call_count == 1
+    call = producer.publish.call_args
+    assert call.args[0] == 'ui_designer.events'
+    assert call.args[2]['document_id'] == document['id']
+    async with sf() as session:
+        job = await session.get(UiDesignerImport, identifier)
+        assert not job.report['notification_pending']
+        assert 'notification_message_id' not in job.report
+
+
+async def test_legacy_import_notification_without_source_uuid_is_not_rebound(sf):
+    async with sf() as session:
+        await store.create_document(session, slug='reused-import', owner='user:other')
+        job = UiDesignerImport(slug='reused-import', file_key='filekey', state='done',
+            initiated_by='user:kyle', report={'notification_pending': True})
+        session.add(job)
+        await session.commit()
+        identifier = job.id
+    producer = AsyncMock()
+    await notify_import(sf, producer, identifier)
+    producer.publish.assert_not_called()
 
 
 def test_public_progress_is_bounded_and_hides_worker_state():

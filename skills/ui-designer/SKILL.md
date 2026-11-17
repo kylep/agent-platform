@@ -72,3 +72,13 @@ in the web editor's **Fonts** panel (static TTF/OTF, OFL 1.1, at most 1 MiB per
 file and eight faces per document). Do not invent a font hash or family entry:
 the server requires validated placement in that document. Pinned library
 copies carry their required fonts into the consumer.
+
+## Document sharing
+
+Use `action=sharing op=get` to inspect current capabilities and access_version.
+Only the owner or human administrator can use `op=choices` and `op=set`. Set
+workspace or restricted visibility with readers/editors drawn from those
+choices, expected_access_version and a stable request_id. Document access never
+grants a missing platform role/tool permission. Content restore leaves current
+sharing intact; private exports retain source access and do not post public
+Relay cards.

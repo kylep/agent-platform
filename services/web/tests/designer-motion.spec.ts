@@ -9,6 +9,7 @@ async function setup(page:Page,role='admin'){
   const tree={pages:[{id:'page',title:'Main',children:[{id:'start',title:'Start',type:'frame',x:0,y:0,w:100,h:100,children:[{id:'next',title:'Next',type:'rect',x:0,y:0,w:30,h:30,link_to:{target:'finish',transition:'smart-animate',duration_ms:400,easing:'ease-out'}}]},{id:'finish',title:'Finish',type:'frame',x:120,y:0,w:100,h:100,link_to:{target:'start'}}]}]};
   await page.route('**/api/ui-designer/**',async r=>{
     const url=new URL(r.request().url());
+    if(url.pathname.endsWith('/access'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version:7,versions:[{version:7,author:'kyle'},{version:3,author:'kyle'}]}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:tree});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});

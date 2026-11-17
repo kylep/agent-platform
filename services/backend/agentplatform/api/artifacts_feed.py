@@ -66,7 +66,7 @@ async def artifacts_stream(request: Request,
             feed.unsubscribe(STREAM, queue)
 
     return StreamingResponse(stream(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache",
+                             headers={"Cache-Control": "private, no-store",
                                       "X-Accel-Buffering": "no"})
 
 
@@ -79,11 +79,24 @@ async def _may_see(request: Request, principal: str | None, data: dict) -> bool:
     artifact = data.get("artifact")
     if not isinstance(artifact, dict) or not artifact.get("id"):
         return True
+    from agentplatform.db import Artifact
+    from agentplatform.api.artifacts import _readable_artifact
+    from agentplatform.ui_designer.artifact_access import require_artifact_read
+    from fastapi import HTTPException
     async with request.app.state.session_factory() as s:
-        own = await app_artifacts.ownership(s, str(artifact["id"]))
-        if own is None:
-            return not data.get("app")
-        return await app_artifacts.may_read(s, own, principal)
+        row=await s.get(Artifact,str(artifact['id']))
+        if row is None:return False
+        # Preserve App field checks and run restrictions, adding current source
+        # document policy. Never trust a queued frame's old visibility metadata.
+        try:
+            await require_artifact_read(s,request,row)
+            own=await app_artifacts.ownership(s,row.id)
+            if own is not None:return await app_artifacts.may_read(s,own,principal)
+            await _readable_artifact(s,request,row)
+            return not data.get('app')
+        except HTTPException as error:
+            if error.status_code in (403,404):return False
+            raise
 
 
 def artifacts_feed(session_factory=None) -> TopicFeed:

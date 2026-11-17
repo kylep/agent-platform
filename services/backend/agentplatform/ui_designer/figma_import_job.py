@@ -338,10 +338,10 @@ class FigmaImportWorker:
         staged_pages = job.staged
         job.staged = {}
         await s.flush()
-        await store.create_document(s, slug=job.slug, title=doc['title'][:120], owner=job.initiated_by,
+        created = await store.create_document(s, slug=job.slug, title=doc['title'][:120], owner=job.initiated_by,
                                     doc=doc, imported_assets=assets, import_id=job.id, caps=self.caps, reason='Figma import')
         job.state = 'done'
-        job.report = {**job.report, 'pages_imported':len(staged_pages), 'failed_pages':[k for k,v in job.pages.items() if v['state'] == 'failed'],
+        job.report = {**job.report, 'document_id':created['id'], 'pages_imported':len(staged_pages), 'failed_pages':[k for k,v in job.pages.items() if v['state'] == 'failed'],
                       'pages': {k:v['report'] for k,v in staged_pages.items()}, 'notification_pending':True, 'references':[r for v in staged_pages.values() for r in v.get('references',[])]}
         job.staged = {}
 

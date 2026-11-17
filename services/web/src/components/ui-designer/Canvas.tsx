@@ -14,11 +14,11 @@ const size = (v: number) => Math.min(100_000, Math.max(1, rounded(v)));
 /** The server render remains the painter. Manipulation previews change only the
  * selection overlay; the parent submits one CAS edit after a completed gesture. */
 export function Canvas({ slug, page, version, mode, selected, onSelect, highlight, rev,
-  editable = false, onCommit, selectedAuthored, freePosition = false, busy = false, ancestorsRotated = false }: {
+  editable = false, onCommit, onRenderError, selectedAuthored, freePosition = false, busy = false, ancestorsRotated = false }: {
   slug: string; page: RPage; version: number | null; mode: "dark" | "light";
   selected: string | null; onSelect: (n: RNode | null) => void;
   highlight?: string | null; rev?: number; editable?: boolean;
-  onCommit?: (id: string, changes: Changes) => void;
+  onCommit?: (id: string, changes: Changes) => void; onRenderError?: () => void;
   selectedAuthored?: Record<string, unknown> | null; freePosition?: boolean;
   busy?: boolean; ancestorsRotated?: boolean;
 }) {
@@ -135,7 +135,7 @@ export function Canvas({ slug, page, version, mode, selected, onSelect, highligh
         Canvas gestures are unavailable for rotated nodes or ancestors. Use the inspector.
       </div>}
       <div className="ud-stage" style={{ width: b.w, height: b.h, transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
-        <img className="ud-svg" draggable={false} alt={`Page ${page.id}`} src={`${UD}/${encodeURIComponent(slug)}/render?${q}`} width={b.w} height={b.h} />
+        <img onError={onRenderError} className="ud-svg" draggable={false} alt={`Page ${page.id}`} src={`${UD}/${encodeURIComponent(slug)}/render?${q}`} width={b.w} height={b.h} />
         <svg className="ud-overlay" width={b.w} height={b.h} viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`}>
           {boxes.map((n) => <rect key={n.id} x={n.x ?? 0} y={n.y ?? 0} width={n.w ?? 0} height={n.h ?? 0}
             className="ud-hit" data-selected={n.id === selected ? "" : undefined} data-highlight={n.id === highlight ? "" : undefined}

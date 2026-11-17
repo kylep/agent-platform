@@ -2433,7 +2433,7 @@ async def image_gen(action: str, prompt: str | None = None, model: str | None = 
 # for the artifacts reason: the author of every write is the forwarded bearer,
 # and the answer to `edit`/`snapshot` is PICTURES (`_with_pictures`).
 UI_DESIGNER_ACTIONS = ("list", "create", "get", "outline", "edit", "snapshot",
-                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library", "templates", "icons", "motion", "fonts")
+                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library", "templates", "icons", "motion", "fonts", "sharing")
 _UI_DESIGNER = "/api/ui-designer"
 # Inside it the API commits first and renders under its own 15 s deadline.
 _UI_DESIGNER_TIMEOUT = 45
@@ -2522,7 +2522,7 @@ async def ui_designer(action: str, slug: str | None = None, title: str | None = 
                       y: float | None = None, parent_id: str | None = None,
                       from_version: int | None = None, to_version: int | None = None,
                       name: str | None = None, format: str = "png", tolerance: int = 0,
-                      severity: str | None = None, all_modes: bool = False, library: dict | None = None, template: dict | None = None, icon: dict | None = None, motion: dict | None = None):
+                      severity: str | None = None, all_modes: bool = False, library: dict | None = None, template: dict | None = None, icon: dict | None = None, motion: dict | None = None, sharing: dict | None = None):
     """Design documents: UI frames you edit as ops and look at as pictures.
     Actions: list · create · get · outline · edit · snapshot · history ·
     restore · place · inspect · comments · export. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
@@ -2582,7 +2582,7 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update is literal and cannot set id/type/children; a page only takes title. resize/boolean/icon return exact literal undo_ops (128 ops/8KiB max); redo the original request.
-Other actions: fonts lists installed OFL faces(version?); upload in editor. motion op:preview|export, version, motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?:mp4|gif}; export needs request_id. icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+Other actions: sharing op:get|choices|set (owner/admin); set needs request_id, sharing:{expected_access_version,visibility:workspace|restricted,readers?,editors?}; ACL separatefromdoc/history; globalgrantstillrequired. fonts lists installed OFL faces(version?); upload in editor. motion op:preview|export, version, motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?:mp4|gif}; export needs request_id. icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes need expected_version+request_id and exact-input retries. Pins render offline; preview catches conflicts; UUID updates never follow reused slugs; node="$libraries" pages provenance.
   lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
@@ -2692,6 +2692,16 @@ Example edit ops (new page: a frame, a text and a row of two cards):
                 return "error: library apply requires expected_version and request_id"
             payload.update(expected_version=expected_version, request_id=request_id)
         return await _artifact_call("POST", f"{base}/libraries/{pin}/{op}", json=payload, timeout=_UI_DESIGNER_TIMEOUT)
+    if action == "sharing":
+        if op in (None, "get"):
+            return await _artifact_call("GET", f"{base}/access", timeout=_UI_DESIGNER_TIMEOUT)
+        if op == "choices":
+            return await _artifact_call("GET", f"{_UI_DESIGNER}/sharing-choices", {"slug": slug}, timeout=_UI_DESIGNER_TIMEOUT)
+        if (op != "set" or not request_id or not isinstance(sharing, dict)
+                or not {"expected_access_version", "visibility"} <= sharing.keys()
+                or set(sharing) - {"expected_access_version", "visibility", "readers", "editors"}):
+            return "error: sharing set requires request_id and sharing={expected_access_version,visibility,readers?,editors?}"
+        return await _artifact_call("PUT", f"{base}/access", json={**sharing, "request_id": request_id}, timeout=_UI_DESIGNER_TIMEOUT)
     if action == "fonts":
         if op not in (None, "list"):
             return "error: fonts supports list only; upload OFL static fonts in the document editor"

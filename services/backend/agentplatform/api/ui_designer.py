@@ -56,7 +56,7 @@ from agentplatform.relay_store import (channel_by_name, outbound_for_message,
 from agentplatform.tickets import one_line, participant_label
 from agentplatform.api.auth import still_signed_in, stream_cookie
 from agentplatform.ui_designer import errors as ud_errors
-from agentplatform.ui_designer import render_client, store, views
+from agentplatform.ui_designer import render_client, store, views, access
 from agentplatform.ui_designer.errors import UiDesignerError, invalid, issue
 from agentplatform.ui_designer.layout import iter_nodes
 from agentplatform.ui_designer.render_client import RenderClient
@@ -88,7 +88,26 @@ class _BoundedRoute(APIRoute):
                     raise ud_http(UiDesignerError(
                         ud_errors.UD_BODY_TOO_LARGE, f"a request body is at most {bound} bytes",
                         detail={"limit": bound})) from e
-            return await inner(request)
+            try:
+                response = await inner(request)
+            except UiDesignerError as error:
+                raise ud_http(error)
+            caller = getattr(request.state, "ui_acl_caller", None)
+            slug = request.path_params.get("slug")
+            if caller is not None and slug and request.method != "DELETE":
+                # A slow renderer cannot return private bytes after revocation.
+                writing = getattr(request.state, "ui_acl_write", False)
+                fresh = await require_ui_designer_access(*(WRITE if writing else READ), write=writing)(request)
+                if fresh.participant != caller.participant:
+                    raise HTTPException(403, "caller identity changed")
+            asset_document = getattr(request.state, "ui_asset_document_id", None)
+            if caller is not None and asset_document is not None:
+                who = await access.subject(request, caller)
+                async with request.app.state.session_factory() as session:
+                    await access.require_read_by_uuid(session, asset_document, who, allow_deleted_owner=False)
+            if caller is not None and not request.url.path.endswith("/events"):
+                response.headers["Cache-Control"] = "private, no-store"
+            return response
         return handler
 
 
@@ -287,19 +306,60 @@ def require_ui_designer_access(*roles: str, write: bool = False):
 
     async def dep(request: Request) -> Caller:
         caller = await inner(request)
-        if caller.agent is None:
-            return caller
-        granted = await agents_api._caller_platform_tools(request, caller.agent)
-        if caller.agent not in relay_api._agent_set(request):
-            raise HTTPException(403, "unknown or disabled agent")
-        if TOOL_UI_DESIGNER not in granted:
-            raise HTTPException(403, NOT_GRANTED)
-        if write:
-            async with request.app.state.session_factory() as s:
-                await _run_of(s, request, caller, writing=True)
+        if caller.agent is not None:
+            granted = await agents_api._caller_platform_tools(request, caller.agent)
+            if caller.agent not in relay_api._agent_set(request):
+                raise HTTPException(403, "unknown or disabled agent")
+            if TOOL_UI_DESIGNER not in granted:
+                raise HTTPException(403, NOT_GRANTED)
+            if write:
+                async with request.app.state.session_factory() as s:
+                    await _run_of(s, request, caller, writing=True)
+        request.state.ui_acl_caller = caller
+        request.state.ui_acl_write = write
+        slug = request.path_params.get("slug")
+        if slug and not (request.method == "DELETE" and caller.agent is None and
+                         getattr(request.state, "resolved_role", None) == "admin"):
+            await _acl_check(request, caller, slug, write=write)
         return caller
 
     return dep
+
+
+async def _acl_check(request: Request, caller: Caller, slug: str, *, write=False):
+    async with request.app.state.session_factory() as session:
+        who = await access.subject_for(session, caller.participant,
+            is_admin=getattr(request.state, "resolved_role", None) == "admin" and caller.agent is None)
+        try:
+            row = await store._live(session, slug)
+        except UiDesignerError as error:
+            raise ud_http(error)
+        if write:
+            await access.require_write_by_uuid(session, row.id, who)
+        else:
+            await access.require_read_by_uuid(session, row.id, who, allow_deleted_owner=False)
+    pinned = getattr(request.state, "ui_acl_document_id", None)
+    if pinned is not None and pinned != row.id:
+        raise HTTPException(404, "design document identity changed")
+    request.state.ui_acl_document_id = row.id
+    return who
+
+
+async def _acl_lock(request: Request, caller: Caller, session, slug: str, *, write=True):
+    fresh = await require_ui_designer_access(*(WRITE if write else READ), write=write)(request)
+    if fresh.participant != caller.participant:
+        raise HTTPException(403, "caller identity changed")
+    try:
+        row = await store._live(session, slug, lock=True)
+    except UiDesignerError as error:
+        raise ud_http(error)
+    who = await access.subject_for(session, caller.participant,
+        is_admin=getattr(request.state, "resolved_role", None) == "admin" and caller.agent is None)
+    if write:
+        await access.require_write_by_uuid(session, row.id, who)
+    else:
+        await access.require_read_by_uuid(session, row.id, who, allow_deleted_owner=False)
+    return row
 
 
 async def caller_run_id(request: Request, caller: Caller) -> str | None:
@@ -405,6 +465,7 @@ async def place_ui_asset(slug: str, body: S.UiDocPlaceIn, request: Request,
         if data is None:
             raise HTTPException(404, "unknown artifact")
         try:
+            await _acl_lock(request, caller, s, slug)
             out = await store.place_asset(s, slug, data=data, mime=art.mime,
                                           placed_by=caller.participant,
                                           placed_from=f"artifact:{art.id}",
@@ -442,7 +503,8 @@ async def _emit(request: Request, caller: Caller, type_: str, slug: str, version
     try:
         await producer.publish(TOPIC_UI_DESIGNER_EVENTS, slug,
                                {"type": type_, "slug": slug, "version": version,
-                                "author": caller.participant, "run_id": run_id, **extra},
+                                "author": caller.participant, "run_id": run_id,
+                                "document_id": getattr(request.state, "ui_acl_document_id", None), **extra},
                                type="ui_designer.event")
     except Exception:
         log.warning("ui_designer.events publish failed for %s %s", slug, type_, exc_info=True)
@@ -454,6 +516,12 @@ async def _design_card(request: Request, *, body: str, card: dict) -> bool:
     the audience only, never the response."""
     try:
         async with request.app.state.session_factory() as s:
+            from agentplatform.db import UiDesignerDocument
+            doc = (await s.execute(store._for_update(s, select(UiDesignerDocument).where(
+                UiDesignerDocument.id == card.get("document_id"),
+                UiDesignerDocument.slug == card.get("slug"), UiDesignerDocument.deleted_at.is_(None))))).scalars().first()
+            if doc is None or not await access.is_workspace(s, doc.id):
+                return False
             conv = await channel_by_name(s, DESIGN_CHANNEL)
             if conv is None:
                 log.warning("no live #%s channel; no card", DESIGN_CHANNEL)
@@ -468,6 +536,27 @@ async def _design_card(request: Request, *, body: str, card: dict) -> bool:
     except Exception:
         log.warning("no #%s card", DESIGN_CHANNEL, exc_info=True)
         return False
+
+
+async def _visible_design_event(request: Request, caller: Caller, data: dict):
+    if not isinstance(data, dict):
+        return None
+    who = await access.subject(request, caller)
+    if data.get("type") in ("access", "deleted"):
+        if who.is_admin or data.get("workspace") is True or set(who.principals) & set(data.get("audience", [])):
+            return {key: data[key] for key in ("type", "slug", "document_id", "access_version") if key in data}
+        return None
+    identifier = data.get("document_id")
+    if not isinstance(identifier, str):
+        return None
+    try:
+        async with request.app.state.session_factory() as session:
+            row = await access.require_read_by_uuid(session, identifier, who, allow_deleted_owner=False)
+            if row.slug != data.get("slug"):
+                return None
+    except HTTPException:
+        return None
+    return {key: value for key, value in data.items() if key not in ("audience", "workspace")}
 
 
 @router.get(PREFIX + "/events", response_class=StreamingResponse)
@@ -504,7 +593,9 @@ async def ui_designer_stream(request: Request,
                 if event == OVERFLOW:
                     yield relay_api._frame(OVERFLOW, {})
                     continue
-                yield relay_api._frame(event, data)
+                visible = await _visible_design_event(request, caller, data)
+                if visible is not None:
+                    yield relay_api._frame(event, visible)
         finally:
             feed.unsubscribe(STREAM, queue)
 
@@ -527,12 +618,122 @@ async def list_ui_documents(request: Request, q: str | None = Query(None, max_le
                             caller: Caller = Depends(require_ui_designer_access(*READ))):
     async with request.app.state.session_factory() as s:
         try:
-            rows = await store.list_documents(s, limit=limit + 1, q=q, before=before)
+            rows = await store.list_documents(s, limit=limit + 1, q=q, before=before,
+                readable=access.readable_clause(await access.subject(request, caller)))
         except UiDesignerError as e:
             raise ud_http(e)
     more = len(rows) > limit
     rows = rows[:limit]
     return S.UiDocList(docs=rows, next_before=rows[-1]["slug"] if more and rows else None)
+
+
+async def _access_view(session, request: Request, caller: Caller, row) -> dict:
+    from agentplatform.api.auth import role_allows
+    who = await access.subject_for(session, caller.participant,
+        is_admin=getattr(request.state, "resolved_role", None) == "admin" and caller.agent is None)
+    view = await access.capabilities(session, row, who)
+    global_write = role_allows(getattr(request.state, "resolved_role", ""), WRITE)
+    if caller.agent is not None:
+        try:
+            global_write = await _run_of(session, request, caller, writing=True) is not None
+        except HTTPException:
+            global_write = False
+    view["can_write"] = view["can_write"] and global_write
+    view["can_manage_sharing"] = view["can_manage_sharing"] and global_write
+    return view, who
+
+
+@router.get(PREFIX + "/docs/{slug}/access", response_model=S.UiAccessOut)
+async def get_ui_access(slug: str, request: Request,
+                        caller: Caller = Depends(require_ui_designer_access(*READ))):
+    async with request.app.state.session_factory() as session:
+        row = await store._live(session, slug)
+        view, _ = await _access_view(session, request, caller, row)
+        return view
+
+
+@router.put(PREFIX + "/docs/{slug}/access", response_model=S.UiAccessOut)
+async def set_ui_access(slug: str, body: S.UiAccessIn, request: Request,
+                        caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    from agentplatform.db import UiDesignerAccess, UiDesignerAccessEntry
+    from sqlalchemy import delete
+    import json
+    for principals in (body.readers, body.editors):
+        if len(set(principals)) != len(principals):
+            raise HTTPException(422, "sharing principals must be distinct within each list")
+        if any(not re.fullmatch(r"(?:user|agent|team):[^:\x00-\x20\x7f]{1,128}", principal)
+               or len(principal) > 160 for principal in principals):
+            raise HTTPException(422, "sharing principals must be user:name, agent:name or team:id")
+    run_id = await caller_run_id(request, caller)
+    scope = _scope(caller, run_id)
+    fingerprint = store.args_hash(op="access", slug=slug, **body.model_dump(exclude={"request_id"}))
+    async with request.app.state.session_factory() as session:
+        row = await _acl_lock(request, caller, session, slug)
+        previous, who = await _access_view(session, request, caller, row)
+        if not previous["can_manage_sharing"]:
+            raise HTTPException(403, "only the document owner or a human administrator manages sharing")
+        prior = await store._receipt_lookup(session, scope, body.request_id, "access", fingerprint)
+        if prior is not None:
+            if prior["document_id"] != row.id:
+                raise HTTPException(404, "design document identity changed")
+            return {**prior["access"], "replayed": True}
+        if previous["access_version"] != body.expected_access_version:
+            raise HTTPException(409, detail={"code": "UD-ACCESS-VERSION-CONFLICT",
+                "message": "sharing changed; reload access before applying your changes",
+                "current_access_version": previous["access_version"]})
+        if body.visibility == "restricted":
+            from agentplatform.ui_designer.artifact_access import backfill_design_artifacts
+            await backfill_design_artifacts(session)
+        policy = await session.get(UiDesignerAccess, row.id)
+        if policy is None:
+            policy = UiDesignerAccess(document_id=row.id)
+            session.add(policy)
+        policy.visibility = body.visibility
+        policy.readers = sorted(body.readers)
+        policy.editors = sorted(body.editors)
+        policy.access_version = previous["access_version"] + 1
+        await session.execute(delete(UiDesignerAccessEntry).where(UiDesignerAccessEntry.document_id == row.id))
+        for role, principals in (("reader", policy.readers), ("editor", policy.editors)):
+            for principal in principals:
+                session.add(UiDesignerAccessEntry(document_id=row.id, principal=principal, role=role))
+        await session.flush()
+        view = await access.capabilities(session, row, who)
+        receipt = {"document_id": row.id, "access": view}
+        if len(json.dumps(receipt, ensure_ascii=False).encode()) > 16 << 10:
+            raise HTTPException(422, "sharing receipt is limited to 16KiB; use fewer or shorter principal names")
+        await store._receipt_write(session, scope, body.request_id, row.id, "access", fingerprint, receipt, utcnow())
+        await session.commit()
+    audience = sorted(set(previous["readers"] + previous["editors"] + view["readers"] + view["editors"] + [view["owner"]]))
+    await _emit(request, caller, "access", slug, row.version, run_id, document_id=row.id,
+        access_version=view["access_version"], audience=audience,
+        workspace=previous["visibility"] == "workspace" or view["visibility"] == "workspace")
+    return view
+
+
+@router.get(PREFIX + "/sharing-choices", response_model=S.UiSharingChoices)
+async def ui_sharing_choices(request: Request, slug: str = Query(min_length=1, max_length=80),
+                              caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.db import AgentDef, Principal, ApiKey, Team
+    async with request.app.state.session_factory() as session:
+        row = await store._live(session, slug)
+        view, _ = await _access_view(session, request, caller, row)
+        if not view["can_read"]:
+            raise HTTPException(404, "design document is unavailable")
+        if not view["can_manage_sharing"]:
+            raise HTTPException(403, "only an owner or administrator may browse sharing choices")
+        users = (await session.execute(select(Principal.name).where(Principal.role != "user").order_by(Principal.name).limit(201))).scalars().all()
+        keys = (await session.execute(select(ApiKey.name).where(ApiKey.agent.is_(None),
+            ApiKey.revoked_at.is_(None), ApiKey.role != "user").order_by(ApiKey.name).limit(201))).scalars().all()
+        agents = (await session.execute(select(AgentDef.name).where(AgentDef.enabled.is_(True)).order_by(AgentDef.name).limit(201))).scalars().all()
+        teams = (await session.execute(select(Team).where(Team.archived_at.is_(None)).order_by(Team.name, Team.id).limit(101))).scalars().all()
+    from agentplatform.relay import participant_of
+    names = sorted({participant_of(principal=name) for name in [*users, *keys]} | {view["owner"]})
+    principals = [{"principal": name, "label": name[5:] if name.startswith("user:") else name,
+                   "kind": "user"} for name in names]
+    principals += [{"principal": "agent:" + name, "label": name, "kind": "agent"} for name in agents]
+    return {"principals": principals[:200], "teams": [{"principal": "team:" + team.id,
+        "id": team.id, "name": team.name, "slug": team.slug} for team in teams[:100]],
+        "truncated": len(principals) > 200 or len(teams) > 100 or len(users) > 200 or len(keys) > 200}
 
 
 @router.get(PREFIX + "/icons", response_model=S.UiIconsOut)
@@ -600,7 +801,7 @@ async def create_ui_document(body: S.UiDocCreateIn, request: Request,
         await s.commit()
     out.setdefault("text", "created")
     if not out.get("replayed"):
-        await _emit(request, caller, "version", body.slug, out["version"], run_id)
+        await _emit(request, caller, "version", body.slug, out["version"], run_id, document_id=out["id"])
     return _write_out(out, body.slug)
 
 
@@ -690,6 +891,7 @@ async def edit_ui_document(slug: str, body: S.UiDocEditIn, request: Request,
             _check_pixel_budget(request, caller)
         async with request.app.state.session_factory() as s:
             try:
+                await _acl_lock(request, caller, s, slug)
                 res = await store.edit_document(
                     s, slug, ops=body.ops, expected_version=body.expected_version,
                     author=caller.participant, run_id=run_id, reason=body.reason,
@@ -741,6 +943,7 @@ async def _edit_prepared(slug: str, body: S.UiDocEditIn, request: Request, calle
                 literal = boolean_literal_ops(prepared, result["geometry"])
                 warnings = [{"code": "UD-WARN-BOOLEAN", "message": warning}
                             for warning in result.get("warnings", [])]
+            await _acl_lock(request, caller, s, slug)
             res = await store.edit_document(s, slug, ops=literal, expected_version=body.expected_version,
                 author=caller.participant, run_id=run_id, reason=body.reason, request_id=body.request_id,
                 scope=scope, wants_snapshot=wants_snapshot, caps=caps(request), op=op,
@@ -824,6 +1027,7 @@ async def restore_ui_document(slug: str, body: S.UiDocRestoreIn, request: Reques
     await _check_write_budget(request, caller)
     async with request.app.state.session_factory() as s:
         try:
+            await _acl_lock(request, caller, s, slug)
             res = await store.restore_version(
                 s, slug, body.version, expected_version=body.expected_version,
                 author=caller.participant, run_id=run_id, request_id=body.request_id,
@@ -916,6 +1120,7 @@ async def add_ui_comment(slug: str, body: S.UiCommentIn, request: Request,
     await _check_write_budget(request, caller)
     async with request.app.state.session_factory() as s:
         try:
+            await _acl_lock(request, caller, s, slug)
             out = await store.add_comment(
                 s, slug, body=body.body, author=caller.participant, run_id=run_id,
                 node_id=body.node_id, x=body.x, y=body.y, parent_id=body.parent_id,
@@ -939,6 +1144,7 @@ async def resolve_ui_comment(slug: str, request: Request,
     run_id = await caller_run_id(request, caller)
     async with request.app.state.session_factory() as s:
         try:
+            await _acl_lock(request, caller, s, slug)
             out = await store.resolve_comment(s, slug, comment_id, by=caller.participant,
                                               resolved=not reopen, restrict=caller.agent is not None)
             version = (await store.get_document(s, slug))["version"]
@@ -962,6 +1168,7 @@ async def label_ui_document(slug: str, body: S.UiDocLabelIn, request: Request,
         try:
             view = await store.get_document(s, slug)
             n = body.version or view["version"]
+            await _acl_lock(request, caller, s, slug)
             await store.set_label(s, slug, body.label, n)
         except UiDesignerError as e:
             raise ud_http(e)
@@ -972,7 +1179,7 @@ async def label_ui_document(slug: str, body: S.UiDocLabelIn, request: Request,
             request,
             body=f"{_card_text(view['title'] or slug, 64)} v{n} named \"{_card_text(body.label, 64)}\" "
                  f"by {participant_label(caller.participant)}",
-            card={"type": "ui_design", "event": "labeled", "slug": slug, "version": n,
+            card={"type": "ui_design", "event": "labeled", "slug": slug, "document_id": view["id"], "version": n,
                   "label": one_line(body.label, 64), "author": caller.participant})
     return S.UiDocLabelOut(slug=slug, version=n, label=body.label)
 
@@ -1019,12 +1226,16 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
         name = artifact_store.flatten(name[:-len(extension)], artifact_store.NAME_LIMIT - len(extension)) + extension
     async with request.app.state.session_factory() as s:
         try:
+            current = await _acl_lock(request, caller, s, slug)
+            if current.id != view["id"]:
+                raise HTTPException(404, "design document identity changed")
             art = await artifact_store.create(
                 s, data=data, owner=caller.participant, name=name, claimed_mime=mime,
                 _trusted_mime=mime if body.format != "png" else None,
                 source="tool", run_id=run_id, producer=getattr(request.app.state, "producer", None),
                 settings=request.app.state.settings,
-                meta={"ui_designer": {"slug": slug, "node": body.node, "version": version, "format": body.format}},
+                ui_document_id=view["id"],
+                meta={"ui_designer": {"document_id": view["id"], "slug": slug, "node": body.node, "version": version, "format": body.format}},
                 tags=["ui-designer"])
         except artifact_store.ArtifactRuleError as e:
             raise HTTPException(e.status, str(e)) from e
@@ -1033,7 +1244,7 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
         request,
         body=f"{chip}\n{_card_text(view['title'] or slug, 64)} v{version}"
              f"{' · ' + _card_text(body.node, 64) if body.node else ''} exported by {participant_label(caller.participant)}",
-        card={"type": "ui_design", "event": "exported", "slug": slug, "node": body.node,
+        card={"type": "ui_design", "event": "exported", "slug": slug, "document_id": view["id"], "node": body.node,
               "version": version, "artifact_id": art.id, "author": caller.participant})
     await _emit(request, caller, "exported", slug, version, run_id, artifact_id=art.id,
                 node=body.node)
@@ -1205,10 +1416,12 @@ async def export_ui_motion(slug: str, body: S.UiMotionExportIn, request: Request
                 return prior
             if await _motion_disconnected(request):
                 raise HTTPException(499, "motion request disconnected")
+            await _acl_lock(request, caller, session, slug)
             artifact = await artifact_store.create(session, data=result["data"], owner=caller.participant,
                 name=f"{slug}-v{body.version}-motion.{body.format}", claimed_mime=expected_mime,
                 _trusted_mime=expected_mime if body.format == "mp4" else None,
                 source="tool", run_id=run_id, settings=request.app.state.settings, commit=False,
+                ui_document_id=view["id"],
                 meta={"ui_designer": {"document_id": view["id"], "slug": slug,
                       "version": body.version, "format": body.format, "from_node": body.from_node,
                       "to_node": body.to_node}}, tags=["ui-designer", "motion"])
@@ -1360,11 +1573,12 @@ def _library_report(report: dict, *, slug: str, version: int, library_id: str,
     return out
 
 
-async def _library_source(s, source_id: str, source_version: int) -> dict:
+async def _library_source(s, source_id: str, source_version: int, request: Request, caller: Caller) -> dict:
     from agentplatform.db import UiDesignerDocument
     row = await s.get(UiDesignerDocument, source_id)
     if row is None or row.deleted_at is not None:
         raise HTTPException(404, "library source is unavailable")
+    await access.require_read_by_uuid(s, source_id, await access.subject(request, caller), allow_deleted_owner=False)
     # A pinned copy is a source read, never a cross-document write/row lock.
     view = await store.get_document(s, row.slug, version=source_version)
     if view["id"] != source_id:
@@ -1417,7 +1631,7 @@ async def preview_ui_library(slug: str, library_id: str, body: S.UiLibraryPrevie
             pin = destination["doc"].get("libraries", {}).get(library_id)
             if pin is None:
                 raise HTTPException(404, "library pin not found")
-            source = await _library_source(s, pin["source_id"], body.source_version)
+            source = await _library_source(s, pin["source_id"], body.source_version, request, caller)
             plan = libraries.plan_update(destination["doc"], source["doc"], destination_id=destination["id"],
                 library_id=library_id, source_version=body.source_version, source_slug=source["slug"])
             await s.commit()
@@ -1446,7 +1660,7 @@ async def _mutate_ui_library(slug: str, request: Request, caller: Caller,
     async with request.app.state.session_factory() as s:
         try:
             # Serialize before receipt lookup: two identical retries cannot plan twice.
-            destination = await store._live(s, slug, lock=True)
+            destination = await _acl_lock(request, caller, s, slug)
             prior = await store._receipt_lookup(s, scope, body.request_id, op, fingerprint)
             if prior is not None:
                 return S.UiLibraryWriteOut(**_write_out(prior, slug).model_dump(), library_id=library_id)
@@ -1458,7 +1672,7 @@ async def _mutate_ui_library(slug: str, request: Request, caller: Caller,
             await _check_write_budget(request, caller)
             if importing:
                 spec = body.library
-                source = await _library_source(s, spec.source_id, spec.source_version)
+                source = await _library_source(s, spec.source_id, spec.source_version, request, caller)
                 plan = libraries.plan_import(destination.doc, source["doc"], destination_id=destination.id,
                     source_id=source["id"], source_version=spec.source_version, source_slug=source["slug"],
                     namespace=spec.namespace, components=spec.components,
@@ -1467,7 +1681,7 @@ async def _mutate_ui_library(slug: str, request: Request, caller: Caller,
                 pin = destination.doc.get("libraries", {}).get(library_id)
                 if pin is None:
                     raise HTTPException(404, "library pin not found")
-                source = await _library_source(s, pin["source_id"], body.source_version)
+                source = await _library_source(s, pin["source_id"], body.source_version, request, caller)
                 plan = libraries.plan_update(destination.doc, source["doc"], destination_id=destination.id,
                     library_id=library_id, source_version=body.source_version, source_slug=source["slug"])
             if plan["report"].get("conflicts"):
@@ -1511,20 +1725,33 @@ async def delete_ui_document(slug: str, request: Request, hard: bool = False,
     asset GC: the administrator's browser session only."""
     async with request.app.state.session_factory() as s:
         try:
+            from agentplatform.db import UiDesignerDocument
+            target = (await s.execute(select(UiDesignerDocument).where(
+                UiDesignerDocument.slug == slug, UiDesignerDocument.deleted_at.is_(None)))).scalars().first()
+            if target is None and hard:
+                target = await s.get(UiDesignerDocument, slug)
+            if target is None:
+                raise HTTPException(404, "design document is unavailable")
+            previous = await access.capabilities(s, target, await access.subject(request, caller))
+            deleted_audience = sorted(set(previous["readers"] + previous["editors"] + [previous["owner"]]))
+            request.state.ui_acl_document_id = target.id
             if hard:
                 _session_admin(request, caller)
                 out = await store.hard_delete(s, slug)
                 await s.commit()
-                await _emit(request, caller, "deleted", slug, 0, None, hard=True)
+                await _emit(request, caller, "deleted", target.slug, 0, None, hard=True,
+                    audience=deleted_audience, workspace=previous["visibility"] == "workspace")
                 return S.UiDocDeleteOut(hard=True, assets_removed=out["assets_removed"],
                                         bytes_freed=out["bytes_freed"])
             view = await store.get_document(s, slug)
             await _may_modify(request, caller, view["owner"])
+            await _acl_lock(request, caller, s, slug)
             await store.soft_delete(s, slug)
             await s.commit()
         except UiDesignerError as e:
             raise ud_http(e)
-    await _emit(request, caller, "deleted", slug, view["version"], None)
+    await _emit(request, caller, "deleted", slug, view["version"], None,
+                audience=deleted_audience, workspace=previous["visibility"] == "workspace")
     return S.UiDocDeleteOut()
 
 
@@ -1566,7 +1793,7 @@ async def _doc_at(request: Request, caller: Caller, slug: str, version: int | No
         await s.commit()
     sha = view["doc_sha256"] if version is None or version == view["version"] \
         else store.doc_sha256(view["doc"])
-    cc = "private, max-age=31536000, immutable" if state == "closed" else "no-cache"
+    cc = "private, no-store"
     return view, sha, cc
 
 
@@ -1723,6 +1950,7 @@ async def upload_ui_font(slug: str, body: S.UiFontUploadIn, request: Request,
             # also remove a failed upload's blob and placement.
             if current.version != body.expected_version:
                 apply_ops(current.doc, [], version=current.version, expected_version=body.expected_version)
+            await _acl_lock(request, caller, session, slug)
             await store.add_document_font(session, current.id, data=data, metadata=metadata,
                                           placed_by=caller.participant, caps=caps(request))
             doc = dict(current.doc)
@@ -1774,14 +2002,23 @@ async def get_ui_asset(request: Request, sha256: str = Path(pattern=r"^[0-9a-f]{
                        caller: Caller = Depends(require_ui_designer_access(*READ))):
     """Placed image bytes. Content-addressed, so `immutable`; inline only for
     the four rasters, everything else is an attachment."""
+    from agentplatform.db import UiDesignerDocument, UiDesignerDocumentAsset
+    who = await access.subject(request, caller)
     async with request.app.state.session_factory() as s:
+        allowed = await s.scalar(select(UiDesignerDocument.id).join(UiDesignerDocumentAsset,
+            UiDesignerDocumentAsset.document_id == UiDesignerDocument.id).where(
+            UiDesignerDocumentAsset.sha256 == sha256, UiDesignerDocument.deleted_at.is_(None),
+            access.readable_clause(who)).limit(1))
+        if allowed is None:
+            raise HTTPException(404, "unknown asset")
+        request.state.ui_asset_document_id = allowed
         row = await store.get_asset(s, sha256)
     if row is None:
         raise HTTPException(404, "unknown asset")
     inline = row.mime in artifact_store.RASTERS
     return Response(content=row.data, media_type=row.mime if inline else "application/octet-stream",
                     headers={"X-Content-Type-Options": "nosniff",
-                             "Cache-Control": "private, max-age=31536000, immutable",
+                             "Cache-Control": "private, no-store",
                              "Content-Security-Policy": "default-src 'none'; sandbox",
                              "Content-Disposition": f'{"inline" if inline else "attachment"}; '
                                                     f'filename="{sha256[:16]}"'})

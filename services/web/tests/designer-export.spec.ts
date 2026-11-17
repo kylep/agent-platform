@@ -9,6 +9,7 @@ async function setup(page:Page, role='admin') {
   await page.route('**/api/whoami',(r)=>r.fulfill({json:{role}}));
   await page.route('**/api/ui-designer/**',async(r)=>{
     const url=new URL(r.request().url());
+    if(url.pathname.endsWith('/access'))return r.fallback();
     if(url.pathname.endsWith('/versions'))return r.fulfill({json:{version:9,versions:[{version:9,author:'kyle'},{version:3,author:'kyle'}]}});
     if(url.pathname.endsWith('/resolved'))return r.fulfill({json:{pages:[{id:'page',title:'Main',children:[box]}]}});
     if(url.pathname.endsWith('/comments'))return r.fulfill({json:{comments:[]}});

@@ -37,6 +37,7 @@ async function setup(page: Page, role = "admin") {
     const url = new URL(route.request().url());
     if (url.pathname === '/api/ui-designer/docs') return route.fulfill({ json: { docs: [{ slug: 'second', title: 'Second document', owner: 'kyle' }] } });
     if (url.pathname.endsWith('/events')) return route.fulfill({ body: '' });
+    if(url.pathname.endsWith('/access'))return route.fallback();
     if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { version, versions: Array.from({ length: version }, (_, i) => ({ version: version-i, author: 'kyle' })) } });
     if (url.pathname.endsWith('/comments')) return route.fulfill({ json: { comments: [] } });
     if (url.pathname.endsWith('/resolved')) return route.fulfill({ json: { pages: [{ id: 'page', title: 'Main', children: resolvedNodes() }] } });
@@ -361,4 +362,15 @@ test('smart transition and motion keys preserve metadata with CAS undo',async({p
   expect(state.writes[0].ops[0].set).toEqual({meta:{purpose:'retained',motion_key:'shared-card'},link_to:{target:'frame',trigger:'tap',transition:'smart-animate',easing:'ease-in',duration_ms:800}});
   await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(page.getByRole('button',{name:'Redo',exact:true})).toBeEnabled();
   expect(state.writes[1].ops[0].set).toEqual({meta:{purpose:'retained'},link_to:null});
+});
+
+
+test('independent sharing refresh preserves an uncertain content receipt for the same document',async({page})=>{
+  const state=await setup(page);let accessVersion=1;
+  await page.route('**/docs/demo/access',r=>r.fulfill({json:{document_id:'d'.repeat(32),owner:'user:kyle',visibility:'workspace',readers:[],editors:[],access_version:accessVersion,can_read:true,can_write:true,can_manage_sharing:true}}));
+  await pick(page);state.failNetwork();await page.getByLabel('Width',{exact:true}).fill('121');await page.getByRole('button',{name:'Save node',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Retry save',exact:true})).toBeVisible();accessVersion++;
+  await page.evaluate((revision)=>(window as unknown as {designEvent:(event:unknown)=>void}).designEvent({type:'access',slug:'demo',access_version:revision}),accessVersion);
+  await expect(page.getByRole('button',{name:'Retry save',exact:true})).toBeEnabled();await page.getByRole('button',{name:'Retry save',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();expect(state.writes).toHaveLength(2);expect(state.writes[0]).toEqual(state.writes[1]);
 });

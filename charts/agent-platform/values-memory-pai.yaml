@@ -3,18 +3,18 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ud-fonts-20261117
+    tag: ud-access-20261117
   web:
-    tag: ud-fonts-20261117
+    tag: ud-access-20261117
   runner:
     tag: bk-1383a26
   runnerDev:
     tag: bk-edf7a44
   mcpFacade:
-    tag: ud-fonts-20261117
+    tag: ud-access-20261117
 mcpBroker:
   image:
-    tag: ud-fonts-20261117
+    tag: ud-access-20261117
 uiRenderer:
   image:
     tag: ud-fonts-20261117

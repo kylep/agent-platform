@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import CreateDocument from "../components/ui-designer/CreateDocument";
 import FigmaImport from "../components/ui-designer/FigmaImport";
-import { api } from "../api";
+import { api, apiErrorMessage } from "../api";
 import { useTitle } from "../lib/title";
 import { UD, type UiDocSummary } from "../lib/uiDesigner";
 
@@ -15,16 +15,21 @@ export default function UiDesigner() {
   const canCreate = ["admin", "operator"].includes(role);
   useEffect(() => { api<{ role: string }>("/api/whoami").then((me) => setRole(me.role)).catch(() => setRole("")); }, []);
   const [err, setErr] = useState("");
+  const [reload,setReload]=useState(0);
+  const invalidate=useCallback(()=>{setDocs(null);setReload((n)=>n+1);},[]);
   useEffect(() => {
-    api<{ docs: UiDocSummary[] }>(UD).then((r) => setDocs(r.docs))
-      .catch((e) => setErr(String(e.message ?? e)));
-  }, []);
+    const controller=new AbortController();setErr("");
+    api<{ docs: UiDocSummary[] }>(UD,{signal:controller.signal}).then((r) => {if(!controller.signal.aborted)setDocs(r.docs);})
+      .catch((e) => {if(!controller.signal.aborted){setDocs(null);setErr(e instanceof Error && /^(403|404):/.test(e.message) ? "Documents are unavailable.":apiErrorMessage(e,"Could not load documents."));}});
+    return()=>controller.abort();
+  }, [reload]);
+  useEffect(()=>{if(typeof EventSource==="undefined")return;const events=new EventSource("/api/ui-designer/events",{withCredentials:true});events.addEventListener("design",(event)=>{try{if(JSON.parse(event.data).type==="access")invalidate();}catch{/* ignore malformed events */}});return()=>events.close();},[invalidate]);
   return (
     <div>
       <div className="page-header"><h1>UI Designer</h1></div>
       {canCreate && <CreateDocument />}
       {admin && <FigmaImport />}
-      {err && <p role="alert" className="muted">Could not load documents: {err}</p>}
+      {err && <p role="alert" className="muted">{err}</p>}
       {docs && docs.length === 0 && <p className="muted">No documents yet.</p>}
       {docs && docs.length > 0 && (
         <table>

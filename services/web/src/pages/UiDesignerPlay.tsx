@@ -1,3 +1,5 @@
+import { useDesignerAccess } from "../lib/useDesignerAccess";
+import { watchUiDesign } from "../lib/uiDesignLive";
 import MotionPlayback from "../components/ui-designer/MotionPlayback";
 import type { MotionInput } from "../lib/uiMotion";
 import "../components/ui-designer/Prototype.css";
@@ -29,11 +31,15 @@ export default function UiDesignerPlay() {
   }, []);
   useTitle("Prototype", "UI Designer");
   const base = `${UD}/${encodeURIComponent(slug)}`;
+  const {canRead,checking,unavailable,error:accessError,reload:reloadAccess}=useDesignerAccess(base);
+  const retainedPin=useRef<{scope:string;version:number}|null>(null);
   useEffect(() => {
     const media=window.matchMedia("(prefers-reduced-motion: reduce)"); const update=()=>setReduced(media.matches);
     media.addEventListener("change",update); return ()=>media.removeEventListener("change",update);
   },[]);
+  useEffect(()=>watchUiDesign(slug,(event)=>{if(event.type==="access")reloadAccess();}),[slug,reloadAccess]);
   useEffect(() => {
+    if(!canRead){invalidateNavigation();setTree(null);setPrevious(null);setMotion(null);setVersion(null);setReady(false);setLoaded(false);return;}
     const controller = new AbortController();
     let cancelled=false; invalidateNavigation(); chain.current=0; hoverLocked.current=false;
     setMotion(null);setMotionNotes([]);
@@ -42,8 +48,10 @@ export default function UiDesignerPlay() {
       try {
         if (!["dark", "light"].includes(mode)) throw new Error("Choose dark or light mode to play.");
         if (requestedVersion && (!/^[1-9]\d*$/.test(requestedVersion) || !Number.isSafeInteger(Number(requestedVersion)))) throw new Error("Choose a valid version to play.");
-        const pinned = requestedVersion ? Number(requestedVersion) : (await api<{version:number}>(`${base}/versions`, { signal: controller.signal })).version;
+        const pinScope=`${base}:${requestedVersion}:${mode}:${requestedFrame}`;
+        const pinned = requestedVersion ? Number(requestedVersion) : retainedPin.current?.scope===pinScope ? retainedPin.current.version : (await api<{version:number}>(`${base}/versions`, { signal: controller.signal })).version;
         if (cancelled) return;
+        retainedPin.current={scope:pinScope,version:pinned};
         const resolved=await api<Resolved>(`${base}/resolved?${new URLSearchParams({version:String(pinned),mode})}`, { signal: controller.signal });
         if (cancelled) return;
         const frames=prototypeFrames(resolved);
@@ -53,7 +61,7 @@ export default function UiDesignerPlay() {
       } catch(e) { if (!cancelled) setError(e instanceof Error && !/^\d+:/.test(e.message) ? e.message : apiErrorMessage(e,"Could not load prototype.")); }
     }
     void load(); return ()=>{cancelled=true; controller.abort(); invalidateNavigation();};
-  },[base,requestedVersion,mode,requestedFrame,invalidateNavigation]);
+  },[base,requestedVersion,mode,requestedFrame,invalidateNavigation,canRead]);
   useEffect(()=>{if(reduced && motion){setMotion(null);setPrevious(null);setReady(loaded);}},[reduced,motion,loaded]);
   const frames=useMemo(()=>tree ? prototypeFrames(tree):[],[tree]);
   const frame=frames.find((f)=>f.id===frameId);
@@ -90,6 +98,7 @@ export default function UiDesignerPlay() {
   const imageToken = navigation.current;
   const crop=frame ? nodeBox(frame):{x:0,y:0,w:1,h:1};
   const exit=`/ui-designer/${encodeURIComponent(slug)}?${new URLSearchParams({...(version ? {version:String(version)}:{}),mode})}`;
+  if(!canRead)return <div className="ud-prototype"><div className="page-header"><h1>Prototype · {slug}</h1><Link to={`/ui-designer/${encodeURIComponent(slug)}`}>Exit prototype</Link></div>{checking ? <p role="status">Checking document access…</p>:<><p role="alert">{unavailable ? "This design is unavailable or private.":accessError || "Could not load this design."}</p><Button onClick={reloadAccess}>Retry document access</Button></>}</div>;
   return <div className="ud-prototype">
     <div className="page-header"><h1>Prototype · {slug}{version ? ` · v${version}`:""}</h1><Link to={exit}>Exit prototype</Link></div>
     <div className="ud-prototype-controls">

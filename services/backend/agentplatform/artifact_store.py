@@ -197,7 +197,7 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
                  source: str = "upload", meta=None, tags=None, run_id: str | None = None,
                  producer=None, settings=None, allow_generated: bool = False,
                  max_bytes: int | None = None, count_total: bool = True,
-                 before_commit=None, event_extra: dict | None = None, commit: bool = True, _trusted_mime: str | None = None) -> Artifact:
+                 before_commit=None, event_extra: dict | None = None, commit: bool = True, _trusted_mime: str | None = None, ui_document_id: str | None = None) -> Artifact:
     """Store bytes as a new artifact and tell the topic. `owner` is a
     participant string the CALLER resolved from a token — nothing here checks
     it, because nothing here can. `allow_generated` is the generate route's
@@ -214,13 +214,29 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
         raise ArtifactRuleError(400, "an artifact needs bytes")
     if len(data) > cap:
         raise ArtifactRuleError(413, f"an artifact is at most {cap} bytes")
-    name, tags, meta = clean_name(name), clean_tags(tags), clean_meta(meta)
+    name, tags, meta = clean_name(name), clean_tags(tags), dict(clean_meta(meta))
+    if "ui_designer" in meta and ui_document_id is None:
+        raise ArtifactRuleError(400,"ui_designer provenance is reserved for trusted exports")
+    if ui_document_id is not None and not re.fullmatch(r"[0-9a-f]{32}",ui_document_id):
+        raise ArtifactRuleError(400,"invalid source document UUID")
+    ui_provenance=ui_document_id is not None
+    if ui_provenance:
+        source_meta=meta.get('ui_designer')
+        source_meta=source_meta if isinstance(source_meta,dict) else {}
+        meta['ui_designer']={**source_meta,'document_id':ui_document_id}
     allowed = SOURCES if allow_generated else CLIENT_SOURCES
     if source not in allowed:
         raise ArtifactRuleError(400, f"source must be one of {', '.join(allowed)}")
     parent = await _parent_image(session, meta.get("parent_id"))
     if parent is not None:
         source = "derived"
+        from agentplatform.ui_designer.artifact_access import is_design
+        if is_design(parent):
+            if ui_document_id is not None and ui_document_id!=parent.ui_document_id:
+                raise ArtifactRuleError(400,"a derivative cannot change its source document")
+            ui_provenance=True;ui_document_id=parent.ui_document_id
+            parent_meta=(parent.meta or {}).get('ui_designer')
+            meta['ui_designer']={**(parent_meta if isinstance(parent_meta,dict) else {}),'document_id':ui_document_id}
     elif source == "derived":
         raise ArtifactRuleError(400, "a derived artifact names an existing image in meta.parent_id")
     mime = sniff(data, claimed_mime)
@@ -252,7 +268,8 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
                    sha256=hashlib.sha256(data).hexdigest(),
                    kind="image" if mime in RASTERS else "file",
                    width=width, height=height, thumb=thumb, owner=owner,
-                   run_id=run_id, source=source, meta=meta, tags=tags)
+                   run_id=run_id, source=source, meta=meta, tags=tags,
+                   ui_document_id=ui_document_id,ui_provenance=ui_provenance)
     session.add(row)
     await session.flush()
     session.add(ArtifactBlob(artifact_id=row.id, data=data))
@@ -351,11 +368,12 @@ async def content(session, artifact_id: str) -> bytes | None:
 async def list_artifacts(session, *, kind: str | None = None, owner: str | None = None,
                          source: str | None = None, q: str | None = None,
                          tag: str | None = None, limit: int = LIST_LIMIT,
-                         before: str | None = None) -> list[Artifact]:
+                         before: str | None = None, visible=None) -> list[Artifact]:
     """Newest first, keyset-paged on (created_at, id) from the `before` cursor
     — an artifact id, which is what the client already has — so a page is
     stable while uploads land above it."""
     stmt = list_query()
+    if visible is not None:stmt=stmt.where(visible)
     if kind:
         stmt = stmt.where(Artifact.kind == kind)
     if owner:
@@ -373,7 +391,7 @@ async def list_artifacts(session, *, kind: str | None = None, owner: str | None 
         stmt = stmt.where(cast(Artifact.tags, Text).contains(f'"{tag}"', autoescape=True))
     if before:
         cursor = await session.get(Artifact, before)
-        if cursor is None:
+        if cursor is None or (visible is not None and (await session.execute(select(Artifact.id).where(Artifact.id==before,visible,Artifact.deleted_at.is_(None),not_app_owned()))).first() is None):
             raise ArtifactRuleError(422, "unknown `before` cursor")
         stmt = stmt.where((Artifact.created_at < cursor.created_at) |
                           ((Artifact.created_at == cursor.created_at) & (Artifact.id < cursor.id)))

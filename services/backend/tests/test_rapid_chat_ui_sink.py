@@ -32,6 +32,34 @@ def chat():
         areas=rc.make_areas(["Home"]), output_ref=None, last_error=None)
 
 
+async def test_sharing_change_stops_controller_without_changing_content_version(sf):
+    from agentplatform.db import UiDesignerAccess
+    c = chat()
+    c.created_by = 'admin'  # historical rapid-chat owners used the raw principal
+    await rc.init_sink(sf, None, SimpleNamespace(), c)
+    assert c.sink['access_version'] == 0
+    async with sf() as session:
+        session.add(UiDesignerAccess(document_id=c.sink['document_id'],
+            visibility='restricted', access_version=1, readers=[], editors=[]))
+        await session.commit()
+    c.areas[0]['design'] = frame()
+    c.areas[0]['turns'] = 1
+    assert not await rc.checkpoint(sf, None, SimpleNamespace(), c, now=utcnow(), force=True)
+    assert c.sink['conflict'] and 'sharing changed' in c.last_error
+    async with sf() as session:
+        assert (await store.get_document(session, c.sink['slug']))['version'] == 1
+
+
+async def test_legacy_sink_without_acl_version_can_checkpoint_unchanged_workspace(sf):
+    c = chat()
+    await rc.init_sink(sf, None, SimpleNamespace(), c)
+    c.sink.pop('access_version')
+    c.areas[0]['design'] = frame()
+    c.areas[0]['turns'] = 1
+    assert await rc.checkpoint(sf, None, SimpleNamespace(), c, now=utcnow(), force=True)
+    assert c.output_ref['version'] == 2
+
+
 def test_native_options_pick_merge_and_malformed_frames():
     author = rc.parse_design_result(reply("author"), "author")
     assert author.outcome == "ok"
@@ -181,6 +209,7 @@ async def test_designer_events_publish_only_after_new_commits_and_failure_is_bes
     topic, slug, event = producer.published[0]
     assert topic == "ui_designer.events" and slug == c.sink["slug"]
     assert event == {"type": "version", "slug": slug, "version": 1,
+                     "document_id": c.sink["document_id"],
                      "author": "rapid-chat:native-chat", "run_id": None}
     c.sink = {"kind": "ui_designer", "slug": slug, "mode": "replace"}
     await rc.init_sink(sf, producer, settings, c)

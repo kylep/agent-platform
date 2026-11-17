@@ -431,4 +431,19 @@ syntax, with authorized, bounded live thumbnails.
   PostgreSQL copy/GC races pass. Web build, Storybook, tokens, SDK drift
   (839 files), Helm lint and final image/source hash checks pass.
   Linux/amd64 accepted the unmodified Atkinson Hyperlegible OFL font and
-  rendered native PNG and outlined HTML. Deployment/live acceptance pending.
+  rendered native PNG and outlined HTML. Pushed `188fb4d`, deployed
+  `ud-fonts-20261117` in Helm revision 165. Live upload/replay/history, native
+  SVG and library pixels after source hard deletion passed. Browser license
+  display and save/undo/redo pixels passed at versions 3/4/5. Fixtures removed.
+  Fresh weekly quota: 58% used.
+
+- **P3.18 Status:** implemented per-document readers/editors/team sharing, separate
+  sharing CAS/receipts, server-derived capabilities and a seeded Design team.
+  Document, render, asset, library and SSE access is checked against current
+  permissions. Source UUID provenance follows exports and derivatives through
+  artifact routes, lists and feeds; private designs do not post public cards.
+  SQLite and real PostgreSQL upgrade/idempotency checks pass. Browser 482,
+  broker 475, facade 40 and renderer 150 checks pass; SDK regeneration is stable.
+  Full backend run: 4,095 passed / 23 skipped; three startup/seed fixture
+  assumptions were corrected and all 92 affected checks passed. Deployment
+  and live acceptance follow the committed chunk.

@@ -2443,3 +2443,44 @@ class UiFontUploadIn(BaseModel):
 
 class UiFontWriteOut(UiDocWriteOut):
     fonts: list[UiFontRef] = Field(max_length=8)
+
+
+class UiAccessOut(BaseModel):
+    document_id: str
+    owner: str
+    visibility: Literal["workspace", "restricted"]
+    readers: list[str]
+    editors: list[str]
+    access_version: int
+    can_read: bool
+    can_write: bool
+    can_manage_sharing: bool
+    replayed: bool = False
+
+
+class UiAccessIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_access_version: int = Field(ge=0, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+    visibility: Literal["workspace", "restricted"]
+    readers: list[str] = Field(default_factory=list, max_length=64)
+    editors: list[str] = Field(default_factory=list, max_length=64)
+
+
+class UiSharingPrincipal(BaseModel):
+    principal: str
+    label: str
+    kind: Literal["user", "agent"]
+
+
+class UiSharingTeam(BaseModel):
+    principal: str
+    id: str
+    name: str
+    slug: str
+
+
+class UiSharingChoices(BaseModel):
+    principals: list[UiSharingPrincipal]
+    teams: list[UiSharingTeam]
+    truncated: bool

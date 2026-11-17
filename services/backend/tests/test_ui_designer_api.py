@@ -353,15 +353,15 @@ async def test_render_caching_headers(sf, admin_client, renderer):
         await edit(admin_client, v)
     r = await admin_client.get(f"{P}/docs/{SLUG}/render?node=root")
     assert r.status_code == 200 and r.headers["content-type"] == "image/png"
-    assert r.headers["x-content-type-options"] == "nosniff" and r.headers["cache-control"] == "no-cache"
+    assert r.headers["x-content-type-options"] == "nosniff" and r.headers["cache-control"] == "private, no-store"
     assert r.content[:4] == b"\x89PNG"
     etag = r.headers["etag"]
     assert (await admin_client.get(f"{P}/docs/{SLUG}/render?node=root",
                                    headers={"If-None-Match": etag})).status_code == 304
-    # A closed (human-written) version is immutable; the cache served the second call.
+    # Closed versions retain the internal render cache; browsers must still revalidate ACLs.
     n = len(renderer.calls)
     r = await admin_client.get(f"{P}/docs/{SLUG}/render?node=root&version=2")
-    assert r.status_code == 200 and "immutable" in r.headers["cache-control"]
+    assert r.status_code == 200 and r.headers["cache-control"] == "private, no-store"
     await admin_client.get(f"{P}/docs/{SLUG}/render?node=root&version=2")
     assert len([c for c in renderer.calls[n:] if c[0] == "/render"]) == 1
     assert (await admin_client.get(f"{P}/docs/{SLUG}/render?scale=9")).status_code == 422
@@ -377,7 +377,7 @@ async def test_open_row_is_not_immutable(sf, seed_agent, agent_store, admin_clie
         await store.get_document(s, SLUG, reader="agent:pai")
         await s.commit()
     r = await token_client.get(f"{P}/docs/{SLUG}/render?node=root&version=3", headers=h)
-    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    assert r.status_code == 200 and r.headers["cache-control"] == "private, no-store"
 
 
 async def test_svg_and_resolved(admin_client, renderer):
@@ -401,10 +401,15 @@ async def test_assets_route(sf, admin_client):
     async with sf() as s:
         sha = await store.add_asset(s, data=data, mime="image/png", width=8, height=8)
         odd = await store.add_asset(s, data=b"<svg onload=alert(1)/>", mime="image/svg+xml")
+        # A raw digest is not authority; the byte door requires a live placement.
+        await store.place_asset(s, SLUG, data=data, mime="image/png", width=8, height=8,
+                                placed_by="user:admin", placed_from="test")
+        await store.place_asset(s, SLUG, data=b"<svg onload=alert(1)/>", mime="image/svg+xml",
+                                placed_by="user:admin", placed_from="test")
         await s.commit()
     r = await admin_client.get(f"{P}/assets/{sha}")
     assert r.status_code == 200 and r.content == data and r.headers["content-type"] == "image/png"
-    assert "immutable" in r.headers["cache-control"] and r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["cache-control"] == "private, no-store" and r.headers["x-content-type-options"] == "nosniff"
     assert r.headers["content-disposition"].startswith("inline")
     r = await admin_client.get(f"{P}/assets/{odd}")
     assert r.headers["content-type"] == "application/octet-stream"

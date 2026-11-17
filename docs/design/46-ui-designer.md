@@ -1614,3 +1614,46 @@ copying library components or typography tokens places their required font
 faces into the consumer. Different bytes for an existing family/weight report
 a conflict rather than replacing local typography. Garbage collection rechecks
 placements after acquiring the blob lock.
+
+## 33. Document sharing and the Design team (P3.18)
+
+Document access is separate from restorable scene JSON. Existing documents
+remain workspace-visible. Restricted documents list reader/editor principals
+(`user:`, `agent:` or `team:`); only the owner or a human administrator manages
+sharing. Current team membership is resolved on each request. These rights are
+an AND gate on existing role, tool, run and artifact grants, never a replacement
+for them. A seeded Design team has a private group and no automatically granted
+agents; an existing team is preserved and a deleted seed is not recreated.
+
+`GET/PUT /docs/{slug}/access` exposes capabilities and a separate access version.
+Writes carry expected_access_version and request_id, bind receipts to the
+document UUID and lock the document row alongside content writes. History
+restore cannot restore an old ACL. Choices are bounded and owner/admin-only.
+The broker exposes sharing get/choices/set. Read checks cover list pagination,
+history, assets, fonts, libraries, prototypes, renders and each SSE delivery;
+write checks run again after expensive rendering before committing. Responses
+use private, no-store. Safe access invalidations clear revoked browser content
+without disclosing sharing lists, and rapid-chat checkpoints stop if sharing
+changes.
+
+Artifacts carry authoritative source UUID/provenance columns. Upload metadata
+cannot invent or remove them; derived uploads and direct image generation
+inherit them. Artifact lists/counts, metadata, bytes, thumbnails and feeds all
+apply source access as well as existing artifact/App/run gates. Soft-deleted
+sources are owner/admin-only; missing sources are artifact-owner/admin-only.
+Startup backfills historical exports and derivative chains conservatively:
+UUIDs never follow reused slugs, and legacy slug lookup cannot select a document
+created after the artifact. The additive migration runs under startup's
+transaction/lock, with SQLite and actual PostgreSQL upgrade tests.
+
+Restricted exports and labels do not post public Relay cards. Document-scoped
+artifacts cannot become globally visible agent portraits. Combining references
+from multiple design documents is refused; subscription-artist image generation
+with document-scoped references is also refused before launching paid work
+because that path cannot preserve the source ACL atomically. Direct image
+generation with one source document remains supported.
+
+Tests cover human and agent authority, reader/editor/owner roles, team archive,
+SQL filtering before pagination/counts, independent CAS/replay, concurrent
+revocation, source deletion/reuse, derivative provenance, migration idempotency,
+SSE audience filtering and browser editor/prototype/Relay-preview invalidation.

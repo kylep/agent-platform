@@ -1043,13 +1043,14 @@ def _design_caps(settings):
                                                   defaults.max_version_bytes_per_doc))
 
 
-async def _emit_design_version(producer, chat, version: int) -> None:
+async def _emit_design_version(producer, chat, version: int, document_id: str | None = None) -> None:
     if producer is None:
         return
     from agentplatform.events import TOPIC_UI_DESIGNER_EVENTS
     try:
         await producer.publish(TOPIC_UI_DESIGNER_EVENTS, chat.sink["slug"],
             {"type": "version", "slug": chat.sink["slug"], "version": version,
+             "document_id": document_id or chat.sink.get("document_id"),
              "author": f"rapid-chat:{chat.id}", "run_id": None}, type="ui_designer.event")
     except Exception:
         log.warning("rapid-chat %s: designer event publish failed", chat.id, exc_info=True)
@@ -1074,15 +1075,18 @@ async def _init_design_sink(sf, producer, settings, chat) -> None:
             result = {**current, "version": result["version"], "replayed": True}
         await session.commit()
     if not result.get("replayed"):
-        await _emit_design_version(producer, chat, result["version"])
+        await _emit_design_version(producer, chat, result["version"], result["id"])
     chat.sink = {**chat.sink, "document_id": result["id"], "version": result["version"],
+                 "access_version": 0,
                  "sig": _signature(chat), "at": as_utc(utcnow()).isoformat()}
     chat.output_ref = {"kind": "ui_designer", "slug": chat.sink["slug"],
                        "document_id": result["id"], "version": result["version"]}
 
 
 async def _checkpoint_design(sf, producer, settings, chat, *, now, final, force) -> bool:
-    from agentplatform.ui_designer import store
+    from fastapi import HTTPException
+    from agentplatform.ui_designer import access, store
+    from agentplatform.db import UiDesignerAccess
     from agentplatform.ui_designer.errors import UiDesignerError
     sink = dict(chat.sink)
     if sink.get("conflict"):
@@ -1099,9 +1103,17 @@ async def _checkpoint_design(sf, producer, settings, chat, *, now, final, force)
     actor = f"rapid-chat:{chat.id}"
     try:
         async with sf() as session:
-            current = await store.get_document(session, sink["slug"])
-            if current["id"] != sink["document_id"]:
+            current = await store._live(session, sink["slug"], lock=True)
+            if current.id != sink["document_id"]:
                 raise ValueError("design document identity changed")
+            who = await access.subject_for(session, access.owner_principal(chat.created_by))
+            try:
+                await access.require_write_by_uuid(session, current.id, who)
+            except HTTPException as error:
+                raise ValueError("design document is no longer writable") from error
+            policy = await session.get(UiDesignerAccess, current.id)
+            if (policy.access_version if policy else 0) != sink.get("access_version", 0):
+                raise ValueError("design document sharing changed; checkpoint remains blocked")
             result = await store.edit_document(session, sink["slug"],
                 ops=[{"op": "set_doc", "doc": doc}], expected_version=sink["version"],
                 author=actor, scope=actor, request_id="checkpoint-" + key,
