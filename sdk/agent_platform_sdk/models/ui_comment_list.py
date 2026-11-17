@@ -21,11 +21,13 @@ class UiCommentList:
     Attributes:
         comments (list[UiComment]):
         slug (str):
+        document_id (None | str | Unset):
         next_before (None | str | Unset):
     """
 
     comments: list[UiComment]
     slug: str
+    document_id: None | str | Unset = UNSET
     next_before: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -36,6 +38,12 @@ class UiCommentList:
             comments.append(comments_item)
 
         slug = self.slug
+
+        document_id: None | str | Unset
+        if isinstance(self.document_id, Unset):
+            document_id = UNSET
+        else:
+            document_id = self.document_id
 
         next_before: None | str | Unset
         if isinstance(self.next_before, Unset):
@@ -51,6 +59,8 @@ class UiCommentList:
                 "slug": slug,
             }
         )
+        if document_id is not UNSET:
+            field_dict["document_id"] = document_id
         if next_before is not UNSET:
             field_dict["next_before"] = next_before
 
@@ -70,6 +80,15 @@ class UiCommentList:
 
         slug = d.pop("slug")
 
+        def _parse_document_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        document_id = _parse_document_id(d.pop("document_id", UNSET))
+
         def _parse_next_before(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -82,6 +101,7 @@ class UiCommentList:
         ui_comment_list = cls(
             comments=comments,
             slug=slug,
+            document_id=document_id,
             next_before=next_before,
         )
 

@@ -1150,6 +1150,30 @@ class UiDesignerDocumentAsset(Base):
     placed_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
 
 
+class UiDesignerCommentWake(Base):
+    """Durable per-target comment outbox; run IDs are assigned before launch."""
+    __tablename__ = "ui_designer_comment_wakes"
+    __table_args__ = (UniqueConstraint("comment_id", "target", name="uq_ui_comment_wake_target"),
+                      Index("ix_ui_comment_wake_pending", "state", "created_at"),
+                      Index("ix_ui_comment_wake_document_target", "document_id", "target"))
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    comment_id: Mapped[str] = mapped_column(String(32), index=True)
+    target: Mapped[str] = mapped_column(String(128))
+    version: Mapped[int] = mapped_column(Integer)
+    node_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    author: Mapped[str] = mapped_column(String(160))
+    initiating_principal: Mapped[str] = mapped_column(String(160))
+    parent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
+    hop: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
 class UiDesignerComment(Base):
     __tablename__ = "ui_designer_comments"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)

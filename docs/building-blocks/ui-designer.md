@@ -55,6 +55,13 @@ expires after 45 seconds without a heartbeat and never creates a design version.
 Closing or hiding a tab leaves the session; lost connections recover from the
 current roster. Sharing and platform permissions still apply.
 
+In comments, mention an agent by its exact `@name` to queue a response with the
+selected node in context. The agent needs UI Designer access. The comment shows
+**Queued**, **Run created**, or **Not notified** with a reason; a created run does
+not guarantee a reply. Code snippets, self mentions and `@all`/team references do
+not broadcast. Private-document comments are saved but do not start agent runs
+yet, because run transcripts do not inherit document sharing permissions.
+
 The editor's motion controls preview or export two frames from a retained
 document version. Matching `meta.motion_key` values animate position, size,
 rotation and opacity; changed content crossfades. Complex effects may use a

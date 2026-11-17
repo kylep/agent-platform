@@ -16,6 +16,7 @@ class UiCommentIn:
     """
     Attributes:
         body (str):
+        expected_document_id (None | str | Unset):
         node_id (None | str | Unset):
         parent_id (None | str | Unset):
         request_id (None | str | Unset):
@@ -24,6 +25,7 @@ class UiCommentIn:
     """
 
     body: str
+    expected_document_id: None | str | Unset = UNSET
     node_id: None | str | Unset = UNSET
     parent_id: None | str | Unset = UNSET
     request_id: None | str | Unset = UNSET
@@ -33,6 +35,12 @@ class UiCommentIn:
 
     def to_dict(self) -> dict[str, Any]:
         body = self.body
+
+        expected_document_id: None | str | Unset
+        if isinstance(self.expected_document_id, Unset):
+            expected_document_id = UNSET
+        else:
+            expected_document_id = self.expected_document_id
 
         node_id: None | str | Unset
         if isinstance(self.node_id, Unset):
@@ -71,6 +79,8 @@ class UiCommentIn:
                 "body": body,
             }
         )
+        if expected_document_id is not UNSET:
+            field_dict["expected_document_id"] = expected_document_id
         if node_id is not UNSET:
             field_dict["node_id"] = node_id
         if parent_id is not UNSET:
@@ -88,6 +98,17 @@ class UiCommentIn:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         body = d.pop("body")
+
+        def _parse_expected_document_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        expected_document_id = _parse_expected_document_id(
+            d.pop("expected_document_id", UNSET)
+        )
 
         def _parse_node_id(data: object) -> None | str | Unset:
             if data is None:
@@ -136,6 +157,7 @@ class UiCommentIn:
 
         ui_comment_in = cls(
             body=body,
+            expected_document_id=expected_document_id,
             node_id=node_id,
             parent_id=parent_id,
             request_id=request_id,

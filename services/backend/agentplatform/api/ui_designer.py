@@ -1248,36 +1248,59 @@ async def diff_ui_document(slug: str, request: Request, from_: int = Query(alias
 async def list_ui_comments(slug: str, request: Request, node: str | None = None,
                            resolved: bool = True, limit: int = Query(200, ge=1, le=500),
                            before: str | None = Query(None, pattern=r"^[0-9a-f]{32}$"),
+                           expected_document_id: str | None = Query(None, pattern=r"^[0-9a-f]{32}$"),
                            caller: Caller = Depends(require_ui_designer_access(*READ))):
     async with request.app.state.session_factory() as s:
         try:
+            document = await store._live(s, slug)
+            if expected_document_id and expected_document_id != document.id:
+                raise HTTPException(404, "Document is unavailable")
             rows, nxt = await store.list_comments(s, slug, include_resolved=resolved, node=node,
                                                   limit=limit, before=before)
+            from agentplatform.ui_designer import comment_wakes
+            statuses = await comment_wakes.notifications(s, [c["id"] for c in rows])
+            for c in rows:
+                c["notifications"] = statuses.get(c["id"], [])
         except UiDesignerError as e:
             raise ud_http(e)
-    return S.UiCommentList(slug=slug, comments=rows, next_before=nxt)
+    return S.UiCommentList(slug=slug, document_id=document.id, comments=rows, next_before=nxt)
 
 
 @router.post(PREFIX + "/docs/{slug}/comments", response_model=S.UiCommentOut)
 async def add_ui_comment(slug: str, body: S.UiCommentIn, request: Request,
                          caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    from agentplatform.ui_designer import comment_wakes
+    if comment_wakes.mentions(body.body) and not body.request_id:
+        from agentplatform.ui_designer.errors import invalid, issue
+        raise ud_http(invalid([issue("UD-MISSING", "$.request_id", "named mentions need a stable request_id")]))
     run_id = await caller_run_id(request, caller)
     await _check_write_budget(request, caller)
     async with request.app.state.session_factory() as s:
         try:
-            await _acl_lock(request, caller, s, slug)
+            document = await _acl_lock(request, caller, s, slug)
+            if body.expected_document_id and body.expected_document_id != document.id:
+                raise HTTPException(404, "Document is unavailable")
             out = await store.add_comment(
                 s, slug, body=body.body, author=caller.participant, run_id=run_id,
                 node_id=body.node_id, x=body.x, y=body.y, parent_id=body.parent_id,
                 request_id=body.request_id, scope=_scope(caller, run_id), caps=caps(request))
-            version = (await store.get_document(s, slug))["version"]
+            version = document.version
+            if not out["replayed"]:
+                from agentplatform.db import UiDesignerComment
+                comment = await s.get(UiDesignerComment, out["id"])
+                await comment_wakes.queue_comment(s, comment, version, request.app.state.settings,
+                                                 request.app.state.agent_store)
+            statuses = (await comment_wakes.notifications(s, [out["id"]])).get(out["id"], [])
+            if out["comment"] is not None:
+                out["comment"]["notifications"] = statuses
         except UiDesignerError as e:
             raise ud_http(e)
         await s.commit()
     if not out["replayed"]:
         await _emit(request, caller, "comment", slug, version, run_id, comment_id=out["id"],
                     node_id=body.node_id)
-    return S.UiCommentOut(slug=slug, id=out["id"], comment=out["comment"], replayed=out["replayed"])
+    return S.UiCommentOut(slug=slug, document_id=out["document_id"], notifications=statuses,
+                          id=out["id"], comment=out["comment"], replayed=out["replayed"])
 
 
 @router.post(PREFIX + "/docs/{slug}/comments/{comment_id}/resolve", response_model=S.UiCommentOut)
@@ -1293,12 +1316,16 @@ async def resolve_ui_comment(slug: str, request: Request,
             out = await store.resolve_comment(s, slug, comment_id, by=caller.participant,
                                               resolved=not reopen, restrict=caller.agent is not None)
             version = (await store.get_document(s, slug))["version"]
+            from agentplatform.ui_designer import comment_wakes
+            statuses = (await comment_wakes.notifications(s, [out["id"]])).get(out["id"], [])
+            out["comment"]["notifications"] = statuses
         except UiDesignerError as e:
             raise ud_http(e)
         await s.commit()
     await _emit(request, caller, "comment", slug, version, run_id, comment_id=out["id"],
                 resolved=out["resolved"])
-    return S.UiCommentOut(slug=slug, id=out["id"], comment=out["comment"], resolved=out["resolved"])
+    return S.UiCommentOut(slug=slug, document_id=out["document_id"], notifications=statuses,
+                          id=out["id"], comment=out["comment"], resolved=out["resolved"])
 
 
 @router.post(PREFIX + "/docs/{slug}/label", response_model=S.UiDocLabelOut)

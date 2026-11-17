@@ -336,3 +336,14 @@ def test_sharing_versions_are_separate_from_content_versions(api):
     before = len(api)
     assert 'error:' in ud(action='sharing', slug='hud', op='set', expected_version=1)
     assert len(api) == before
+
+
+def test_comment_notification_status_is_honest_on_replay(api):
+    cid = 'a' * 32
+    api.replies[f'{DOCS}/hud/comments'] = (200, json.dumps({
+        'id': cid, 'replayed': True, 'comment': None,
+        'notifications': [{'agent':'pai','status':'skipped','reason':'Private documents cannot start comment runs yet'}]}))
+    out = ud(action='comments', slug='hud', op='add', body='@pai review', request_id='stable')
+    assert '(replayed)' in out and '@pai: skipped' in out
+    assert 'Private documents' in out
+    assert 'delivered' not in out

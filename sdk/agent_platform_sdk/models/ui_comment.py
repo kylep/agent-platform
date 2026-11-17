@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
+
+if TYPE_CHECKING:
+    from ..models.ui_comment_notification import UiCommentNotification
+
 
 T = TypeVar("T", bound="UiComment")
 
@@ -20,6 +24,7 @@ class UiComment:
         id (str):
         created_at (None | str | Unset):
         node_id (None | str | Unset):
+        notifications (list[UiCommentNotification] | Unset):
         parent_id (None | str | Unset):
         resolved_at (None | str | Unset):
         resolved_by (None | str | Unset):
@@ -33,6 +38,7 @@ class UiComment:
     id: str
     created_at: None | str | Unset = UNSET
     node_id: None | str | Unset = UNSET
+    notifications: list[UiCommentNotification] | Unset = UNSET
     parent_id: None | str | Unset = UNSET
     resolved_at: None | str | Unset = UNSET
     resolved_by: None | str | Unset = UNSET
@@ -59,6 +65,13 @@ class UiComment:
             node_id = UNSET
         else:
             node_id = self.node_id
+
+        notifications: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.notifications, Unset):
+            notifications = []
+            for notifications_item_data in self.notifications:
+                notifications_item = notifications_item_data.to_dict()
+                notifications.append(notifications_item)
 
         parent_id: None | str | Unset
         if isinstance(self.parent_id, Unset):
@@ -109,6 +122,8 @@ class UiComment:
             field_dict["created_at"] = created_at
         if node_id is not UNSET:
             field_dict["node_id"] = node_id
+        if notifications is not UNSET:
+            field_dict["notifications"] = notifications
         if parent_id is not UNSET:
             field_dict["parent_id"] = parent_id
         if resolved_at is not UNSET:
@@ -126,6 +141,8 @@ class UiComment:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.ui_comment_notification import UiCommentNotification
+
         d = dict(src_dict)
         author = d.pop("author")
 
@@ -150,6 +167,17 @@ class UiComment:
             return cast(None | str | Unset, data)
 
         node_id = _parse_node_id(d.pop("node_id", UNSET))
+
+        _notifications = d.pop("notifications", UNSET)
+        notifications: list[UiCommentNotification] | Unset = UNSET
+        if _notifications is not UNSET:
+            notifications = []
+            for notifications_item_data in _notifications:
+                notifications_item = UiCommentNotification.from_dict(
+                    notifications_item_data
+                )
+
+                notifications.append(notifications_item)
 
         def _parse_parent_id(data: object) -> None | str | Unset:
             if data is None:
@@ -211,6 +239,7 @@ class UiComment:
             id=id,
             created_at=created_at,
             node_id=node_id,
+            notifications=notifications,
             parent_id=parent_id,
             resolved_at=resolved_at,
             resolved_by=resolved_by,

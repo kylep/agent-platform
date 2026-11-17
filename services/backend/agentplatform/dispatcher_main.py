@@ -147,9 +147,12 @@ async def main() -> None:
 
     from agentplatform.ui_designer.figma_import_job import FigmaImportWorker
     figma_imports = FigmaImportWorker(session_factory, settings, producer)
+    from agentplatform.ui_designer.comment_wakes import CommentWakeWorker
+    comment_wakes = CommentWakeWorker(settings, session_factory, producer, agent_store)
 
     try:
-        await asyncio.gather(figma_imports.run_forever(), dispatcher.run_forever(), watcher.run_forever(),
+        await asyncio.gather(figma_imports.run_forever(), comment_wakes.run_forever(),
+                             dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), report_pruner.run_forever(),
                              artifact_pruner.run_forever(),

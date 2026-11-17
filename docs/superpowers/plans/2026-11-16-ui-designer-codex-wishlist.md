@@ -468,4 +468,32 @@ syntax, with authorized, bounded live thumbnails.
   verified real SSE cursors and pan/zoom; a last-pointer-update/leave throttle
   edge was fixed with idempotent immediate leave; 32 API/service/pruning
   regressions and the real PostgreSQL concurrency check passed. Backend-only
-  patch deployment and final browser acceptance follow.
+  patch `f8e439a` deployed as `ud-presence-leave-20261117` in Helm revision 168.
+  Final live two-browser acceptance passed: real SSE, distinct identities,
+  viewing/editing labels, sender pan/zoom world coordinates, receiver zoom,
+  immediate leave and unchanged document version. Temporary fixtures removed.
+  Weekly Codex use: 65%.
+
+- **P3.19 Status:** implemented named-agent comment wakes with atomic comment /
+  outbox / receipt writes, durable run-ID recovery, bounded coalescing and shared
+  Relay/global budgets. Current grants, source UUID/version and workspace
+  visibility are checked before queueing, materializing and launching. The UI
+  reports queued, run created or skipped and retries uncertain saves exactly.
+  **Scope:** workspace-visible documents only; private comments save with an
+  explicit skipped reason because Run transcripts do not inherit document ACLs.
+  Supporting private wakes is a separate provenance change, not unfinished WIP.
+  Backend full suite: 4,139 passed / 25 skipped; final bounded-mention parser
+  checked with all 15 worker cases. Browser 495, broker 476, facade 40 and
+  renderer 150 passed, plus build, Storybook, tokens, SDK stability and Helm lint.
+  Five Relay budget regressions and a real PostgreSQL concurrency check prove
+  shared reservations; worker verification used fake launchers, not paid runs.
+  Deployed backend/web/broker/facade `ud-comments-20261117` in Helm revision 169;
+  renderer remains `ud-fonts-20261117`. All affected services are ready. Live API
+  and real-admin browser acceptance verified private/unknown refusals, selected
+  node context, exact replay, one saved comment and no created run. Temporary
+  fixtures were removed.
+- **P3 closeout:** items 13–19 shipped in completed chunks; the documented
+  workspace-only comment-wake limit applies. Final Codex observation at
+  2026-11-17 14:05 UTC: **69% weekly used, 31% remaining**, below the 75% cutoff
+  and preserving the requested 20% reserve. No task implementation remains
+  uncommitted; unrelated existing working-tree changes are preserved.

@@ -82,3 +82,14 @@ choices, expected_access_version and a stable request_id. Document access never
 grants a missing platform role/tool permission. Content restore leaves current
 sharing intact; private exports retain source access and do not post public
 Relay cards.
+
+## Comment mentions
+
+An explicit `@agent-name` in a new comment can queue that agent with the pinned
+document version and node in context. Use mentions deliberately when requesting
+work, and supply a stable request_id; retries must reuse the same ID and inputs.
+Read notifications on the response or comment list: queued is pending,
+run_created means a Run exists, and skipped includes the reason. It does not
+mean an agent has replied. Private-document comments cannot start runs yet.
+Code, self mentions, broadcasts and team tokens do not summon groups. Replies
+should use parent_id and avoid unnecessary new mentions.

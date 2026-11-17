@@ -37,8 +37,9 @@ export function flatten(nodes: RNode[], out: RNode[] = []): RNode[] {
 }
 
 // Phase 1 shapes (api/schemas.py UiComment*, UiDocDiffOut, export).
+export type UiCommentNotification = {agent:string;status:"queued"|"run_created"|"skipped";reason?:string;run_id?:string};
 export type UiComment = {
-  id: string; node_id: string | null; parent_id: string | null; body: string; author: string;
+  notifications?:UiCommentNotification[]; id: string; node_id: string | null; parent_id: string | null; body: string; author: string;
   resolved_at: string | null; resolved_by: string | null; created_at: string | null;
 };
 export type UiDiffChunk = { version: number; ops: Record<string, unknown>[]; reason?: string; at?: string };
@@ -47,7 +48,7 @@ export type UiDiff = {
   chunks: UiDiffChunk[]; text: string; truncated: boolean;
 };
 export type UiExport = { artifact_id: string; name: string; url: string; width: number; height: number; mime?: string; size?: number; warnings?: string[] };
-export type UiEvent = { type: string; slug: string; version?: number; author?: string };
+export type UiEvent = { type: string; slug: string; document_id?: string; version?: number; author?: string };
 
 export const opSummary = (o: Record<string, unknown>) =>
   [o.op, o.id ?? o.node ?? o.parent].filter(Boolean).join(" ");

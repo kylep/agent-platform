@@ -31,8 +31,8 @@ async def _now(session,now):
 
 
 def _ids(document_id,client_session=None):
-    if not isinstance(document_id,str) or not HEX32.fullmatch(document_id):raise HTTPException(422,'document_id must be32 lowercase hex characters')
-    if client_session is not None and (not isinstance(client_session,str) or not HEX32.fullmatch(client_session)):raise HTTPException(422,'client_session must be32 lowercase hex characters')
+    if not isinstance(document_id,str) or not HEX32.fullmatch(document_id):raise HTTPException(422,'document_id must be 32 lowercase hex characters')
+    if client_session is not None and (not isinstance(client_session,str) or not HEX32.fullmatch(client_session)):raise HTTPException(422,'client_session must be 32 lowercase hex characters')
 
 
 async def _document(session,identifier,who,*,lock=False,write=False):
@@ -124,7 +124,7 @@ async def purge_expired(session,now=None,document_id=None,limit=1000):
 
 async def _cooldown(session,document_id,participant,now):
     last=(await session.execute(select(func.max(UiDesignerPresence.updated_at)).where(UiDesignerPresence.document_id==document_id,UiDesignerPresence.participant==participant))).scalar_one()
-    if last is not None and now-_utc(last)<COOLDOWN:raise HTTPException(429,'presence updates are limited to2/sec per participant/document',headers={'Retry-After':'1'})
+    if last is not None and now-_utc(last)<COOLDOWN:raise HTTPException(429,'presence updates are limited to 2/sec per participant/document',headers={'Retry-After':'1'})
 
 
 def _payload(data,document_id):
@@ -136,7 +136,7 @@ def _payload(data,document_id):
     if node is not None and (not isinstance(node,str) or not NODE.fullmatch(node)):raise HTTPException(422,'invalid selected node ID')
     if data['state'] not in ('viewing','editing'):raise HTTPException(422,'state must be viewing or editing')
     cursor=data.get('cursor')
-    if cursor is not None and (not isinstance(cursor,dict) or set(cursor)!={'x','y'} or any(isinstance(cursor[k],bool) or not isinstance(cursor[k],(int,float)) or not math.isfinite(cursor[k]) or abs(cursor[k])>100000 for k in ('x','y'))):raise HTTPException(422,'cursor must contain finite world coordinates x/y within100000')
+    if cursor is not None and (not isinstance(cursor,dict) or set(cursor)!={'x','y'} or any(isinstance(cursor[k],bool) or not isinstance(cursor[k],(int,float)) or not math.isfinite(cursor[k]) or abs(cursor[k])>100000 for k in ('x','y'))):raise HTTPException(422,'cursor must contain finite world coordinates x/y within 100000')
 
 
 async def refresh(session,document_id,who,client_session,payload,now=None,credential=None):
@@ -160,7 +160,7 @@ async def refresh(session,document_id,who,client_session,payload,now=None,creden
     live=row is not None and _utc(row.expires_at)>now and row.state!='left'
     if not live:
         count=(await session.execute(select(func.count()).select_from(UiDesignerPresence).where(UiDesignerPresence.document_id==document_id,UiDesignerPresence.expires_at>now,UiDesignerPresence.state!='left'))).scalar_one()
-        if count>=CAP:raise HTTPException(429,'document presence has32 active sessions',headers={'Retry-After':'15'})
+        if count>=CAP:raise HTTPException(429,'document presence has 32 active sessions',headers={'Retry-After':'15'})
     if row is None or row.version!=payload['version'] or row.page_id!=payload['page_id'] or row.node_id!=payload.get('node_id'):
         snapshot=await store.resolve_version(session,doc,payload['version'])
         if snapshot is None:raise HTTPException(404,'presence version is unavailable')

@@ -614,6 +614,27 @@ async def test_the_global_budget_binds_a_quiet_channel_too(make_router, sf):
             in (await _system(sf, quiet))[0].body)
 
 
+async def test_design_comment_runs_share_the_global_budget(make_router, sf):
+    from agentplatform.db import UiDesignerCommentWake
+    router = await make_router(relay_global_invocations_per_hour=2)
+    quiet = await _channel(sf, name="quiet")
+    async with sf() as session:
+        now = utcnow()
+        for index, run_id in enumerate(("a" * 32, "a" * 32, "b" * 32, "c" * 32)):
+            session.add(UiDesignerCommentWake(document_id="d" * 32,
+                comment_id=f"{index:032x}", target="ada", version=1,
+                author="user:admin", initiating_principal="admin",
+                state="claimed" if index < 2 else "run_created", run_id=run_id,
+                created_at=now, updated_at=now if index < 3 else now - timedelta(hours=2)))
+        await session.commit()
+        # Two coalesced comments reserve one run; an old reservation is outside
+        # the window. Neither reservation may be bypassed by a Relay mention.
+        assert await router._spend(session, quiet) == (0, 2)
+    await _say(router, sf, quiet, "user:admin", "@ada ping")
+    assert await _runs(sf) == []
+    assert await _decisions(sf, quiet) == [("ada", "suppressed", "budget")]
+
+
 async def test_an_old_hour_does_not_count(make_router, sf):
     router = await make_router()
     cid = await _channel(sf)

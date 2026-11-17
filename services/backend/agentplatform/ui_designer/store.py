@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
-from agentplatform.db import (UiDesignerAsset, UiDesignerComment, UiDesignerDocument,
+from agentplatform.db import (UiDesignerAsset, UiDesignerComment, UiDesignerCommentWake, UiDesignerDocument,
                               UiDesignerDocumentAsset, UiDesignerFont, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerPresence, UiDesignerImport, UiDesignerReceipt,
                               UiDesignerRender, UiDesignerVersion, utcnow)
 from agentplatform.ui_designer import errors
@@ -600,12 +600,12 @@ async def restore_deleted(s, document_id: str) -> None:
 
 
 async def _purge(s, document_id: str) -> None:
-    for model in (UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerPresence, UiDesignerRender):
+    for model in (UiDesignerCommentWake, UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerDocumentFont, UiDesignerAccess, UiDesignerAccessEntry, UiDesignerPresence, UiDesignerRender):
         await s.execute(delete(model).where(model.document_id == document_id))
     # An upload retry must remain bound to its original UUID after slug reuse.
     # The normal receipt TTL pruner reclaims these small tombstones later.
     await s.execute(delete(UiDesignerReceipt).where(UiDesignerReceipt.document_id == document_id,
-                                                  UiDesignerReceipt.op.notin_(("font-upload", "motion-export", "access"))))
+                                                  UiDesignerReceipt.op.notin_(("font-upload", "motion-export", "access", "comment"))))
     await s.execute(delete(UiDesignerDocument).where(UiDesignerDocument.id == document_id))
 
 
@@ -1002,7 +1002,19 @@ async def add_comment(s, slug: str, *, body: str, author: str, run_id: str | Non
     if scope:
         prior = await _receipt_lookup(s, scope, request_id, "comment", h)
         if prior is not None:
-            return {"replayed": True, "comment": None, "id": prior.get("text"), "slug": slug}
+            receipt = (await s.execute(select(UiDesignerReceipt).where(
+                UiDesignerReceipt.scope == scope, UiDesignerReceipt.request_id == request_id))).scalar_one()
+            pinned = receipt.document_id or prior.get("document_id")
+            if not pinned:
+                original = await s.get(UiDesignerComment, prior.get("text"))
+                pinned = original.document_id if original else None
+            live = await _live(s, slug, lock=True)
+            if not pinned or pinned != live.id:
+                raise _not_found("original comment document")
+            receipt.document_id = pinned
+            receipt.response = {**receipt.response, "document_id": pinned}
+            return {"replayed": True, "comment": None, "id": prior.get("text"),
+                    "slug": slug, "document_id": pinned}
     if not isinstance(body, str) or not body.strip():
         raise invalid([issue("UD-MISSING", "$.body", "a comment needs text")])
     if len(body.encode()) > MAX_COMMENT_BYTES:
@@ -1034,8 +1046,8 @@ async def add_comment(s, slug: str, *, body: str, author: str, run_id: str | Non
     await s.flush()
     if scope:
         await _receipt_write(s, scope, request_id, row.id, "comment", h,
-                             {"version": row.version, "slug": slug, "text": c.id}, now)
-    return {"replayed": False, "comment": comment_view(c), "id": c.id, "slug": slug}
+                             {"version": row.version, "slug": slug, "text": c.id, "document_id": row.id}, now)
+    return {"replayed": False, "comment": comment_view(c), "id": c.id, "slug": slug, "document_id": row.id}
 
 
 async def resolve_comment(s, slug: str, comment_id: str, *, by: str, resolved: bool = True,

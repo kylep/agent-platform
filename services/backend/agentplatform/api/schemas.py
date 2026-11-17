@@ -2065,7 +2065,15 @@ class UiDocInspectOut(BaseModel):
     warnings: list[dict[str, Any]] = []
 
 
+class UiCommentNotification(BaseModel):
+    agent: str = Field(max_length=128)
+    status: Literal["queued", "run_created", "skipped"]
+    reason: str | None = Field(default=None, max_length=500)
+    run_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+
+
 class UiCommentIn(BaseModel):
+    expected_document_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     body: str = Field(max_length=8192)
     node_id: str | None = Field(default=None, max_length=48)
     x: float | None = None
@@ -2075,6 +2083,7 @@ class UiCommentIn(BaseModel):
 
 
 class UiComment(BaseModel):
+    notifications: list[UiCommentNotification] = Field(default_factory=list)
     id: str
     node_id: str | None = None
     x: float | None = None
@@ -2089,6 +2098,7 @@ class UiComment(BaseModel):
 
 
 class UiCommentList(BaseModel):
+    document_id: str | None = None
     slug: str
     comments: list[UiComment]
     # Pass as `before` for the next page of older comments; None at the end.
@@ -2096,6 +2106,8 @@ class UiCommentList(BaseModel):
 
 
 class UiCommentOut(BaseModel):
+    document_id: str | None = None
+    notifications: list[UiCommentNotification] = Field(default_factory=list)
     ok: bool = True
     slug: str
     id: str | None = None

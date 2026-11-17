@@ -2582,12 +2582,12 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update is literal and cannot set id/type/children; a page only takes title. resize/boolean/icon return exact literal undo_ops (128 ops/8KiB max); redo the original request.
-Other actions: sharing op:get|choices|set (owner/admin); set needs request_id, sharing:{expected_access_version,visibility:workspace|restricted,readers?,editors?}; ACL separatefromdoc/history; globalgrantstillrequired. fonts lists installed OFL faces(version?); upload in editor. motion op:preview|export, version, motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?:mp4|gif}; export needs request_id. icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+Other actions: sharing op:get|choices|set (owner/admin); set needs request_id, sharing:{expected_access_version,visibility:workspace|restricted,readers?,editors?}; ACL is separate from document/history; the global tool grant is still required. fonts lists installed OFL faces(version?); upload in editor. motion op:preview|export, version, motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?:mp4|gif}; export needs request_id. icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes need expected_version+request_id and exact-input retries. Pins render offline; preview catches conflicts; UUID updates never follow reused slugs; node="$libraries" pages provenance.
   lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
   (read-only findings; bounded pages; approximate contrast is advisory, not a compliance audit); inspect {node, mode?} (resolved box, colours, tokens, component of one node);
-  comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
+  comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; named @mentions need request_id; notifications report queued/run_created/skipped (workspace only). history
   {op: diff, from_version, to_version} (the writes between two versions), or
   {op: visual_diff, from_version, to_version, node?, mode?, scale?, tolerance?:0..255} (aligned heatmap + changed regions/node ids; explicit retained versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
   (artifact + #design card; SVG self-contained, PDF raster/white transparency, HTML static DOM/SVG + token CSS vars).
@@ -2878,6 +2878,13 @@ Example edit ops (new page: a frame, a text and a row of two cards):
     return _with_pictures(lines, pictures)
 
 
+def _ud_comment_notifications(row):
+    return "".join("\n@" + _flat(n.get("agent")) + ": " + _flat(n.get("status")) +
+                   (" — " + _flat(n["reason"]) if n.get("reason") else "") +
+                   (" (run " + _flat(n["run_id"]) + ")" if n.get("run_id") else "")
+                   for n in (row.get("notifications") or [])[:8])
+
+
 async def _ud_comments(base: str, op: str | None, slug: str, *, body, node, x, y, parent_id,
                        comment_id, request_id):
     op = op or "list"
@@ -2896,7 +2903,7 @@ async def _ud_comments(base: str, op: str | None, slug: str, *, body, node, x, y
                 f" ({c['x']:g},{c['y']:g})" if c.get("x") is not None and c.get("y") is not None else "")
             reply = f" reply-to {c['parent_id']}" if c.get("parent_id") else ""
             state = " [resolved]" if c.get("resolved_at") else ""
-            lines.append(f"{c['id']} {_flat(c.get('author'))}{where}{reply}{state}: {_flat(c.get('body'))}")
+            lines.append(f"{c['id']} {_flat(c.get('author'))}{where}{reply}{state}: {_flat(c.get('body'))}" + _ud_comment_notifications(c))
         return "\n".join(lines)
     if op == "add":
         if not (body or "").strip():
@@ -2907,7 +2914,7 @@ async def _ud_comments(base: str, op: str | None, slug: str, *, body, node, x, y
         r = _artifact_rows(out)
         if not isinstance(r, dict) or not r.get("id"):
             return out
-        return f"comment {r['id']} added to {slug}" + (" (replayed)" if r.get("replayed") else "")
+        return f"comment {r['id']} added to {slug}" + (" (replayed)" if r.get("replayed") else "") + _ud_comment_notifications(r)
     if op == "resolve":
         if not comment_id or not re.fullmatch(r"[0-9a-f]{32}", comment_id):
             return "error: comments op='resolve' requires comment_id (32 hex characters)"

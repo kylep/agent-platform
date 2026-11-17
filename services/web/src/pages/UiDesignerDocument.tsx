@@ -8,6 +8,8 @@ import LibrariesPanel from "../components/ui-designer/LibrariesPanel";
 import FindingsPanel from "../components/ui-designer/FindingsPanel";
 import CompareVersions from "../components/ui-designer/CompareVersions";
 import MotionControls from "../components/ui-designer/MotionControls";
+import CommentNotifications from "../components/ui-designer/CommentNotifications";
+import {useDesignerComments} from "../lib/useDesignerComments";
 import PresenceBar from "../components/ui-designer/PresenceBar";
 import { useDesignerPresence } from "../lib/useDesignerPresence";
 import SharingPanel from "../components/ui-designer/SharingPanel";
@@ -21,7 +23,7 @@ import { useDesignerEditing } from "../lib/useDesignerEditing";
 import type { UiInspection } from "../lib/uiDesigner";
 import { Canvas } from "../components/ui-designer/Canvas";
 import { useTitle } from "../lib/title";
-import { UD, flatten, nodeLabel, type RNode, type Resolved, type UiComment, type UiEvent, type UiVersionRow } from "../lib/uiDesigner";
+import { UD, flatten, nodeLabel, type RNode, type Resolved, type UiEvent, type UiVersionRow } from "../lib/uiDesigner";
 
 // Read-only document view (docs/design/46 §7): outline, server-SVG canvas
 // with a hit overlay, a small inspector, and a version picker.
@@ -74,9 +76,9 @@ export default function UiDesignerDocument() {
   const [sel, setSel] = useState<RNode | null>(null);
   const [err, setErr] = useState("");
   const [rev, setRev] = useState(0);
-  const [comments, setComments] = useState<UiComment[]>([]);
+  const [commentRevision,setCommentRevision]=useState(0);
   const [hl, setHl] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
+
   const [comparing, setComparing] = useState(false);
   const [showFindings, setShowFindings] = useState(false);
   const [showLibraries, setShowLibraries] = useState(false);
@@ -91,6 +93,7 @@ export default function UiDesignerDocument() {
 
   const accessState=useDesignerAccess(base);
   const {access,canRead,reload:reloadAccess,denied:accessDenied}=accessState;
+  const eventDocument=useRef<string|null>(null);eventDocument.current=access?.document_id ?? null;
   const [globalWrite, setGlobalWrite] = useState(false);
   const canWrite=globalWrite && canRead && !!access?.can_write;
   const [pinned, setPinned] = useState<number | null>(null);
@@ -109,8 +112,8 @@ export default function UiDesignerDocument() {
   useEffect(() => {
     resolvedOwner.current = "";failedRenders.current.clear();
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
-    setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
-    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false);setShowFonts(false);setFontLocked(false);setFontSnapshot(null);setShowSharing(false);setSharingPending(false); setVectorEpoch(0); setShowIcons(false); setHl(null); setErr("");
+    setVersions([]); setResolved(null); setPageId(null); setSel(null);
+    setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false);setShowFonts(false);setFontLocked(false);setFontSnapshot(null);setShowSharing(false);setSharingPending(false); setVectorEpoch(0); setShowIcons(false); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -122,6 +125,8 @@ export default function UiDesignerDocument() {
         const ev = JSON.parse(m.data) as UiEvent;
         if (ev.slug === slug) {
           if(ev.type === "access"){reloadAccess();return;}
+          if(ev.document_id && eventDocument.current && ev.document_id!==eventDocument.current)return;
+          if(["comment","comment-wake","comment-resolved"].includes(ev.type)){setCommentRevision(value=>value+1);return;}
           if (ev.type === "version" || ev.type === "imported" || ev.type === "restored") {
             if (ev.version) eventHandler.current(ev.version);
           } else setRev((r) => r + 1);
@@ -130,15 +135,6 @@ export default function UiDesignerDocument() {
     });
     return () => es.close();
   }, [slug,reloadAccess]);
-
-  useEffect(() => {
-    if(!canRead)return;
-    let cancelled = false;
-    api<{ comments: UiComment[] }>(`${base}/comments`)
-      .then((r) => { if (!cancelled) setComments(r.comments ?? []); })
-      .catch((e) => { if (!cancelled) if(e instanceof Error && /^(403|404):/.test(e.message))accessDenied();else setErr(String(e.message ?? e)); });
-    return () => { cancelled = true; };
-  }, [base, rev,canRead,accessDenied]);
 
   useEffect(() => {
     if(!canRead)return;
@@ -171,7 +167,7 @@ export default function UiDesignerDocument() {
     return()=>controller.abort();
   },[base,version,pinned,rev,canRead]);
   const installedFonts=fontSnapshot?.base===base && fontSnapshot.version===(version ?? pinned) ? fontSnapshot.fonts:[];
-  useEffect(()=>{if(!canRead){setResolved(null);setSel(null);setInspection(null);setComments([]);setFontSnapshot(null);setParents([]);setPinned(null);setCurrent(null);setVersions([]);setDraft("");setPageId(null);setHl(null);}},[canRead]);
+  useEffect(()=>{if(!canRead){setResolved(null);setSel(null);setInspection(null);setFontSnapshot(null);setParents([]);setPinned(null);setCurrent(null);setVersions([]);setPageId(null);setHl(null);}},[canRead]);
   const pages = resolved?.pages ?? [];
   const page = pages.find((p) => p.id === pageId) ?? pages[0] ?? null;
   const known = useMemo(() => flatten(page?.children ?? []), [page]);
@@ -223,18 +219,8 @@ export default function UiDesignerDocument() {
   async function act<T>(fn: () => Promise<T>): Promise<T | undefined> {
     try { setErr(""); return await fn(); } catch (e) { setErr(apiErrorMessage(e, "request failed")); }
   }
-  const addComment = () => act(async () => {
-    if(!canWrite)return;
-    if (!draft.trim()) return;
-    await api(`${base}/comments`, { method: "POST",
-      body: JSON.stringify({ node_id: picked?.id ?? null, body: draft.trim() }) });
-    setDraft(""); setRev((r) => r + 1);
-  });
-  const resolve = (id: string) => act(async () => {
-    if(!canWrite)return;
-    await api(`${base}/comments/${encodeURIComponent(id)}/resolve`, { method: "POST" });
-    setRev((r) => r + 1);
-  });
+  const commentTarget=picked?.id.includes("/") ? known.find(node=>node.id===picked.id.split("/")[0] && node.of) ?? null:picked;
+  const commentState=useDesignerComments({base,documentId:access?.document_id ?? null,enabled:canRead,canWrite,revision:commentRevision,onAccessCheck:reloadAccess});
   const labelVersion = () => act(async () => {
     if(!canWrite)return;
     const label = window.prompt("Label for this version");
@@ -333,22 +319,28 @@ export default function UiDesignerDocument() {
           <section className="ud-comments" aria-label="Comments">
             <h2>Comments</h2>
             <ul>
-              {comments.map((c) => (
+              {commentState.comments.map((c) => (
                 <li key={c.id} className="ud-comment" data-resolved={c.resolved_at ? "" : undefined}
                     onClick={() => setHl(c.node_id)}>
                   <p>{c.body}</p>
+                  <CommentNotifications notifications={c.notifications} />
                   <span className="muted">{c.author}{c.node_id ? ` on ${c.node_id}` : ""}</span>{" "}
                   {canWrite && !c.resolved_at && !c.parent_id && (
-                    <button type="button" onClick={(e) => { e.stopPropagation(); resolve(c.id); }}>
+                    <button type="button" disabled={commentState.busy || commentState.uncertain} onClick={(e) => { e.stopPropagation(); void commentState.resolve(c.id); }}>
                       Resolve</button>
                   )}
                 </li>
               ))}
-              {!comments.length && <li className="muted">No comments.</li>}
+              {!commentState.comments.length && <li className="muted">No comments.</li>}
             </ul>
-            <textarea disabled={!canWrite} value={draft} onChange={(e) => setDraft(e.target.value)} rows={3}
-                      placeholder={picked ? `Comment on ${picked.id}` : "Comment on the document"} />
-            <button type="button" disabled={!canWrite} onClick={addComment}>Add comment</button>
+            {commentState.receipt && !commentState.comments.some(comment=>comment.id===commentState.receipt?.id && comment.notifications?.length) && <CommentNotifications notifications={commentState.receipt.notifications} />}
+            <p className="muted">Mention a named @agent to request feedback on this comment and its selected node. Broadcast mentions are not supported.</p>
+            {access?.visibility==="restricted" && <p className="muted">Private documents cannot start comment runs yet.</p>}
+            <label htmlFor="ud-comment-body">Comment{commentState.pendingNodeId !== undefined ? commentState.pendingNodeId ? ` on ${commentState.pendingNodeId}`:" on the document":commentTarget ? ` on ${nodeLabel(commentTarget)}`:" on the document"}</label>
+            <textarea id="ud-comment-body" aria-label="Comment text" maxLength={8192} disabled={!canWrite || commentState.busy || commentState.uncertain} value={commentState.draft} onChange={(event)=>commentState.setDraft(event.target.value)} rows={3} placeholder={commentTarget ? `Comment on ${commentTarget.id}` : "Comment on the document"} />
+            <button type="button" disabled={!canWrite || commentState.busy || commentState.uncertain || !commentState.draft.trim()} onClick={()=>commentState.add(commentTarget?.id ?? null)}>Add comment</button>
+            {commentState.busy && <p role="status">Saving comment…</p>}{commentState.error && <p role="alert">{commentState.error}</p>}
+            {commentState.uncertain && <Button disabled={!canWrite || commentState.busy} onClick={commentState.retry}>Retry comment</Button>}
           </section>
         </aside>
       </div>

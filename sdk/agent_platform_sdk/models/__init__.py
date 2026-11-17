@@ -343,6 +343,8 @@ from .ui_asset_gc_out import UiAssetGcOut
 from .ui_comment import UiComment
 from .ui_comment_in import UiCommentIn
 from .ui_comment_list import UiCommentList
+from .ui_comment_notification import UiCommentNotification
+from .ui_comment_notification_status import UiCommentNotificationStatus
 from .ui_comment_out import UiCommentOut
 from .ui_doc_create_in import UiDocCreateIn
 from .ui_doc_create_in_doc_type_0 import UiDocCreateInDocType0
@@ -813,6 +815,8 @@ __all__ = (
     "UiComment",
     "UiCommentIn",
     "UiCommentList",
+    "UiCommentNotification",
+    "UiCommentNotificationStatus",
     "UiCommentOut",
     "UiDocCreateIn",
     "UiDocCreateInDocType0",

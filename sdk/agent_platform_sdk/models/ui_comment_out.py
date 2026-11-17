@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.ui_comment import UiComment
+    from ..models.ui_comment_notification import UiCommentNotification
 
 
 T = TypeVar("T", bound="UiCommentOut")
@@ -21,7 +22,9 @@ class UiCommentOut:
     Attributes:
         slug (str):
         comment (None | UiComment | Unset):
+        document_id (None | str | Unset):
         id (None | str | Unset):
+        notifications (list[UiCommentNotification] | Unset):
         ok (bool | Unset):  Default: True.
         replayed (bool | Unset):  Default: False.
         resolved (bool | None | Unset):
@@ -29,7 +32,9 @@ class UiCommentOut:
 
     slug: str
     comment: None | UiComment | Unset = UNSET
+    document_id: None | str | Unset = UNSET
     id: None | str | Unset = UNSET
+    notifications: list[UiCommentNotification] | Unset = UNSET
     ok: bool | Unset = True
     replayed: bool | Unset = False
     resolved: bool | None | Unset = UNSET
@@ -48,11 +53,24 @@ class UiCommentOut:
         else:
             comment = self.comment
 
+        document_id: None | str | Unset
+        if isinstance(self.document_id, Unset):
+            document_id = UNSET
+        else:
+            document_id = self.document_id
+
         id: None | str | Unset
         if isinstance(self.id, Unset):
             id = UNSET
         else:
             id = self.id
+
+        notifications: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.notifications, Unset):
+            notifications = []
+            for notifications_item_data in self.notifications:
+                notifications_item = notifications_item_data.to_dict()
+                notifications.append(notifications_item)
 
         ok = self.ok
 
@@ -73,8 +91,12 @@ class UiCommentOut:
         )
         if comment is not UNSET:
             field_dict["comment"] = comment
+        if document_id is not UNSET:
+            field_dict["document_id"] = document_id
         if id is not UNSET:
             field_dict["id"] = id
+        if notifications is not UNSET:
+            field_dict["notifications"] = notifications
         if ok is not UNSET:
             field_dict["ok"] = ok
         if replayed is not UNSET:
@@ -87,6 +109,7 @@ class UiCommentOut:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.ui_comment import UiComment
+        from ..models.ui_comment_notification import UiCommentNotification
 
         d = dict(src_dict)
         slug = d.pop("slug")
@@ -108,6 +131,15 @@ class UiCommentOut:
 
         comment = _parse_comment(d.pop("comment", UNSET))
 
+        def _parse_document_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        document_id = _parse_document_id(d.pop("document_id", UNSET))
+
         def _parse_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -116,6 +148,17 @@ class UiCommentOut:
             return cast(None | str | Unset, data)
 
         id = _parse_id(d.pop("id", UNSET))
+
+        _notifications = d.pop("notifications", UNSET)
+        notifications: list[UiCommentNotification] | Unset = UNSET
+        if _notifications is not UNSET:
+            notifications = []
+            for notifications_item_data in _notifications:
+                notifications_item = UiCommentNotification.from_dict(
+                    notifications_item_data
+                )
+
+                notifications.append(notifications_item)
 
         ok = d.pop("ok", UNSET)
 
@@ -133,7 +176,9 @@ class UiCommentOut:
         ui_comment_out = cls(
             slug=slug,
             comment=comment,
+            document_id=document_id,
             id=id,
+            notifications=notifications,
             ok=ok,
             replayed=replayed,
             resolved=resolved,

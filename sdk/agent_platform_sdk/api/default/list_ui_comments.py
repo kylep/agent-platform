@@ -18,6 +18,7 @@ def _get_kwargs(
     resolved: bool | Unset = True,
     limit: int | Unset = 200,
     before: None | str | Unset = UNSET,
+    expected_document_id: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -39,6 +40,13 @@ def _get_kwargs(
     else:
         json_before = before
     params["before"] = json_before
+
+    json_expected_document_id: None | str | Unset
+    if isinstance(expected_document_id, Unset):
+        json_expected_document_id = UNSET
+    else:
+        json_expected_document_id = expected_document_id
+    params["expected_document_id"] = json_expected_document_id
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -91,6 +99,7 @@ def sync_detailed(
     resolved: bool | Unset = True,
     limit: int | Unset = 200,
     before: None | str | Unset = UNSET,
+    expected_document_id: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | UiCommentList]:
     """List Ui Comments
 
@@ -100,6 +109,7 @@ def sync_detailed(
         resolved (bool | Unset):  Default: True.
         limit (int | Unset):  Default: 200.
         before (None | str | Unset):
+        expected_document_id (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -115,6 +125,7 @@ def sync_detailed(
         resolved=resolved,
         limit=limit,
         before=before,
+        expected_document_id=expected_document_id,
     )
 
     response = client.get_httpx_client().request(
@@ -132,6 +143,7 @@ def sync(
     resolved: bool | Unset = True,
     limit: int | Unset = 200,
     before: None | str | Unset = UNSET,
+    expected_document_id: None | str | Unset = UNSET,
 ) -> HTTPValidationError | UiCommentList | None:
     """List Ui Comments
 
@@ -141,6 +153,7 @@ def sync(
         resolved (bool | Unset):  Default: True.
         limit (int | Unset):  Default: 200.
         before (None | str | Unset):
+        expected_document_id (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -157,6 +170,7 @@ def sync(
         resolved=resolved,
         limit=limit,
         before=before,
+        expected_document_id=expected_document_id,
     ).parsed
 
 
@@ -168,6 +182,7 @@ async def asyncio_detailed(
     resolved: bool | Unset = True,
     limit: int | Unset = 200,
     before: None | str | Unset = UNSET,
+    expected_document_id: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | UiCommentList]:
     """List Ui Comments
 
@@ -177,6 +192,7 @@ async def asyncio_detailed(
         resolved (bool | Unset):  Default: True.
         limit (int | Unset):  Default: 200.
         before (None | str | Unset):
+        expected_document_id (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -192,6 +208,7 @@ async def asyncio_detailed(
         resolved=resolved,
         limit=limit,
         before=before,
+        expected_document_id=expected_document_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -207,6 +224,7 @@ async def asyncio(
     resolved: bool | Unset = True,
     limit: int | Unset = 200,
     before: None | str | Unset = UNSET,
+    expected_document_id: None | str | Unset = UNSET,
 ) -> HTTPValidationError | UiCommentList | None:
     """List Ui Comments
 
@@ -216,6 +234,7 @@ async def asyncio(
         resolved (bool | Unset):  Default: True.
         limit (int | Unset):  Default: 200.
         before (None | str | Unset):
+        expected_document_id (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -233,5 +252,6 @@ async def asyncio(
             resolved=resolved,
             limit=limit,
             before=before,
+            expected_document_id=expected_document_id,
         )
     ).parsed

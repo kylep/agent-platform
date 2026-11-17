@@ -1681,3 +1681,42 @@ SQL state instead of trusting queued coordinates. Heartbeat polling repairs
 missed Kafka events; server timestamps and local expiry remove abandoned tabs.
 Hidden/unmounted tabs stop timers and attempt leave. ACL changes clear revoked
 content and presence. No model runs, Relay posts or new infrastructure are used.
+
+## 35. Named-agent comment wakes (P3.19)
+
+Explicit `@agent-name` references in new comments can queue an agent with the
+document UUID, retained version, node and comment in context. Parsing ignores
+code, email-like addresses, self mentions and broadcast/team tokens. At most
+eight distinct named targets are considered. Each target must currently be
+enabled, hold the UI Designer grant and be able to read the source. Old comments
+are not backfilled or awakened at rollout.
+
+This first version wakes agents only for workspace-visible documents. Restricted
+comments still save, with an explicit skipped reason. Ordinary Run prompts and
+transcripts do not yet carry document ACL provenance; embedding private comments
+there would disclose them through run history. Supporting private wakes later
+requires source permissions on Runs, descendants and derived outputs. A document
+made private before dispatch or launch cannot start its pending comment run.
+Previously authorized workspace copies are not retroactively recalled.
+
+Comment creation, a per-target wake outbox and the retry receipt commit atomically.
+Named mentions require a stable request ID. Receipts bind the document UUID and
+cannot retarget a reused slug. The dispatcher consumes existing UI Designer Kafka
+events as wake signals and sweeps pending work after restart or broker failure.
+Claimed batches persist their run ID before materialization; retries reuse that
+ID rather than creating another run. Status distinguishes queued, run created
+and skipped, and never promises that an agent has replied.
+
+Coalescing preserves document, target, parent Run and initiating principal.
+Bounded context contains quoted, explicitly untrusted comment data and pinned
+references instead of a full document dump. Current source identity, visibility,
+retained version, target grants and read permission are checked at queueing,
+dispatch and launch. Existing depth/hop, cooldown, concurrency, quota and hourly
+budgets bound agent loops; named targets do not expand into teams or broadcasts.
+No Relay card or cross-channel message is sent automatically.
+
+Verification uses isolated databases and fake producers/launchers, including
+crash recovery around Run creation, receipt replay, coalescing, limits, revoked
+grants, private/deleted/replaced sources, stale versions and prompt escaping.
+Live checks use only private or unavailable targets, so acceptance starts no
+paid model turns.
