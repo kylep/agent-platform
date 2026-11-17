@@ -374,6 +374,14 @@ from .ui_doc_summary import UiDocSummary
 from .ui_doc_write_out import UiDocWriteOut
 from .ui_doc_write_out_undo_ops_type_0_item import UiDocWriteOutUndoOpsType0Item
 from .ui_doc_write_out_warnings_item import UiDocWriteOutWarningsItem
+from .ui_font_info import UiFontInfo
+from .ui_font_info_font_format import UiFontInfoFontFormat
+from .ui_font_ref import UiFontRef
+from .ui_font_upload_in import UiFontUploadIn
+from .ui_font_write_out import UiFontWriteOut
+from .ui_font_write_out_undo_ops_type_0_item import UiFontWriteOutUndoOpsType0Item
+from .ui_font_write_out_warnings_item import UiFontWriteOutWarningsItem
+from .ui_fonts_out import UiFontsOut
 from .ui_icon_out import UiIconOut
 from .ui_icon_path import UiIconPath
 from .ui_icon_source import UiIconSource
@@ -820,6 +828,14 @@ __all__ = (
     "UiDocWriteOut",
     "UiDocWriteOutUndoOpsType0Item",
     "UiDocWriteOutWarningsItem",
+    "UiFontInfo",
+    "UiFontInfoFontFormat",
+    "UiFontRef",
+    "UiFontsOut",
+    "UiFontUploadIn",
+    "UiFontWriteOut",
+    "UiFontWriteOutUndoOpsType0Item",
+    "UiFontWriteOutWarningsItem",
     "UiIconOut",
     "UiIconPath",
     "UiIconSource",

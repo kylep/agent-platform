@@ -155,6 +155,46 @@ def _check_modes(destination,source):
     _fail('Library source and destination mode names/order must match; only an empty destination can adopt modes.')
 
 
+def _merge_fonts(destination, source, components, tokens):
+    """Copy fonts actually used by the selected dependency closure.
+
+    Family names are authored typography, so silently substituting another
+    document's bytes for the same family/weight would change local content.
+    Such collisions need an explicit resolution before importing.
+    """
+    families = set()
+
+    def collect(value, key=None):
+        if key in _LITERAL:
+            return
+        if key == 'family' and isinstance(value, str):
+            families.add(value)
+        elif isinstance(value, dict):
+            for field, item in value.items():
+                collect(item, field.rsplit('.', 1)[-1])
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    for component in components:
+        collect(source['components'][component])
+    for token in tokens:
+        group, name = token.split('.', 1)
+        collect(source['tokens'][group][name])
+    selected = [face for face in source.get('fonts', []) if face['family'] in families]
+    existing = {(face['family'], face['weight']): face['sha256']
+                for face in destination.get('fonts', [])}
+    conflicts = [{'kind': 'font-collision', 'id': f"font:{face['family']}:{face['weight']}",
+                  'message': 'The destination already uses different bytes for this font family and weight.'}
+                 for face in selected if (face['family'], face['weight']) in existing
+                 and existing[(face['family'], face['weight'])] != face['sha256']]
+    if not conflicts:
+        for face in selected:
+            if (face['family'], face['weight']) not in existing:
+                destination.setdefault('fonts', []).append(copy.deepcopy(face))
+    return {face['sha256'] for face in selected}, conflicts
+
+
 def _plan(destination_doc,source_doc,*,destination_id,source_id,source_version,source_slug,namespace,selection,previous=None):
     if not isinstance(destination_id,str) or not isinstance(source_id,str) or not HEX.fullmatch(destination_id) or not HEX.fullmatch(source_id): _fail('Document ids must be 32 lowercase hex characters.')
     if destination_id==source_id: _fail('A document cannot import itself.')
@@ -176,6 +216,11 @@ def _plan(destination_doc,source_doc,*,destination_id,source_id,source_version,s
     elif namespace in destination.get('libraries',{}): _fail('That library namespace is already pinned.')
     _check_modes(destination,source)
     components,sets,tokens=_closure(source,selection)
+    fonts, font_conflicts = _merge_fonts(destination, source, components, tokens)
+    if font_conflicts:
+        return {'doc': normalize_document(destination_doc), 'assets': set(), 'fonts': set(),
+                'report': {'counts': {'conflicts': len(font_conflicts)}, 'added': [],
+                           'updated': [], 'removed': [], 'conflicts': font_conflicts, 'truncated': False}}
     ancestry={source_id}
     for record in source.get('libraries',{}).values():
         owned=record['owned']
@@ -222,6 +267,8 @@ def _plan(destination_doc,source_doc,*,destination_id,source_id,source_version,s
             'added':sorted(new-old),'updated':sorted(changed),'removed':sorted(old-new),'conflicts':[],'truncated':False}
     report['counts'].update({key:len(report[key]) for key in ('added','updated','removed')})
     report['counts']['conflicts']=0
+    if fonts:
+        report['counts']['fonts'] = len(fonts)
     try:
         validate_document(destination)
     except UiDesignerError as error:
@@ -232,7 +279,7 @@ def _plan(destination_doc,source_doc,*,destination_id,source_id,source_version,s
         return {'doc':normalize_document(destination_doc),'assets':set(),'report':report}
     for key in ('added','updated','removed'):
         if len(report[key])>200: report[key]=report[key][:200]; report['truncated']=True
-    return {'doc':destination,'assets':assets,'report':report}
+    return {'doc':destination,'assets':assets,'fonts':fonts,'report':report}
 
 
 def plan_import(destination_doc,source_doc,*,destination_id,source_id,source_version,source_slug,namespace,components,component_sets,tokens):

@@ -115,7 +115,7 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
             return (["reads_sensitive"] if action in ("get", "models") else ["mutates_platform"]), "private"
         if tool == "ui_designer":
             # Shared design documents: reads see every doc, writes add versions.
-            return ((["reads_sensitive"] if action in ("list", "get", "outline", "history", "snapshot", "lint", "templates", "icons")
+            return ((["reads_sensitive"] if action in ("list", "get", "outline", "history", "snapshot", "lint", "templates", "icons", "fonts")
                      else ["mutates_platform"]), "private")
         if tool == "agents_edit":
             return (["reads_sensitive"] if action in ("get", "list")

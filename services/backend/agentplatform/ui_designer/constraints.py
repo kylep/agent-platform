@@ -155,5 +155,5 @@ def validate_instance_resize(doc: dict, instance: dict) -> None:
     """
     from .layout import _Builder
     for mode in doc.get('modes') or [None]:
-        builder=_Builder(doc,mode)
+        builder=_Builder(doc,mode,measure_text=False)
         builder.build(instance,'',None,0,None,0,'$.instance')

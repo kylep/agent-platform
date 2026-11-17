@@ -176,3 +176,17 @@ async def test_disconnected_export_cancels_renderer_and_does_not_create_artifact
         assert await session.scalar(select(func.count()).select_from(Artifact)) == 0
         assert await session.scalar(select(func.count()).select_from(UiDesignerReceipt).where(
             UiDesignerReceipt.op == "motion-export")) == 0
+
+
+async def test_motion_receipt_remains_bound_after_source_hardpurge_and_slug_reuse(admin_client, motion, sf):
+    await mk(admin_client)
+    payload = {**BODY, "request_id": "purged-motion"}
+    first = await admin_client.post(f"{P}/docs/{SLUG}/motion/export", json=payload)
+    assert first.status_code == 200, first.text
+    async with sf() as session:
+        await store.hard_delete(session, SLUG)
+        await store.create_document(session, slug=SLUG, owner="user:other")
+        await session.commit()
+    motion.failure = True
+    replay = await admin_client.post(f"{P}/docs/{SLUG}/motion/export", json=payload)
+    assert replay.status_code == 404 and motion.exports == motion.previews == 1

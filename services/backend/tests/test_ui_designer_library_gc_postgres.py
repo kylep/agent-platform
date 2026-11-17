@@ -12,6 +12,8 @@ from agentplatform.db import (
     UiDesignerDocument,
     UiDesignerComment,
     UiDesignerDocumentAsset,
+    UiDesignerFont,
+    UiDesignerDocumentFont,
     UiDesignerImport,
     UiDesignerVersion,
 )
@@ -22,7 +24,8 @@ from agentplatform.ui_designer import store
     not os.environ.get("AP_TEST_PG_URL"),
     reason="requires disposable PostgreSQL AP_TEST_PG_URL",
 )
-async def test_gc_rechecks_placement_after_waiting_for_copy_asset_lock():
+@pytest.mark.parametrize('kind', ['asset', 'font'])
+async def test_gc_rechecks_placement_after_waiting_for_copy_asset_lock(kind):
     url = os.environ["AP_TEST_PG_URL"]
     schema = "library_gc_" + uuid.uuid4().hex
     control = create_async_engine(url)
@@ -45,6 +48,8 @@ async def test_gc_rechecks_placement_after_waiting_for_copy_asset_lock():
 
     factory = async_sessionmaker(engine, expire_on_commit=False)
     gc_factory = async_sessionmaker(engine, class_=GcSession, expire_on_commit=False)
+    blob_model = UiDesignerAsset if kind == 'asset' else UiDesignerFont
+    placement_model = UiDesignerDocumentAsset if kind == 'asset' else UiDesignerDocumentFont
     try:
         async with engine.begin() as connection:
             await connection.run_sync(
@@ -57,18 +62,23 @@ async def test_gc_rechecks_placement_after_waiting_for_copy_asset_lock():
                         UiDesignerImport.__table__,
                         UiDesignerAsset.__table__,
                         UiDesignerDocumentAsset.__table__,
+                        UiDesignerFont.__table__,
+                        UiDesignerDocumentFont.__table__,
                     ],
                 )
             )
         async with factory() as session:
-            sha = await store.add_asset(
-                session, data=b"library-copy-race", mime="image/png"
-            )
+            if kind == 'asset':
+                sha = await store.add_asset(session, data=b"library-copy-race", mime="image/png")
+            else:
+                sha = 'a' * 64
+                session.add(UiDesignerFont(sha256=sha, data=b'font-copy-race', bytes=14,
+                    family='Race Font', weight=400, font_meta={'license': 'OFL-1.1'}))
             await session.commit()
         async with factory() as copying:
             await copying.execute(
-                select(UiDesignerAsset.sha256)
-                .where(UiDesignerAsset.sha256 == sha)
+                select(blob_model.sha256)
+                .where(blob_model.sha256 == sha)
                 .with_for_update()
             )
 
@@ -106,22 +116,22 @@ async def test_gc_rechecks_placement_after_waiting_for_copy_asset_lock():
                         )
                 assert not task.done()
                 copying.add(
-                    UiDesignerDocumentAsset(
+                    placement_model(
                         document_id=uuid.uuid4().hex,
                         sha256=sha,
                         placed_by="user:test",
-                        placed_from="library:source:1",
+                        **({'placed_from': 'library:source:1'} if kind == 'asset' else {}),
                     )
                 )
                 await copying.commit()
                 result = await asyncio.wait_for(task, timeout=5)
-                assert result["assets_removed"] == 0
+                assert result.get('assets_removed' if kind == 'asset' else 'fonts_removed', 0) == 0
             finally:
                 if not task.done():
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
         async with factory() as session:
-            assert await session.get(UiDesignerAsset, sha) is not None
+            assert await session.get(blob_model, sha) is not None
     finally:
         await engine.dispose()
         async with control.begin() as connection:

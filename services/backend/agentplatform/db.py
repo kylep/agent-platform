@@ -1066,6 +1066,27 @@ class UiDesignerImport(Base):
     updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
 
 
+class UiDesignerFont(Base):
+    """Worker-validated static OFL font bytes; never a public raw asset."""
+    __tablename__ = "ui_designer_fonts"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    bytes: Mapped[int] = mapped_column(Integer)
+    family: Mapped[str] = mapped_column(String(128))
+    weight: Mapped[int] = mapped_column(Integer)
+    font_meta: Mapped[dict] = mapped_column(_UD_JSON)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerDocumentFont(Base):
+    """Validated-font placement authorizes declarations and history restoration."""
+    __tablename__ = "ui_designer_document_fonts"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    placed_by: Mapped[str] = mapped_column(String(160))
+    placed_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
 class UiDesignerAsset(Base):
     """Image bytes a document owns, content-addressed."""
     __tablename__ = "ui_designer_assets"

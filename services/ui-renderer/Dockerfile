@@ -30,6 +30,7 @@ COPY services/backend/agentplatform/ui_designer/__init__.py \
      services/backend/agentplatform/ui_designer/layout.py \
      services/backend/agentplatform/ui_designer/text.py \
      services/backend/agentplatform/ui_designer/fonts.py \
+     services/backend/agentplatform/ui_designer/font_validation.py \
      services/backend/agentplatform/ui_designer/svg.py \
      services/backend/agentplatform/ui_designer/raster_effects.py \
      services/backend/agentplatform/ui_designer/motion.py \

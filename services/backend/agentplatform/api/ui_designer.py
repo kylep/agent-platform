@@ -74,7 +74,7 @@ class _BoundedRoute(APIRoute):
 
         async def handler(request: Request):
             if request.method in ("POST", "PUT", "PATCH"):
-                bound = request.app.state.settings.ui_designer_max_body_bytes
+                bound = (2 << 20) if request.url.path.endswith("/fonts") else request.app.state.settings.ui_designer_max_body_bytes
                 try:
                     original_request = request
                     request = await _bounded_body(request, bound)
@@ -622,7 +622,7 @@ async def _doc_answer(request: Request, caller: Caller, slug: str, *, version: i
     resolved = None
     if resolve:
         try:
-            tree = await _renderer(request).resolved(doc=view["doc"], mode=mode)
+            tree = await _resolved_document(request, view["doc"], mode)
             resolved = ud_svg.boxes(ud_svg.find_node(tree, node)[0])
         except UiDesignerError as e:
             raise ud_http(e)
@@ -656,7 +656,7 @@ async def ui_document_outline(slug: str, request: Request, page: str | None = No
     boxes: dict[str, tuple[float, float]] = {}
     layout = "authored"
     try:
-        tree = await _renderer(request).resolved(doc=doc, mode=mode)
+        tree = await _resolved_document(request, doc, mode)
         boxes = {n["id"]: (n["w"], n["h"]) for n in iter_nodes(tree)}
         warnings = warnings + [w for w in tree.get("warnings") or []]
         layout = "resolved"
@@ -859,7 +859,7 @@ async def inspect_ui_document(slug: str, request: Request, node: str = Query(min
     trees: dict[str | None, dict] = {}
     try:
         for m in wanted:
-            trees[m] = await _renderer(request).resolved(doc=doc, mode=m)
+            trees[m] = await _resolved_document(request, doc, m)
         out = views.inspect_node(doc, node, trees, budget=max(1024, _text_cap(request) - 2048))
     except UiDesignerError as e:
         raise ud_http(e)
@@ -1296,7 +1296,8 @@ async def lint_ui_document(slug: str, request: Request,
     gate = asyncio.Semaphore(2)
     async def evaluate(selected_mode):
         async with gate:
-            return await _renderer(request).lint(doc=view["doc"], node=node, mode=selected_mode)
+            async with request.app.state.session_factory() as session:
+                return await _renderer(request).lint(session, doc=view["doc"], node=node, mode=selected_mode)
     tasks = [asyncio.create_task(evaluate(value)) for value in modes]
     try:
         results = await asyncio.gather(*tasks)
@@ -1474,6 +1475,8 @@ async def _mutate_ui_library(slug: str, request: Request, caller: Caller,
                     library_id=library_id, source_version=source["at_version"], budget=min(32 << 10, _text_cap(request)))
                 raise HTTPException(409, {"code": "UD-LIBRARY-CONFLICT", "message": "library update has conflicts", **report})
             await _library_place_assets(s, destination.id, source, plan["assets"], caller.participant)
+            await store.copy_document_fonts(s, source["id"], destination.id,
+                plan.get("fonts", set()), placed_by=caller.participant)
             out = await store.edit_document(s, slug, ops=[{"op": "set_doc", "doc": plan["doc"]}],
                 expected_version=body.expected_version, author=caller.participant, run_id=run_id,
                 reason=reason, request_id=body.request_id, scope=scope, op=op, caps=caps(request),
@@ -1638,10 +1641,109 @@ async def ui_document_resolved(slug: str, request: Request, mode: str | None = N
     if _etag_hit(request, etag):
         return Response(status_code=304, headers=headers)
     try:
-        tree = await _renderer(request).resolved(doc=view["doc"], mode=mode)
+        tree = await _resolved_document(request, view["doc"], mode)
     except UiDesignerError as e:
         raise ud_http(e)
     return JSONResponse(tree, headers=headers)
+
+
+async def _resolved_document(request: Request, doc: dict, mode: str | None):
+    async with request.app.state.session_factory() as session:
+        return await _renderer(request).resolved(session, doc=doc, mode=mode)
+
+
+@router.get(PREFIX + "/docs/{slug}/fonts", response_model=S.UiFontsOut)
+async def list_ui_fonts(slug: str, request: Request, version: int | None = Query(None, ge=1),
+                        caller: Caller = Depends(require_ui_designer_access(*READ))):
+    view, _, _ = await _doc_at(request, caller, slug, version)
+    installed = []
+    async with request.app.state.session_factory() as session:
+        approved = await store.placed_fonts(session, view["id"])
+        for ref in view["doc"].get("fonts", []):
+            if ref["sha256"] not in approved:
+                raise ud_http(invalid([issue("UD-FONT", "$.fonts", "font placement is unavailable")]))
+            row = await store.get_font(session, ref["sha256"])
+            installed.append(row.font_meta)
+    return S.UiFontsOut(slug=slug, version=view.get("at_version") or view["version"], fonts=installed)
+
+
+async def _font_receipt(session, slug: str, scope: str, request_id: str, fingerprint: str):
+    result = await store._receipt_lookup(session, scope, request_id, "font-upload", fingerprint)
+    if result is not None:
+        current = await store.get_document(session, slug)
+        if current["id"] != result["document_id"]:
+            raise UiDesignerError(ud_errors.UD_NOT_FOUND, "font source document identity changed")
+    return result
+
+
+@router.post(PREFIX + "/docs/{slug}/fonts", response_model=S.UiFontWriteOut)
+async def upload_ui_font(slug: str, body: S.UiFontUploadIn, request: Request,
+                         caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    import hashlib
+    from pydantic import ValidationError
+    from agentplatform.ui_designer.ops import apply_ops
+    try:
+        data = base64.b64decode(body.data_base64, validate=True)
+    except ValueError:
+        raise HTTPException(422, "data_base64 must be strict base64") from None
+    if not data or len(data) > 1 << 20:
+        raise HTTPException(413, "a font is at most 1MiB")
+    sha = hashlib.sha256(data).hexdigest()
+    stable = {"sha256": sha}
+    run_id = await caller_run_id(request, caller)
+    scope = _scope(caller, run_id)
+    reason = "font upload"
+    fingerprint = store.edit_fingerprint(op="font-upload", slug=slug, ops=None,
+        expected_version=body.expected_version, reason=reason, stable_args=stable)
+    try:
+        async with request.app.state.session_factory() as session:
+            prior = await _font_receipt(session, slug, scope, body.request_id, fingerprint)
+            if prior is not None:
+                return S.UiFontWriteOut(**_write_out(prior, slug).model_dump(), fonts=prior["fonts"])
+            view = await store.get_document(session, slug)
+            if view["version"] != body.expected_version:
+                apply_ops(view["doc"], [], version=view["version"], expected_version=body.expected_version,
+                    ops_since=await store.chunks_after(session, view["id"], body.expected_version))
+        await _check_write_budget(request, caller)
+        try:
+            metadata = S.UiFontInfo.model_validate(await _renderer(request).validate_font(data)).model_dump()
+        except ValidationError as error:
+            raise UiDesignerError(ud_errors.UD_RENDER_FAILED, "font validator returned invalid metadata") from error
+        if metadata["sha256"] != sha:
+            raise UiDesignerError(ud_errors.UD_RENDER_FAILED, "font validator returned a different content hash")
+        await require_ui_designer_access(*WRITE, write=True)(request)
+        async with request.app.state.session_factory() as session:
+            current = await store._live(session, slug, lock=True)
+            if current.id != view["id"]:
+                raise UiDesignerError(ud_errors.UD_NOT_FOUND, "font source document identity changed")
+            prior = await _font_receipt(session, slug, scope, body.request_id, fingerprint)
+            if prior is not None:
+                return S.UiFontWriteOut(**_write_out(prior, slug).model_dump(), fonts=prior["fonts"])
+            # Fail stale CAS before storing any bytes, even though rollback would
+            # also remove a failed upload's blob and placement.
+            if current.version != body.expected_version:
+                apply_ops(current.doc, [], version=current.version, expected_version=body.expected_version)
+            await store.add_document_font(session, current.id, data=data, metadata=metadata,
+                                          placed_by=caller.participant, caps=caps(request))
+            doc = dict(current.doc)
+            refs = list(doc.get("fonts", []))
+            ref = {key: metadata[key] for key in ("family", "weight", "sha256")}
+            for existing in refs:
+                if (existing["family"], existing["weight"]) == (ref["family"], ref["weight"]) and existing != ref:
+                    raise invalid([issue("UD-FONT", "$.fonts", "this family and weight already has a different installed face")])
+            if ref not in refs:
+                refs.append(ref)
+            doc["fonts"] = refs
+            result = await store.edit_document(session, slug, ops=[{"op": "set_doc", "doc": doc}],
+                expected_version=body.expected_version, author=caller.participant, run_id=run_id,
+                reason=reason, request_id=body.request_id, scope=scope, caps=caps(request), fold=False,
+                op="font-upload", _stable_args=stable)
+            await session.commit()
+        if not result.get("replayed"):
+            await _emit(request, caller, "version", slug, result["version"], run_id)
+        return S.UiFontWriteOut(**_write_out(result, slug).model_dump(), fonts=result["fonts"])
+    except UiDesignerError as error:
+        raise ud_http(error)
 
 
 @router.get(PREFIX + "/docs/{slug}/assets", response_model=S.UiPlacedAssetsOut)

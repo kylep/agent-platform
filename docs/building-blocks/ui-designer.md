@@ -46,6 +46,20 @@ use `action=motion op=preview|export version=<n>` with
 `motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?}`.
 Export also requires the artifacts grant and a replay-safe `request_id`.
 
+Open **Fonts** in the latest editable document to upload a static TTF or OTF
+file with an embedded SIL Open Font License 1.1 declaration. Each file may be
+up to 1 MiB; a document can hold eight faces. The server validates the font
+before installing it, and the panel shows its license. Custom fonts appear in
+the text inspector's family selector. If a requested weight is unavailable,
+the renderer uses the nearest installed weight in that family.
+
+Uploads create a document version. Restoring an earlier version also restores
+its font declarations; retained history keeps the required bytes. Library
+copies include the fonts their selected components or typography tokens use.
+A conflicting file with the same family and weight is reported for review.
+Agents can inspect installed faces with `action=fonts op=list`; font upload
+uses the web panel or the bounded document-font API.
+
 The `ui-designer` [skill](skills.md) teaches the loop: outline, batched ops,
 look at a snapshot.
 

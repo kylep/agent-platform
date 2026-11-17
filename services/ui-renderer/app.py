@@ -319,7 +319,11 @@ def _job_diff_uncached(cfg: Config, req: dict) -> dict:
     from agentplatform.ui_designer.errors import UiDesignerError
     from agentplatform.ui_designer.layout import layout_document
     Path(cfg.asset_dir).mkdir(parents=True, exist_ok=True)
-    resolved = [layout_document(req[key], req['mode']) for key in ('before_doc', 'after_doc')]
+    from agentplatform.ui_designer.fonts import document_fonts
+    resolved=[]
+    for key in ('before_doc','after_doc'):
+        with document_fonts(req[key],_font_loader(cfg)):
+            resolved.append(layout_document(req[key],req['mode']))
     selected = []
     for tree in resolved:
         try:
@@ -337,7 +341,10 @@ def _job_diff_uncached(cfg: Config, req: dict) -> dict:
     infos = {sha:_asset_info(cfg, sha) for sha in need}
     from agentplatform.ui_designer.raster_effects import new_budget
     effect_budget = new_budget()
-    paints = [svg.paint(tree, req['node'], assets=infos, asset_bytes=_effect_bytes(cfg, tree, req['node'], need), effect_scale=req['scale'], effect_budget=effect_budget) if node else None for tree,node in zip(resolved,selected)]
+    paints=[]
+    for key,tree,node in zip(('before_doc','after_doc'),resolved,selected):
+        with document_fonts(req[key],_font_loader(cfg)):
+            paints.append(svg.paint(tree, req['node'], assets=infos, asset_bytes=_effect_bytes(cfg, tree, req['node'], need), effect_scale=req['scale'], effect_budget=effect_budget) if node else None)
     box, width, height = visual_diff.union_box([[p.x,p.y,p.w,p.h] for p in paints if p], req['scale'])
     images = []
     for painted in paints:
@@ -506,13 +513,66 @@ def job_motion_export(cfg: Config, req: dict) -> dict:
                 **{k:manifest[k] for k in ('width','height','frames','duration_ms','fps')},"warnings":manifest['warnings']+["Motion export is silent and transparency is flattened onto white; GIF colors use a palette."]}
 
 
-JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff, "lint": job_lint, "boolean": job_boolean, "motion_preview":job_motion_preview, "motion_export":job_motion_export}
+
+
+
+def _font_path(cfg,sha):
+    from agentplatform.ui_designer.errors import UiDesignerError
+    if not isinstance(sha,str) or not SHA_RE.fullmatch(sha):raise UiDesignerError('UD-INVALID','font ID must be a SHA256 digest')
+    return Path(cfg.asset_dir)/"fonts"/(sha+".font")
+
+
+def job_font_validate(cfg,req):
+    from agentplatform.ui_designer.font_validation import validate_font
+    return {"ok":True,**validate_font(req['data'])}
+
+
+def job_font_put(cfg,req):
+    from agentplatform.ui_designer.font_validation import validate_font
+    if hashlib.sha256(req['data']).hexdigest()!=req['sha']:return _err('UD-INVALID','font body does not hash to ID')
+    metadata=validate_font(req['data']);path=_font_path(cfg,req['sha']);path.parent.mkdir(parents=True,exist_ok=True)
+    tmp=path.with_name(path.name+f'.{os.getpid()}.tmp');tmp.write_bytes(req['data'])
+    meta=path.with_suffix('.json');temp_meta=meta.with_name(meta.name+f'.{os.getpid()}.tmp')
+    temp_meta.write_text(json.dumps(metadata));os.replace(temp_meta,meta);os.replace(tmp,path)
+    # Disk cache bound, separate from the per-job face registry. Loaded faces
+    # own their bytes, so pruning another job's old file cannot alias a face.
+    files=sorted(path.parent.glob('*.font'),key=lambda p:p.stat().st_mtime,reverse=True)
+    total=0
+    for index,file in enumerate(files):
+        total+=file.stat().st_size
+        if index>=64 or total>64<<20:
+            file.unlink(missing_ok=True);file.with_suffix('.json').unlink(missing_ok=True)
+    return {"ok":True,**metadata}
+
+
+def _font_loader(cfg):
+    def load(sha):return _font_path(cfg,sha).read_bytes()
+    return load
+
+
+JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff, "lint": job_lint, "boolean": job_boolean, "motion_preview":job_motion_preview, "motion_export":job_motion_export,"font_validate":job_font_validate,"font_put":job_font_put}
 
 
 def _run_job(cfg: Config, kind: str, req: dict) -> dict:
     from agentplatform.ui_designer.errors import UD_RENDER_FAILED, UiDesignerError
     try:
-        return JOBS[kind](cfg, req)
+        from agentplatform.ui_designer.fonts import document_fonts
+        docs=[req[k] for k in ('doc','before_doc','after_doc') if isinstance(req.get(k),dict)]
+        for doc in docs:
+            refs=doc.get('fonts',[])
+            if not isinstance(refs,list) or len(refs)>8 or any(not isinstance(e,dict) or set(e)!={'sha256','family','weight'} or not isinstance(e['family'],str) or type(e['weight']) is not int or not 100<=e['weight']<=900 for e in refs):
+                raise UiDesignerError('UD-INVALID','fonts must be a list of at most8 family/weight/sha256 references')
+            if len({(e['family'],e['weight']) for e in refs})!=len(refs):raise UiDesignerError('UD-INVALID','duplicate document font family/weight')
+        missing=list(dict.fromkeys(e['sha256'] for doc in docs for e in doc.get('fonts',[]) if not _font_path(cfg,e['sha256']).is_file()))
+        if missing:return {"ok":False,"code":"MISSING-FONTS","missing_fonts":missing}
+        for doc in docs:
+            for entry in doc.get('fonts',[]):
+                metadata=json.loads(_font_path(cfg,entry['sha256']).with_suffix('.json').read_text())
+                if any(metadata[key]!=entry[key] for key in ('family','weight','sha256')):
+                    raise UiDesignerError('UD-INVALID','document font metadata differs from validated font')
+        if kind=='diff':return JOBS[kind](cfg,req)
+        with document_fonts(req.get('doc',{}),_font_loader(cfg)):
+            return JOBS[kind](cfg, req)
     except UiDesignerError as e:
         return {**e.as_dict(), "ok": False}
     except Exception as e:
@@ -661,7 +721,7 @@ class Pool:
 def _status(res: dict) -> int:
     if res.get("ok"):
         return 200
-    return {"MISSING-ASSETS": 409, "UD-RENDER-FAILED": 500, "UD-INVALID": 422}.get(res.get("code"), 422)
+    return {"MISSING-ASSETS": 409, "MISSING-FONTS":409, "UD-RENDER-FAILED": 500, "UD-INVALID": 422}.get(res.get("code"), 422)
 
 
 async def _job(request: web.Request, kind: str, req: dict) -> web.Response:
@@ -871,6 +931,16 @@ def create_app(cfg: Config | None = None) -> web.Application:
 
     app.on_startup.append(on_start)
     app.on_cleanup.append(on_stop)
+    async def font_validate(r):
+        data=await r.read()
+        if not 1<=len(data)<=1<<20:return web.json_response(_err('UD-INVALID','font limit is1MiB'),status=400)
+        return await _job(r,'font_validate',{'data':data})
+    async def font_put(r):
+        sha=r.match_info['sha'];data=await r.read()
+        if not SHA_RE.fullmatch(sha) or not 1<=len(data)<=1<<20:return web.json_response(_err('UD-INVALID','invalid font upload'),status=400)
+        return await _job(r,'font_put',{'data':data,'sha':sha})
+    app.router.add_post('/font-validate',font_validate)
+    app.router.add_put('/fonts/{sha}',font_put)
     app.router.add_get("/healthz", health)
     app.router.add_put("/assets/{sha}", put_asset)
     async def render(r: web.Request) -> web.Response:

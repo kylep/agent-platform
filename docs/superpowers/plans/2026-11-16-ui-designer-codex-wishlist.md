@@ -414,4 +414,21 @@ syntax, with authorized, bounded live thumbnails.
   Linux/amd64 Node 22 acceptance passed: 120-frame MP4 (720²) and GIF
   (480²) with concurrent static renders; peak 759 MiB under a 1 GiB cgroup,
   no OOM events. The test caught and removed an incompatible Node flag.
-  Deployment and live API/browser acceptance are pending.
+  Pushed `f59f1a9`, deployed `ud-motion-20261117` in Helm revision 164.
+  Live MP4/GIF each decoded 12 frames with exact endpoint positions and
+  receipt replay. Browser smart animation interpolated the matched card,
+  reached the target frame and downloaded a 19-frame GIF. Fixtures removed.
+  Fresh weekly quota: 55% used.
+
+- **P3.16 Status:** implemented isolated static OFL font validation, scoped native
+  rendering, atomic uploads and replay receipts, font selection/license UI,
+  history retention and library copies with collision checks. Fonts never
+  widen another document's family registry; all byte negotiation is bounded
+  to declared hashes. HTML preserves uploaded typography as outlined SVG.
+  Backend suite: 4,039 passed / 22 skipped; original font and new upload
+  coverage was also verified together (35 passed), plus final client checks.
+  Browser 471, renderer 150, broker 474 and facade 40 pass. Two actual
+  PostgreSQL copy/GC races pass. Web build, Storybook, tokens, SDK drift
+  (839 files), Helm lint and final image/source hash checks pass.
+  Linux/amd64 accepted the unmodified Atkinson Hyperlegible OFL font and
+  rendered native PNG and outlined HTML. Deployment/live acceptance pending.

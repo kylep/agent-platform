@@ -8,6 +8,8 @@ import LibrariesPanel from "../components/ui-designer/LibrariesPanel";
 import FindingsPanel from "../components/ui-designer/FindingsPanel";
 import CompareVersions from "../components/ui-designer/CompareVersions";
 import MotionControls from "../components/ui-designer/MotionControls";
+import FontsPanel from "../components/ui-designer/FontsPanel";
+import type { UiFont, UiFonts } from "../lib/uiFonts";
 import ExportControls from "../components/ui-designer/ExportControls";
 import Inspector from "../components/ui-designer/Inspector";
 import { Button } from "@ap/ui/button";
@@ -74,6 +76,9 @@ export default function UiDesignerDocument() {
   const [showFindings, setShowFindings] = useState(false);
   const [showLibraries, setShowLibraries] = useState(false);
   const [libraryLocked, setLibraryLocked] = useState(false);
+  const [showFonts,setShowFonts]=useState(false),[fontLocked,setFontLocked]=useState(false);
+  const writeLocked=libraryLocked || fontLocked;
+  const [fontSnapshot,setFontSnapshot]=useState<{base:string;version:number;fonts:UiFont[]}|null>(null),[fontsLoading,setFontsLoading]=useState(false),[fontsError,setFontsError]=useState("");
   const [vectorEpoch, setVectorEpoch] = useState(0);
   const [showIcons, setShowIcons] = useState(false);
   const base = `${UD}/${encodeURIComponent(slug)}`;
@@ -96,7 +101,7 @@ export default function UiDesignerDocument() {
     resolvedOwner.current = "";
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
-    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false); setVectorEpoch(0); setShowIcons(false); setHl(null); setErr("");
+    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false);setShowFonts(false);setFontLocked(false);setFontSnapshot(null); setVectorEpoch(0); setShowIcons(false); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -144,6 +149,16 @@ export default function UiDesignerDocument() {
     return () => { cancelled = true; };
   }, [base, slug, version, pinned, mode, rev]);
 
+  useEffect(()=>{
+    if(!(version ?? pinned))return;
+    const controller=new AbortController(),selectedVersion=(version ?? pinned)!;setFontsLoading(true);setFontsError("");
+    api<UiFonts>(`${base}/fonts?${new URLSearchParams({version:String(selectedVersion)})}`,{signal:controller.signal})
+      .then((r)=>{if(!controller.signal.aborted)setFontSnapshot({base,version:selectedVersion,fonts:r.fonts});})
+      .catch((e)=>{if(!controller.signal.aborted)setFontsError(apiErrorMessage(e,"Could not load installed fonts."));})
+      .finally(()=>{if(!controller.signal.aborted)setFontsLoading(false);});
+    return()=>controller.abort();
+  },[base,version,pinned,rev]);
+  const installedFonts=fontSnapshot?.base===base && fontSnapshot.version===(version ?? pinned) ? fontSnapshot.fonts:[];
   const pages = resolved?.pages ?? [];
   const page = pages.find((p) => p.id === pageId) ?? pages[0] ?? null;
   const known = useMemo(() => flatten(page?.children ?? []), [page]);
@@ -183,7 +198,7 @@ export default function UiDesignerDocument() {
   }, [base, selectedId, pinned, version, mode, stale]);
   const parent = parents.at(-1);
   const freePosition = !parent?.layout || !!inspection?.authored?.absolute;
-  const editable = canWrite && !version && !stale && !!inspection?.authored && inspection.version === pinned && inspection.id === picked?.id && !editing.busy && !editing.uncertain && !libraryLocked;
+  const editable = canWrite && !version && !stale && !!inspection?.authored && inspection.version === pinned && inspection.id === picked?.id && !editing.busy && !editing.uncertain && !writeLocked;
   function saveNode(id: string, changes: Record<string, unknown>) {
     if (!editable || inspection?.id !== id || picked?.id !== id || !inspection.authored) return;
     const before = Object.fromEntries(Object.keys(changes).map((key) => [key, inspection.authored![key] ?? null]));
@@ -223,7 +238,7 @@ export default function UiDesignerDocument() {
         <h1><Link to="/ui-designer">UI Designer</Link> / {slug}</h1>
         <label className="muted">Version{" "}
           <select value={version ?? ""} onChange={(e) => pickVersion(e.target.value)}
-                  aria-label="Version" disabled={libraryLocked}>
+                  aria-label="Version" disabled={writeLocked}>
             <option value="">{current ? `Latest (v${current})` : "Latest"}</option>
             {versions.map((v) => (
               <option key={v.version} value={v.version}>
@@ -234,9 +249,10 @@ export default function UiDesignerDocument() {
         </label>
         <div className="ud-actions">
           {(version ?? pinned) && <Link to={`/ui-designer/${encodeURIComponent(slug)}/play?${new URLSearchParams({ version: String(version ?? pinned), mode, ...(page && page.children?.find((n)=>n.type === "frame" && !n.of) ? { frame: page.children.find((n)=>n.type === "frame" && !n.of)!.id } : {}) })}`}>Play prototype</Link>}
-          {canWrite && !version && <><Button onClick={editing.undo} disabled={libraryLocked || stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={libraryLocked || stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
+          {canWrite && !version && <><Button onClick={editing.undo} disabled={writeLocked || stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={writeLocked || stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
           <Button onClick={() => setShowIcons((open) => !open)}>{showIcons ? "Close icons" : "Icons"}</Button>
-          <Button disabled={libraryLocked} onClick={() => setShowLibraries((open) => !open)}>{showLibraries ? "Close libraries" : "Libraries"}</Button>
+          <Button disabled={fontLocked} onClick={()=>setShowFonts((open)=>!open)}>{showFonts ? "Close fonts":"Fonts"}</Button>
+          <Button disabled={writeLocked} onClick={() => setShowLibraries((open) => !open)}>{showLibraries ? "Close libraries" : "Libraries"}</Button>
           <Button onClick={() => setShowFindings((open) => !open)}>{showFindings ? "Close findings" : "Findings"}</Button>
           <button type="button" onClick={labelVersion}>Label this version</button>
           <button type="button" onClick={() => setComparing((open) => !open)}>
@@ -247,10 +263,11 @@ export default function UiDesignerDocument() {
       {(version ?? pinned) && <ExportControls key={`${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canExport={canWrite} />}
       {(version ?? pinned) && resolved && <MotionControls key={`motion:${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} frames={prototypeFrames(resolved)} canExport={canWrite} />}
       {comparing && page && (version ?? pinned) && <CompareVersions key={base} base={base} versions={versions} initialVersion={(version ?? pinned)!} pageId={page.id} selectedId={picked?.id ?? null} mode={mode} onSelectNode={(id) => { const node = known.find((n) => n.id === id); if (node) setSel(node); }} />}
-      {showIcons && page && <IconPicker key={base} pageId={page.id} pageTitle={page.title || page.id} selected={picked} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || libraryLocked} onInsert={(op) => {
-        if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !libraryLocked) editing.commit([op], []);
+      {showIcons && page && <IconPicker key={base} pageId={page.id} pageTitle={page.title || page.id} selected={picked} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || writeLocked} onInsert={(op) => {
+        if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !writeLocked) editing.commit([op], []);
       }} />}
-      {showLibraries && (version ?? pinned) && <LibrariesPanel key={base} base={base} version={(version ?? pinned)!} canWrite={canWrite && !version} editorBusy={editing.busy || editing.uncertain} onWriteLock={setLibraryLocked} onCommitted={(savedVersion) => {
+      {showFonts && (version ?? pinned) && <FontsPanel key={`${base}:${version ?? "latest"}`} base={base} version={(version ?? pinned)!} fonts={installedFonts} loading={fontsLoading} listError={fontsError} canWrite={canWrite && !version} editorBusy={editing.busy || editing.uncertain || libraryLocked || stale} onWriteLock={setFontLocked} onCommitted={(savedVersion)=>{editing.reset("Font installed. Undo history was cleared; restore an earlier version to undo the upload.");editing.pin(savedVersion);refresh(Math.max(pinned ?? 0,savedVersion),true);}} onConflict={()=>{editing.reset("The document changed before the font upload. Reloaded the latest version; undo history was cleared.");refresh(undefined,true);}} />}
+      {showLibraries && (version ?? pinned) && <LibrariesPanel key={base} base={base} version={(version ?? pinned)!} canWrite={canWrite && !version} editorBusy={editing.busy || editing.uncertain || fontLocked} onWriteLock={setLibraryLocked} onCommitted={(savedVersion) => {
         editing.reset("Library changes saved. Undo history was cleared."); editing.pin(savedVersion); refresh(Math.max(pinned ?? 0, savedVersion), true);
       }} onConflict={() => { editing.reset("The document changed before the library save. Reloaded the latest version; undo history was cleared."); refresh(undefined, true); }} />}
       {showFindings && (version ?? pinned) && <FindingsPanel key={base} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canvasNodeIds={pages.flatMap((p) => flatten(p.children ?? []).map((n) => n.id))} onSelectNode={(id) => {
@@ -287,9 +304,9 @@ export default function UiDesignerDocument() {
         </div>
         <aside className="ud-inspector" aria-label="Inspector">
           <h2>Inspector</h2>
-          {picked && inspection?.id === picked.id ? <Inspector inspection={inspection} disabled={!editable} freePosition={freePosition} frames={resolved ? prototypeFrames(resolved) : []} onSave={(changes) => saveNode(inspection.id, changes)} /> : <p className="muted">{picked ? "Loading node…" : "Click a node."}</p>}
-          {page && (version ?? pinned) && <VectorTools key={`${base}:${vectorEpoch}`} base={base} version={(version ?? pinned)!} page={page} selected={picked} inspection={inspection} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || libraryLocked} onCommit={(ops, inverse) => {
-            if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !libraryLocked) editing.commit(ops, inverse);
+          {picked && inspection?.id === picked.id ? <Inspector fonts={installedFonts} inspection={inspection} disabled={!editable} freePosition={freePosition} frames={resolved ? prototypeFrames(resolved) : []} onSave={(changes) => saveNode(inspection.id, changes)} /> : <p className="muted">{picked ? "Loading node…" : "Click a node."}</p>}
+          {page && (version ?? pinned) && <VectorTools key={`${base}:${vectorEpoch}`} base={base} version={(version ?? pinned)!} page={page} selected={picked} inspection={inspection} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || writeLocked} onCommit={(ops, inverse) => {
+            if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !writeLocked) editing.commit(ops, inverse);
           }} onSelect={setSel} onUpdate={saveNode} />}
           <section className="ud-comments" aria-label="Comments">
             <h2>Comments</h2>

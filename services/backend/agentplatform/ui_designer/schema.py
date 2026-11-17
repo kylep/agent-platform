@@ -242,6 +242,7 @@ class _Ctx:
     modes: list[str] | None
     components: dict
     component_sets: dict = field(default_factory=dict)
+    font_families: set[str] = field(default_factory=set)
     issues: list[Issue] = field(default_factory=list)
     ids: dict[str, str] = field(default_factory=dict)
     nodes: int = 0
@@ -532,14 +533,42 @@ def _layout(c: _Ctx, v: Any, path: str) -> None:
         _bool(c, v["wrap"], join_path(path, "wrap"))
 
 
+def _font_refs(c: _Ctx, refs: Any) -> None:
+    if not isinstance(refs, list) or len(refs) > 8:
+        c.add("UD-LIMIT", "$.fonts", "fonts must be a list of at most 8 static faces")
+        return
+    pairs = set()
+    shas = set()
+    for index, ref in enumerate(refs):
+        path = join_path("$.fonts", index)
+        if not _obj(c, ref, path, {"family", "weight", "sha256"}, ("family", "weight", "sha256")):
+            continue
+        family, weight, sha = ref.get("family"), ref.get("weight"), ref.get("sha256")
+        if not isinstance(family, str) or not family.strip() or len(family) > 128 or family.casefold() in {name.casefold() for name in FONT_FAMILIES}:
+            c.add("UD-FONT", join_path(path, "family"), "custom family must be a nonempty name and cannot shadow bundled fonts")
+        elif isinstance(weight, bool) or not isinstance(weight, int) or not 100 <= weight <= 900:
+            c.add("UD-FONT", join_path(path, "weight"), "static face weight must be an integer from 100 to 900")
+        elif (family, weight) in pairs:
+            c.add("UD-FONT", path, "duplicate custom family and weight")
+        else:
+            pairs.add((family, weight))
+            c.font_families.add(family)
+        if not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
+            c.add("UD-FONT", join_path(path, "sha256"), "expected a validated font SHA256")
+        elif sha in shas:
+            c.add("UD-FONT", path, "duplicate custom font SHA256")
+        else:
+            shas.add(sha)
+
+
 def _typespec(c: _Ctx, v: Any, path: str, required: tuple[str, ...] = ()) -> None:
     if not _obj(c, v, path, {"family", "size", "weight", "line", "letter"}, required):
         return
     if "family" in v:
         if not isinstance(v["family"], str):
             c.add("UD-TYPE", join_path(path, "family"), "expected a font family name", v["family"])
-        elif v["family"] not in FONT_FAMILIES:
-            c.add("UD-FONT", join_path(path, "family"), f"font {v['family']!r} is not bundled",
+        elif v["family"] not in FONT_FAMILIES and v["family"] not in c.font_families:
+            c.add("UD-FONT", join_path(path, "family"), f"font {v['family']!r} is not bundled or declared",
                   v["family"])
     if "size" in v:
         _num(c, v["size"], join_path(path, "size"), 1, 1000, groups=())
@@ -793,8 +822,10 @@ def collect_issues(doc: Any) -> list[Issue]:
     modes = doc.get("modes") if isinstance(doc.get("modes"), list) else None
     c = _Ctx(tokens=tokens, modes=[m for m in modes if isinstance(m, str)] if modes else None,
              components=comps, component_sets=doc.get("component_sets", {}) if isinstance(doc.get("component_sets", {}), dict) else {})
-    _obj(c, doc, "$", {"schema", "title", "tokens", "modes", "components", "component_sets", "libraries", "pages"},
+    _obj(c, doc, "$", {"schema", "title", "tokens", "modes", "components", "component_sets", "libraries", "fonts", "pages"},
          ("schema", "pages"))
+    if "fonts" in doc:
+        _font_refs(c, doc["fonts"])
     if "schema" in doc and doc["schema"] != SCHEMA_VERSION:
         c.add("UD-VALUE", "$.schema", f"schema must be {SCHEMA_VERSION}", doc["schema"])
     if "title" in doc:
@@ -1035,7 +1066,8 @@ def image_assets(doc: dict) -> list[tuple[str, str]]:
     return found
 
 
-def validate_document(doc: Any, *, known_assets: set[str] | None = None) -> None:
+def validate_document(doc: Any, *, known_assets: set[str] | None = None,
+                      known_fonts: dict[str, dict] | None = None) -> None:
     """Raise `UiDesignerError` unless the document is valid. `known_assets`
     is the set of sha256s placed in this document (§9); None skips that check
     (pure callers with no store)."""
@@ -1048,6 +1080,12 @@ def validate_document(doc: Any, *, known_assets: set[str] | None = None) -> None
         if missing:
             raise UiDesignerError(UD_ASSET_UNKNOWN, f"{len(missing)} image(s) were never placed "
                                   "in this document", detail={"assets": missing})
+
+    if known_fonts is not None:
+        for ref in doc.get("fonts", []):
+            approved = known_fonts.get(ref["sha256"])
+            if approved is None or any(ref[key] != approved[key] for key in ("family", "weight")):
+                raise invalid([issue("UD-FONT", "$.fonts", "font face was not validated and placed in this document")])
 
 
 def new_document(title: str = "") -> dict:

@@ -62,3 +62,13 @@ Retry with the same request ID. Exports do not post to Relay automatically.
 Keep clips short: 200–5,000 ms, 12 or 24 fps, at most 720 pixels per edge
 (480 for GIF). Put optional `duration_ms`, `fps`, `max_edge` and `easing` inside
 `motion`. Lower resolution or duration if a pixel budget is exceeded.
+
+## Document fonts
+
+Use `action=fonts op=list` to inspect uploaded faces and their embedded OFL
+license metadata. Reference the returned family in text styles or typography
+tokens; unavailable weights use the nearest installed face. Font upload lives
+in the web editor's **Fonts** panel (static TTF/OTF, OFL 1.1, at most 1 MiB per
+file and eight faces per document). Do not invent a font hash or family entry:
+the server requires validated placement in that document. Pinned library
+copies carry their required fonts into the consumer.

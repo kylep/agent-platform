@@ -51,7 +51,7 @@ class ApplyResult:
 
 def apply_ops(doc: dict, ops: Any, *, version: int, expected_version: int | None,
               ops_since: Sequence | Callable[[int], Sequence] | None = None,
-              known_assets: set[str] | None = None) -> ApplyResult:
+              known_assets: set[str] | None = None, known_fonts: dict[str, dict] | None = None) -> ApplyResult:
     """Apply a batch to `doc` (never mutated) at `version`.
 
     CAS: `expected_version` must equal `version`; otherwise UD-VERSION-CONFLICT
@@ -85,7 +85,7 @@ def apply_ops(doc: dict, ops: Any, *, version: int, expected_version: int | None
         work = _apply_one(
             work, op, join_path("$.ops", i), captured if resizing else None
         )
-    validate_document(work, known_assets=known_assets)
+    validate_document(work, known_assets=known_assets, known_fonts=known_fonts)
     return ApplyResult(
         doc=work,
         version=version + 1,

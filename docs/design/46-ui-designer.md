@@ -1587,3 +1587,30 @@ work. These motion-specific request limits retain the ordinary per-caller/run
 meter; static render limits do not change. Tests cover matching and fallback,
 endpoint/midpoint pixels, alpha/easing, malformed/oversized manifests, cancellation,
 concurrent receipt replay, source UUID reuse and both actual encoded formats.
+
+## 32. Per-document OFL fonts (P3.16)
+
+Documents may declare up to eight validated static TTF/OTF faces in `fonts`:
+`{family, weight, sha256}`. The upload endpoint accepts at most 1 MiB of font
+bytes, an expected document version and a replay-safe request ID. An isolated
+renderer worker checks structure, embedded SIL OFL 1.1 licensing metadata,
+embedding permissions and bounded glyph work before any bytes are retained.
+Unsupported formats and malformed files are refused with a useful error.
+Uploaded families cannot override bundled fonts. Text still selects the nearest
+available weight within its chosen family.
+
+Font bytes and approved metadata are content-addressed in Postgres. A separate
+placement record authorizes each document to declare those exact family/weight
+and hash combinations; authoring JSON cannot bypass the upload door. Upload
+placement, document version and receipt commit together after UUID/CAS checks.
+License metadata is available in the editor. Fonts are never loaded from
+external URLs or installed globally in the browser or renderer.
+
+Renderer font caches verify hashes and scope family resolution to the current
+document. Glyph keys retain the content hash so two documents with different
+files sharing a family name cannot reuse one another's outlines. Every native
+render/export path uses the same registry. Retained history keeps font bytes;
+copying library components or typography tokens places their required font
+faces into the consumer. Different bytes for an existing family/weight report
+a conflict rather than replacing local typography. Garbage collection rechecks
+placements after acquiring the blob lock.

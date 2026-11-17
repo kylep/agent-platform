@@ -2409,3 +2409,37 @@ class UiMotionExportOut(BaseModel):
     duration_ms: int
     warnings: list[str] = Field(default_factory=list)
     replayed: bool = False
+
+
+class UiFontRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    family: str = Field(min_length=1, max_length=128)
+    weight: int = Field(ge=100, le=900, strict=True)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class UiFontInfo(UiFontRef):
+    license: Literal["OFL-1.1"]
+    license_text: str = Field(min_length=1, max_length=8192)
+    glyphs: int = Field(ge=1, le=20000)
+    units_per_em: int = Field(ge=16, le=16384)
+    copyright: str = Field(default="", max_length=2048)
+    license_url: str = Field(default="", max_length=1024)
+    font_format: Literal["ttf", "otf"]
+
+
+class UiFontsOut(BaseModel):
+    slug: str
+    version: int
+    fonts: list[UiFontInfo] = Field(max_length=8)
+
+
+class UiFontUploadIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    data_base64: str = Field(min_length=1, max_length=1398104)
+    expected_version: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class UiFontWriteOut(UiDocWriteOut):
+    fonts: list[UiFontRef] = Field(max_length=8)

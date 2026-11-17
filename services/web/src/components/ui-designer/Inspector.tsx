@@ -4,10 +4,11 @@ import { editedPaint } from "../../lib/uiPaintEditing";
 import { useEffect, useState } from "react";
 import { Button } from "@ap/ui/button";
 import { Input, Select, Textarea } from "@ap/ui/field";
+import { BUNDLED_FONT_FAMILIES, type UiFont } from "../../lib/uiFonts";
 import type { UiInspection } from "../../lib/uiDesigner";
 
-type Props = { inspection: UiInspection; disabled: boolean; freePosition: boolean; frames?: { id: string; title?: string }[]; onSave: (changes: Record<string, unknown>) => void };
-export default function Inspector({ inspection, disabled, freePosition, frames = [], onSave }: Props) {
+type Props = { inspection: UiInspection; disabled: boolean; freePosition: boolean; fonts?: UiFont[]; frames?: { id: string; title?: string }[]; onSave: (changes: Record<string, unknown>) => void };
+export default function Inspector({ inspection, disabled, freePosition, frames = [], fonts = [], onSave }: Props) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const authored = inspection.authored;
@@ -19,17 +20,28 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
   const layoutDirection = draft["layout.dir"] ?? String(layout.dir ?? "");
   const constraints = authored.constraints && typeof authored.constraints === "object" ? authored.constraints as Record<string, unknown> : {};
   const link = authored.link_to && typeof authored.link_to === "object" ? authored.link_to as Record<string, unknown> : {};
+  const textStyle=authored.style && typeof authored.style==="object" ? authored.style as Record<string,unknown> : {};
+  const styleToken=typeof authored.style==="string";
+  const fontFamily=draft["style.family"] ?? String(textStyle.family ?? "");
+  const fontWeights=fonts.filter((font)=>font.family===fontFamily).map((font)=>font.weight).sort((a,b)=>a-b);
+  const fontFamilies=[...new Set([...BUNDLED_FONT_FAMILIES,...fonts.map((font)=>font.family),...(typeof textStyle.family==="string" ? [textStyle.family]:[])])];
   const linkValue = (key: string, fallback = "") => draft[`link.${key}`] ?? String(link[key] ?? fallback);
   function save() {
     try {
       const patch: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(draft)) {
-        if (key.startsWith("layout.") || key.startsWith("link.") || key.startsWith("constraints.") || key.startsWith("paint.") || key === "motion_key") continue;
+        if (key.startsWith("layout.") || key.startsWith("link.") || key.startsWith("constraints.") || key.startsWith("paint.") || key.startsWith("style.") || key === "motion_key") continue;
         if (["x", "y", "w", "h", "opacity", "min_w", "max_w", "min_h", "max_h", "backdrop_blur"].includes(key)) {
           if (!val.trim()) patch[key] = null;
           else if (["w", "h"].includes(key) && ["hug", "fill"].includes(val.trim())) patch[key] = val.trim();
           else { const num = Number(val); if (!Number.isFinite(num) || (["w", "h"].includes(key) && num <= 0)) throw new Error("Enter valid dimensions and coordinates."); if (["min_w", "max_w", "min_h", "max_h"].includes(key) && (num < 0 || num > 100000)) throw new Error("Minimum and maximum sizes must be from 0 to 100000."); if (key === "backdrop_blur" && (num < 0 || num > 64)) throw new Error("Backdrop blur must be from 0 to 64 pixels."); patch[key] = num; }
         } else patch[key] = ["fill", "color", "align", "vertical_align", "decoration", "text_case"].includes(key) && !val.trim() ? null : val;
+      }
+      if(Object.keys(draft).some((key)=>key.startsWith("style."))) {
+        if(styleToken)throw new Error("This text uses a typography token. Its style is preserved.");
+        const next={...textStyle};
+        for(const [key,value] of Object.entries(draft).filter(([key])=>key.startsWith("style."))) {if(value)next[key.slice(6)]=key==="style.weight" ? Number(value):value;else delete next[key.slice(6)];}
+        patch.style=Object.keys(next).length ? next:null;
       }
       if (draft.motion_key !== undefined) {
         const meta = authored?.meta && typeof authored.meta === "object" ? {...authored.meta as Record<string,unknown>} : {};
@@ -102,6 +114,10 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
       {Array.isArray(authored.text) && <p className="muted">Editing text replaces its inline formatting. Undo restores it.</p>}
       <p className="ud-edit-field"><label htmlFor="ud-color">Text colour or token</label><Input id="ud-color" value={value("color")} onChange={(e) => change("color", e.target.value)} disabled={disabled} /></p>
       <fieldset disabled={disabled}><legend>Typography</legend>
+        <p className="ud-edit-field"><label htmlFor="ud-font-family">Text font family</label><Select id="ud-font-family" disabled={disabled || styleToken} value={fontFamily} onChange={(e)=>change("style.family",e.target.value)}><option value="">Default (Inter)</option>{fontFamilies.map((family)=><option key={family} value={family}>{family}</option>)}</Select></p>
+        <p className="ud-edit-field"><label htmlFor="ud-font-weight">Text font weight</label><Select id="ud-font-weight" disabled={disabled || styleToken} value={draft["style.weight"] ?? String(textStyle.weight ?? "")} onChange={(e)=>change("style.weight",e.target.value)}><option value="" >Default (400)</option>{[...new Set([...(fontWeights.length ? fontWeights:[100,200,300,400,500,600,700,800,900]),...(typeof textStyle.weight==="number" ? [textStyle.weight]:[])])].sort((a,b)=>a-b).map((weight)=><option key={weight} value={weight}>{weight}</option>)}</Select></p>
+        {styleToken && <p className="muted">This text uses typography token {String(authored.style)}. Its family and other token settings are preserved.</p>}
+
         {([
           ["align", "Text horizontal alignment", [["left","Left"],["center","Center"],["right","Right"],["justify","Justified"]]],
           ["vertical_align", "Text vertical alignment", [["top","Top"],["center","Center"],["bottom","Bottom"]]],

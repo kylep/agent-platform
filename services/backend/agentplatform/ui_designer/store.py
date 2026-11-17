@@ -21,7 +21,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentplatform.db import (UiDesignerAsset, UiDesignerComment, UiDesignerDocument,
-                              UiDesignerDocumentAsset, UiDesignerImport, UiDesignerReceipt,
+                              UiDesignerDocumentAsset, UiDesignerFont, UiDesignerDocumentFont, UiDesignerImport, UiDesignerReceipt,
                               UiDesignerRender, UiDesignerVersion, utcnow)
 from agentplatform.ui_designer import errors
 from agentplatform.ui_designer.errors import UiDesignerError, invalid, issue
@@ -43,7 +43,7 @@ MAX_RECEIPT_BYTES = 16 << 10
 MAX_RECEIPT_WARNINGS = 20
 RECEIPT_KEYS = {"version", "warnings", "text", "wants_snapshot", "slug", "ok", "undo_ops",
                 "document_id", "artifact_id", "name", "mime", "width", "height", "size",
-                "url", "frames", "duration_ms"}
+                "url", "frames", "duration_ms", "fonts"}
 _SHA_IN_TEXT = re.compile(r"[0-9a-f]{64}")
 
 
@@ -123,11 +123,12 @@ async def usage(s) -> dict:
         return int((await s.execute(select(func.coalesce(func.sum(col), 0)))).scalar_one())
     versions, docs, assets = (await total(UiDesignerVersion.bytes), await total(UiDesignerDocument.bytes),
                               await total(UiDesignerAsset.bytes))
+    fonts = await total(UiDesignerFont.bytes)
     comments = await total(func.length(UiDesignerComment.body))
     staging = sum(len(_canon(v)) for v in (await s.execute(select(UiDesignerImport.staged).where(
         UiDesignerImport.state.in_(("queued", "running"))))).scalars())
-    return {"versions": versions, "documents": docs, "assets": assets, "comments": comments,
-            "total": versions + docs + assets + comments + staging}
+    return {"versions": versions, "documents": docs, "assets": assets, "fonts": fonts, "comments": comments,
+            "total": versions + docs + assets + fonts + comments + staging}
 
 
 async def _doc_version_bytes(s, document_id: str) -> int:
@@ -251,7 +252,7 @@ async def create_document(s, *, slug: str, title: str = "", owner: str, author: 
     if len(title) > 120:
         raise invalid([issue("UD-LIMIT", "$.title", "title is at most 120 characters", title)])
     body = normalize_document(doc) if doc is not None else new_document(title)
-    validate_document(body, known_assets=imported_assets or set())
+    validate_document(body, known_assets=imported_assets or set(), known_fonts={})
     if imported_assets:
         total = (await s.execute(select(func.coalesce(func.sum(UiDesignerAsset.bytes), 0)).where(
             UiDesignerAsset.sha256.in_(imported_assets)))).scalar_one()
@@ -417,8 +418,8 @@ def edit_fingerprint(*, op: str, slug: str, ops: Any, expected_version: Any,
                      reason: str, stable_args: dict | None = None) -> str:
     """Library receipts bind caller inputs, before any source lookup or planning."""
     if stable_args is not None:
-        if op not in ("library-import", "library-apply", "edit-boolean", "edit-icon"):
-            raise ValueError("stable input fingerprints are only for library mutations or edit-boolean/edit-icon")
+        if op not in ("library-import", "library-apply", "edit-boolean", "edit-icon", "font-upload"):
+            raise ValueError("stable input fingerprints are only for library mutations or edit-boolean/edit-icon/font-upload")
         return args_hash(op=op, slug=slug, expected_version=expected_version,
                          reason=reason, stable_args=stable_args)
     return args_hash(op=op, slug=slug, ops=ops, expected_version=expected_version, reason=reason)
@@ -452,7 +453,8 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
         isinstance(expected_version, int) and not isinstance(expected_version, bool)
         and expected_version != row.version and 0 <= expected_version < row.version) else []
     res = apply_ops(row.doc, ops, version=row.version, expected_version=expected_version,
-                    ops_since=since, known_assets=await placed_assets(s, row.id))
+                    ops_since=since, known_assets=await placed_assets(s, row.id),
+                    known_fonts=await placed_fonts(s, row.id))
     if _extra_warnings is not None:
         if op not in ("edit-boolean", "edit-icon"):
             raise ValueError("external warnings are only for prepared boolean/icon edits")
@@ -475,6 +477,9 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
     receipt = {"version": n, "warnings": cap_warnings(res.warnings), "slug": slug,
                "text": f"applied {len(ops)} op(s); document is at version {n}",
                "wants_snapshot": bool(wants_snapshot)}
+    if op == "font-upload":
+        receipt["fonts"] = copy.deepcopy(new.get("fonts", []))
+        receipt["document_id"] = row.id
     if res.undo_ops is not None:
         receipt["undo_ops"] = res.undo_ops
         try:
@@ -509,6 +514,7 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
     await s.flush()
     return {"version": n, "warnings": res.warnings, "doc": copy.deepcopy(new), "replayed": False,
             "folded": fold_into is not None,
+            **({"fonts": copy.deepcopy(new.get("fonts", [])), "document_id": row.id} if op == "font-upload" else {}),
             **({"undo_ops": copy.deepcopy(res.undo_ops)} if res.undo_ops is not None else {})}
 
 
@@ -587,9 +593,12 @@ async def restore_deleted(s, document_id: str) -> None:
 
 
 async def _purge(s, document_id: str) -> None:
-    for model in (UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerRender,
-                  UiDesignerReceipt):
+    for model in (UiDesignerVersion, UiDesignerComment, UiDesignerDocumentAsset, UiDesignerDocumentFont, UiDesignerRender):
         await s.execute(delete(model).where(model.document_id == document_id))
+    # An upload retry must remain bound to its original UUID after slug reuse.
+    # The normal receipt TTL pruner reclaims these small tombstones later.
+    await s.execute(delete(UiDesignerReceipt).where(UiDesignerReceipt.document_id == document_id,
+                                                  UiDesignerReceipt.op.notin_(("font-upload", "motion-export"))))
     await s.execute(delete(UiDesignerDocument).where(UiDesignerDocument.id == document_id))
 
 
@@ -691,7 +700,7 @@ async def get_asset(s, sha: str) -> UiDesignerAsset | None:
     return await s.get(UiDesignerAsset, sha) if SHA_RE.match(sha or "") else None
 
 
-async def gc_assets(s) -> dict:
+async def _gc_images(s) -> dict:
     """Delete assets that no placement row, no retained version (rows, chunks,
     replay bases), no current document and no queued/running import names."""
     placed = select(UiDesignerDocumentAsset.sha256)
@@ -735,6 +744,104 @@ async def gc_assets(s) -> dict:
             freed = int(freed * removed / len(doomed))
         return {"assets_removed": removed, "bytes_freed": freed}
     return {"assets_removed": 0, "bytes_freed": 0}
+
+
+# --- validated document fonts -----------------------------------------------
+
+async def get_font(s, sha: str) -> UiDesignerFont | None:
+    return await s.get(UiDesignerFont, sha)
+
+
+async def placed_fonts(s, document_id: str) -> dict[str, dict]:
+    rows = (await s.execute(select(UiDesignerFont).join(UiDesignerDocumentFont,
+        UiDesignerDocumentFont.sha256 == UiDesignerFont.sha256).where(
+        UiDesignerDocumentFont.document_id == document_id))).scalars()
+    return {row.sha256: {"family": row.family, "weight": row.weight} for row in rows}
+
+
+async def add_document_font(s, document_id: str, *, data: bytes, metadata: dict,
+                            placed_by: str, caps: Caps = Caps()) -> str:
+    sha = hashlib.sha256(data).hexdigest()
+    if not data or len(data) > 1 << 20 or metadata.get("sha256") != sha:
+        raise invalid([issue("UD-FONT", "$.data_base64", "validated font hash/size mismatch")])
+    family, weight = metadata.get("family"), metadata.get("weight")
+    from .schema import FONT_FAMILIES
+    if (not isinstance(family, str) or not family.strip() or len(family) > 128 or
+            family.casefold() in {name.casefold() for name in FONT_FAMILIES} or
+            type(weight) is not int or not 100 <= weight <= 900 or metadata.get("license") != "OFL-1.1" or
+            len(_canon(metadata)) > 12 << 10):
+        raise invalid([issue("UD-FONT", "$.data_base64", "font validator returned invalid approved metadata")])
+    row = (await s.execute(_for_update(s, select(UiDesignerFont).where(
+        UiDesignerFont.sha256 == sha)))).scalars().first()
+    if row is None:
+        size = len(data) + len(_canon(metadata))
+        await _check_caps(s, caps, size, document_id, "font upload")
+        try:
+            async with s.begin_nested():
+                row = UiDesignerFont(sha256=sha, data=data, bytes=size, family=family, weight=weight,
+                                     font_meta=copy.deepcopy(metadata))
+                s.add(row)
+                await s.flush()
+        except IntegrityError:
+            # Another document may install the same content concurrently.
+            # Keep the outer upload/CAS transaction alive and use that blob.
+            row = (await s.execute(_for_update(s, select(UiDesignerFont).where(
+                UiDesignerFont.sha256 == sha)))).scalars().first()
+            if row is None:
+                raise
+    if row.family != family or row.weight != weight:
+        raise invalid([issue("UD-FONT", "$.fonts", "font hash has incompatible validated metadata")])
+    if await s.get(UiDesignerDocumentFont, (document_id, sha)) is None:
+        s.add(UiDesignerDocumentFont(document_id=document_id, sha256=sha, placed_by=placed_by))
+        await s.flush()
+    return sha
+
+
+async def copy_document_fonts(s, source_id: str, dest_id: str, sha_list, *, placed_by: str) -> None:
+    for sha in sorted(set(sha_list)):
+        row = (await s.execute(_for_update(s, select(UiDesignerFont).where(
+            UiDesignerFont.sha256 == sha)))).scalars().first()
+        if row is None or await s.get(UiDesignerDocumentFont, (source_id, sha)) is None:
+            raise invalid([issue("UD-FONT", "$.fonts", "font was not placed in the source document")])
+        if await s.get(UiDesignerDocumentFont, (dest_id, sha)) is None:
+            s.add(UiDesignerDocumentFont(document_id=dest_id, sha256=sha, placed_by=placed_by))
+    await s.flush()
+
+
+async def gc_fonts(s) -> dict:
+    placed = select(UiDesignerDocumentFont.sha256)
+    candidates = set((await s.execute(select(UiDesignerFont.sha256).where(
+        UiDesignerFont.sha256.notin_(placed)))).scalars())
+    if not candidates:
+        return {"fonts_removed": 0, "bytes_freed": 0}
+    live = set()
+    for doc, in (await s.execute(select(UiDesignerDocument.doc))):
+        live.update(_SHA_IN_TEXT.findall(_canon(doc).decode()))
+    for doc, chunks, base in (await s.execute(select(UiDesignerVersion.doc,
+            UiDesignerVersion.chunks, UiDesignerVersion.base_doc))):
+        live.update(_SHA_IN_TEXT.findall(_canon([doc, chunks, base]).decode()))
+    doomed = candidates - live
+    if not doomed:
+        return {"fonts_removed": 0, "bytes_freed": 0}
+    locked = set((await s.execute(_for_update(s, select(UiDesignerFont.sha256).where(
+        UiDesignerFont.sha256.in_(doomed)).order_by(UiDesignerFont.sha256)))).scalars())
+    present = select(UiDesignerDocumentFont.sha256).where(
+        UiDesignerDocumentFont.sha256 == UiDesignerFont.sha256).exists()
+    rows = (await s.execute(select(UiDesignerFont).where(UiDesignerFont.sha256.in_(locked), ~present))).scalars().all()
+    freed = sum(row.bytes for row in rows)
+    for row in rows:
+        await s.delete(row)
+    await s.flush()
+    return {"fonts_removed": len(rows), "bytes_freed": freed}
+
+
+async def gc_assets(s) -> dict:
+    images = await _gc_images(s)
+    fonts = await gc_fonts(s)
+    images["bytes_freed"] += fonts["bytes_freed"]
+    if fonts["fonts_removed"]:
+        images["fonts_removed"] = fonts["fonts_removed"]
+    return images
 
 
 # --- imports (Figma, §8) ----------------------------------------------------

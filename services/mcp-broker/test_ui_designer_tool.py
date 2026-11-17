@@ -311,3 +311,15 @@ def test_motion_preview_compacts_manifest_and_attaches_only_endpoint_images(api)
     ud(action='motion', slug='hud', op='export', version=2, request_id='motion-one',
        motion={'from_node': 'a', 'to_node': 'b', 'format': 'gif'})
     assert api[-1][3]['format'] == 'gif' and api[-1][3]['request_id'] == 'motion-one'
+
+
+def test_fonts_list_is_pinned_compact_and_upload_is_browser_only(api):
+    api.replies[f'{DOCS}/hud/fonts'] = (200, json.dumps({'slug': 'hud', 'version': 3,
+        'fonts': [{'family': 'Custom Sans', 'weight': 400, 'sha256': 'a'*64, 'license': 'OFL-1.1',
+                   'license_text': 'LONG EMBEDDED LICENSE', 'copyright': 'LONG COPYRIGHT'}]}))
+    out = ud(action='fonts', slug='hud', version=3)
+    assert 'Custom Sans' in out and 'LONG EMBEDDED LICENSE' not in out and 'LONG COPYRIGHT' not in out
+    assert api[-1] == ('GET', f'{DOCS}/hud/fonts', {'version': 3}, None)
+    before = len(api)
+    assert 'error:' in ud(action='fonts', slug='hud', op='upload')
+    assert len(api) == before

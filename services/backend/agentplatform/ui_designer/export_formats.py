@@ -166,7 +166,7 @@ def html_document(doc: dict, resolved: dict, node: str | None, assets: dict, cap
                          f'font-size:{typography["size"]};color:{color};white-space:pre;line-height:1')
                 children += f'<span class="ud-node" style="{_escape(style)}">{_escape(line.get("text", ""))}</span>'
         return f'<div class="ud-node" data-node="{_escape(n.get("id", ""))}" style="{_escape(";".join(css))}">{children}</div>'
-    if complex_node(root):
+    if doc.get("fonts") or complex_node(root):
         # The painter has a closed vocabulary, outlined glyphs and trusted data
         # assets. It emits no scripts, foreignObject, navigation, or remote URLs.
         content = painted.svg

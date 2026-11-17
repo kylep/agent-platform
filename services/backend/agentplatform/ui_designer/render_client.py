@@ -159,6 +159,32 @@ class RenderClient:
             body = None
         return r.status_code, body
 
+    async def validate_font(self,data:bytes)->dict:
+        import hashlib
+        if not isinstance(data,bytes) or not 1<=len(data)<=1<<20:raise UiDesignerError('UD-INVALID','font upload limit is1MiB')
+        status,body=await self._call('POST','/font-validate',content=data)
+        if status!=200 or not isinstance(body,dict):_raise(status,body)
+        if body.get('sha256')!=hashlib.sha256(data).hexdigest() or body.get('license')!='OFL-1.1':raise UiDesignerError(UD_RENDER_FAILED,'font validator returned inconsistent metadata')
+        return {k:v for k,v in body.items() if k!='ok'}
+
+    async def _with_fonts(self,s,method,path,*,json,timeout_s=None):
+        for attempt in (0,1):
+            status,body=await self._call(method,path,json=json,timeout_s=timeout_s)
+            if status==409 and isinstance(body,dict) and body.get('code')=='MISSING-FONTS' and attempt==0:
+                declared={e['sha256']:e for key in ('doc','before_doc','after_doc') for e in (json.get(key) or {}).get('fonts',[])}
+                missing=body.get('missing_fonts')
+                if s is None or not isinstance(missing,list) or len(missing)>16 or not missing or any(not isinstance(sha,str) or sha not in declared for sha in missing):raise UiDesignerError(UD_RENDER_FAILED,'renderer requested unrelated font bytes')
+                for sha in dict.fromkeys(missing):
+                    row=await store.get_font(s,sha)
+                    if row is None or any(getattr(row,key,None)!=declared[sha][key] for key in ('family','weight')):raise UiDesignerError('UD-FONT','document font is not stored with validated metadata')
+                    import hashlib
+                    if len(row.data)>1<<20 or hashlib.sha256(row.data).hexdigest()!=sha:raise UiDesignerError(UD_RENDER_FAILED,'stored font does not match its validated digest')
+                    status_,body_=await self._call('PUT','/fonts/'+sha,content=row.data)
+                    if status_!=200:_raise(status_,body_)
+                continue
+            return status,body
+        raise UiDesignerError(UD_RENDER_FAILED,'renderer still lacks font bytes after upload')
+
     async def _send_assets(self, s, shas: list[str]) -> None:
         for sha in shas:
             row = await store.get_asset(s, sha)
@@ -171,9 +197,13 @@ class RenderClient:
 
     async def _fetch(self, s, req: dict, timeout_s: float | None) -> dict:
         for attempt in (0, 1):
-            status, body = await self._call("POST", "/render", json=req, timeout_s=timeout_s)
+            status, body = await self._with_fonts(s,"POST", "/render", json=req, timeout_s=timeout_s)
             if status == 409 and attempt == 0 and isinstance(body, dict) and body.get("missing"):
-                await self._send_assets(s, list(body["missing"]))
+                from .schema import image_assets
+                missing=body["missing"];known={sha for _,sha in image_assets(req["doc"])}
+                if not isinstance(missing,list) or len(missing)>5000 or any(not isinstance(sha,str) or sha not in known for sha in missing):
+                    raise UiDesignerError(UD_RENDER_FAILED,"renderer requested an unrelated render asset")
+                await self._send_assets(s, list(dict.fromkeys(missing)))
                 continue
             if status != 200 or not isinstance(body, dict):
                 _raise(status, body)
@@ -212,10 +242,10 @@ class RenderClient:
                                            max_bytes=self.cache_max_bytes)
         return [r for r in out if r is not None]
 
-    async def lint(self, *, doc: dict, node: str | None, mode: str | None) -> dict:
+    async def lint(self, s=None, *, doc: dict, node: str | None, mode: str | None) -> dict:
         """Read normalized findings only; the renderer owns all layout/rule work."""
         from .lint import RULES_VERSION
-        status, body = await self._call("POST", "/lint", json={"doc": doc, "node": node, "mode": mode})
+        status, body = await self._with_fonts(s,"POST", "/lint", json={"doc": doc, "node": node, "mode": mode})
         if status != 200 or not isinstance(body, dict):
             _raise(status, body)
         def fail():
@@ -256,7 +286,7 @@ class RenderClient:
         req = {"before_doc": before_doc, "after_doc": after_doc, "node": node,
                "mode": mode, "scale": scale, "tolerance": tolerance, "max_bytes": max_bytes}
         for attempt in (0, 1):
-            status, body = await self._call("POST", "/diff", json=req)
+            status, body = await self._with_fonts(s,"POST", "/diff", json=req)
             if status == 409 and attempt == 0 and isinstance(body, dict) and body.get("missing"):
                 missing = body["missing"]
                 known = {sha for _, sha in image_assets(before_doc) + image_assets(after_doc)}
@@ -279,7 +309,7 @@ class RenderClient:
         req = {"doc": doc, "mode": mode, "node": node, "format": format,
                "scale": scale, "max_bytes": max_bytes}
         for attempt in (0, 1):
-            status, body = await self._call("POST", "/export", json=req)
+            status, body = await self._with_fonts(s,"POST", "/export", json=req)
             if status == 409 and attempt == 0 and isinstance(body, dict) and body.get("missing"):
                 missing = body["missing"]
                 known = {sha for _, sha in image_assets(doc)}
@@ -351,7 +381,7 @@ class RenderClient:
         from .schema import image_assets
         known={sha for _,sha in image_assets(req['doc'])}
         for attempt in (0,1):
-            status,body=await self._call('POST',path,json=req,timeout_s=70)
+            status,body=await self._with_fonts(s,'POST',path,json=req,timeout_s=70)
             if status==409 and attempt==0 and isinstance(body,dict) and body.get('missing'):
                 missing=body['missing']
                 if not isinstance(missing,list) or len(missing)>5000 or any(not isinstance(sha,str) or sha not in known for sha in missing):
@@ -395,7 +425,7 @@ class RenderClient:
         req = {"doc": doc, "mode": mode, "node": node, "annotate": annotate,
                "asset_prefix": asset_prefix, "assets": assets or {}}
         for attempt in (0, 1):
-            status, body = await self._call("POST", "/svg", json=req)
+            status, body = await self._with_fonts(s,"POST", "/svg", json=req)
             if status == 409 and attempt == 0 and isinstance(body, dict) and body.get("missing"):
                 missing = body["missing"]
                 known = {sha for _, sha in image_assets(doc)}
@@ -411,9 +441,9 @@ class RenderClient:
             return body
         raise UiDesignerError(UD_RENDER_FAILED, "renderer still lacks SVG assets after upload")
 
-    async def resolved(self, *, doc: dict, mode: str | None) -> dict:
+    async def resolved(self, s=None, *, doc: dict, mode: str | None) -> dict:
         """The resolved tree (glyph data cut) for the web overlay and text answers."""
-        status, body = await self._call("POST", "/resolved", json={"doc": doc, "mode": mode})
+        status, body = await self._with_fonts(s,"POST", "/resolved", json={"doc": doc, "mode": mode})
         if status != 200 or not isinstance(body, dict):
             _raise(status, body)
         return body["tree"]

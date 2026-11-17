@@ -127,8 +127,9 @@ class _Plan:
 
 
 class _Builder:
-    def __init__(self, doc: dict, mode: str | None):
+    def __init__(self, doc: dict, mode: str | None, *, measure_text: bool = True):
         self.doc = doc
+        self.measure_text = measure_text
         self.comps = doc.get("components") or {}
         self.tokens = doc.get("tokens") or {}
         self.modes = doc.get("modes")
@@ -292,6 +293,9 @@ class _Builder:
                 for i, k in enumerate(kids):
                     out.append(self.build(k, child_prefix, it, i, ov, depth, None))
         elif t == "text":
+            if not self.measure_text:
+                it.text = ()
+                return it
             if shared:
                 hit = self.text_cache.get(id(node))
                 if hit is None:
