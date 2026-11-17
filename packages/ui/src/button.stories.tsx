@@ -16,3 +16,11 @@ export const Variants: StoryObj = {
     </div>
   ),
 };
+
+export const Default: StoryObj<typeof Button> = {
+  args: { children: "Save changes" },
+};
+
+export const Disabled: StoryObj<typeof Button> = {
+  args: { children: "Saving…", disabled: true },
+};

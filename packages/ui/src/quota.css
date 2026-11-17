@@ -22,11 +22,12 @@
   overflow: hidden; background: var(--quota-fill);
 }
 
-/* Past its reset or simply old: still the last thing Anthropic said, drawn
-   quieter so it is not mistaken for a live number. The WHOLE bar dims, track
-   and label included — dimming the fill alone leaves a nearly-empty bar
-   looking exactly like a fresh one, since there is barely any fill to dim. */
-.quota-bar[data-stale] { opacity: 0.5; }
+/* A dashed outline marks a stale reading, including at 0% fill. Keep label
+   and background colours intact to preserve contrast. */
+.quota-bar[data-stale]::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  border: 1px dashed var(--ds-text-muted); border-radius: inherit;
+}
 
 .quota-label {
   position: absolute; top: 0; left: 0; height: 100%; width: 100cqw;

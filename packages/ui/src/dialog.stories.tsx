@@ -6,19 +6,30 @@ import { ConfirmDialog } from "./dialog";
 const meta: Meta = { title: "UI/ConfirmDialog" };
 export default meta;
 
+function DiscardExample({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
+  const [open, setOpen] = useState(initiallyOpen);
+  const [discarded, setDiscarded] = useState(false);
+  return (
+    <>
+      <Button variant="secondary" onClick={() => { setDiscarded(false); setOpen(true); }}>
+        Discard
+      </Button>
+      <p role="status">{discarded ? "Change discarded." : ""}</p>
+      <ConfirmDialog open={open} title="Discard change #12?"
+                     confirmLabel="Discard it"
+                     onConfirm={() => { setDiscarded(true); setOpen(false); }}
+                     onCancel={() => setOpen(false)}>
+        "Edit news: agent definition" will be closed and its branch deleted. This can't be
+        undone from here.
+      </ConfirmDialog>
+    </>
+  );
+}
+
 export const Discard: StoryObj = {
-  render: function Render() {
-    const [open, setOpen] = useState(false);
-    return (
-      <>
-        <Button variant="secondary" onClick={() => setOpen(true)}>Discard</Button>
-        <ConfirmDialog open={open} title="Discard change #12?"
-                       confirmLabel="Discard it"
-                       onConfirm={() => setOpen(false)} onCancel={() => setOpen(false)}>
-          "Edit news: agent definition" will be closed and its branch deleted. This can't be
-          undone from here.
-        </ConfirmDialog>
-      </>
-    );
-  },
+  render: () => <DiscardExample />,
+};
+
+export const Open: StoryObj = {
+  render: () => <DiscardExample initiallyOpen />,
 };

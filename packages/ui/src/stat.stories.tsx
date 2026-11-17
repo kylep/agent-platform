@@ -14,3 +14,16 @@ export const Row: StoryObj = {
     </StatRow>
   ),
 };
+
+export const Wrapping: StoryObj = {
+  render: () => (
+    <div className="max-w-xs">
+      <StatRow>
+        <Stat label="Successful runs" value={132} />
+        <Stat label="Failed runs" value={4} warn />
+        <Stat label="Total runs" value={136} to="/reporting"
+              sub="Across 5 agents in the last 24 hours" />
+      </StatRow>
+    </div>
+  ),
+};

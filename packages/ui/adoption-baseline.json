@@ -1,0 +1,625 @@
+[
+  {
+    "file": "apps/stockmarket/frontend/src/App.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "c67cc16b1998a53b3df530689f8be886a49c1b5e12c0d9edfc8ecdb6e585eb4f",
+    "count": 1
+  },
+  {
+    "file": "apps/stockmarket/frontend/src/App.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "dd4dfee646608a33bc1377184d3fd6125361e16aac9496d58a769cc47974cb5d",
+    "count": 1
+  },
+  {
+    "file": "apps/stockmarket/frontend/src/App.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "f6fe5464a440d24dc10bc7ed36bbc32ac5a826d0ae81307eff5943ab5b3e5264",
+    "count": 1
+  },
+  {
+    "file": "apps/stockmarket/frontend/src/App.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "fc8122031c5096716f424940e738136a30d8fc3449cc5b593dc1a8715d27fa0c",
+    "count": 1
+  },
+  {
+    "file": "apps/stockmarket/frontend/src/backtests.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "6b0daa38ac930daee19fd6d481b2ecafcc5bc28b39713a1a94cb83a63b4aeb27",
+    "count": 1
+  },
+  {
+    "file": "apps/stockmarket/frontend/src/chart.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "c299d40868e8dca0949a3716b77f690b23cbd357547514a8bf0f9bc90bb86ebc",
+    "count": 1
+  },
+  {
+    "file": "apps/stockmarket/frontend/src/components.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "386d7eed935ee7e36e510a7089f3969b3146790966d1c984840a0e358240b1c1",
+    "count": 1
+  },
+  {
+    "file": "apps/tcms/frontend/src/App.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "8278b7ffe05b3952fb439394ed2335acfa6be3dbf5700d34c7d5a47aba51b57c",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/AgentFieldHelp.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "6afd6fc85de7b3ec84d28d029e17456aa9be6bd8e4b9e9963c87ebed4d0c5239",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/AgentForm.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "b50ba6d3130230ddb012e967687214e897812e849c160cba06a09d19a22f6473",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/agents/ProfileImage.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "d41f803bbffbc83a1facdf90ecbe9a827c5d86ba792e3aa1e1b7cdb74739f75a",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/artifacts/ArtifactCard.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "eb6e2597d5c1f293c9f2053bdf893e5e6cf5de762ced4120b58b87adf5f55531",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/artifacts/Lightbox.tsx",
+    "kind": "alternative-library",
+    "name": "@radix-ui/react-dialog",
+    "signature": "87c87158e2b2af70738b0f58029da19986535641635479af308fd68c0f5e382a",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/artifacts/Lightbox.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "162560739e6a686e844800991e389b7e386afee0a62431dca71a97b298a4162a",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/CapabilityPickers.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "8c16320ecaa432c6a0297e72513da16e94f186395513e58afc647d2e5f9839a7",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/CronBuilder.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "66d6dfc61ec23d4b9475fdf2dbfd32c229401bbec703f3dd3e14071b632848c3",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/relay/Message.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "765b3ea450897a4df612e7a2557c4a58c561dc4df2466cfd9cd6116555745caf",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/relay/Message.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "a0b9e5d8b48d740ad291cbd7cfecc36cc07b5c6709d0ba4d9d1eb103d84014b7",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/relay/Message.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "e1078f2507093028066d70826b0036bf80be4b4d316193b760a837a104cca95c",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/relay/Rail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "4e6298e220db7e480ee690dadba6a8a718f90dd87a4a4c3a2a5016f42b7e2bc0",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/relay/Rail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "c98cbfc53f82f0f5b88216f00a0e0713d5e549c7db9a533867ed2bff002ef744",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/relay/ThreadPane.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "90d3e939c3a17d78204db4148bdc1ea4330a8c3e4e97dc07fea43c812df4a432",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/studio/ReferenceStrip.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "81a5dc45b8e0dd6bfe7a6d503cdfa95ad265a0623ae84704aef0adce1afeb3d6",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/tickets/DetailAssign.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "40897e54d77385fe178a08aa279b9fdddf8fde648227ad70be830f4b6a830119",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/ui-designer/Canvas.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "084f1d563dd27ca24073917c5417fee1d06e48e126aa990faa22c71a5bf545c7",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/ui-designer/Canvas.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "b4540b4497f1e721ccf70fb97427bbf15c4d70409fd67283fa9b3f8817a0bf63",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/ui-designer/Canvas.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "c53ac347ead589288a89a11c1622c894d3476d42e877abb295e6554bd0afbdd4",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/ui-designer/CompareVersions.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "53a88188a50b1a00b2195e61e32e19a8607a7fcb21a04646de3d794ce66d6eda",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/ui-designer/PathEditor.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "bf4a70d040535e3e871a43abc3253dcb1b1e8636418fd2ba6443ca28a29ee3ca",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/ui-designer/VectorTools.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "7aa737b0fd23a505fd906755964c122ac78f33b276e49e295ee9ae31d9c915d3",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/components/wiki/History.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "241b00e9d1ab618559d8c708f759ab5b5ac03075caa4ff89e81453e02c244ad0",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/Layout.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "a81da71fac2060dbb862e398508554a2634e89f4857a07fdb15d055a5149cfff",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "24eef6165a153d0e932781a506d8c204f4abd42a329489cab44b3b53befa963a",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "2d52aa20e6de5db43c2a9293c364e2eee6fffb51bf83fb89089f15d9f9fa53ad",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "47d3d5485b84ca386b28bf8206f777e32a9cb944c55a1698596732fcb9f571d8",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "6a82aa2a0af90b600ccd42e000fcf6ed20d76cbd1280d2833163dcea3ddd9521",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "a1e16c1e677004e78a6a3b8e87687e892da16293eaf7d4783d949f93bc940ebc",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "ed5afc91b63c3cc025e1f2ef8f1ab9713b1620af113f0011caba2a53994be0b3",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "ee3735a57e643478fec8e310f3f72e562fdd00ed45e0d00314e11d77cde97f13",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/AgentDetail.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "f7834c2d3a0800329696dc12d6f8a497f1a6a9eb0a792b3df6a9a51661b1b3be",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Backups.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "47d73ae9d3a086eea1f23b206a3119ba2bdb21976b5cf33dc20361e629ff5023",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Backups.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "5f92ce056ae70b9ccbf32d8d75495bb38b39c54735d79490569d0a7beac90375",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/LiveView.tsx",
+    "kind": "raw-control",
+    "name": "select",
+    "signature": "33a170ddad64b9f33f20012a4ede4fdd24edb457420869df14c67b9f4371d765",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Login.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "1d883459bc1a364410ad4ed66b9ed05d9919a09d829928c33a34d2346c84446a",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Login.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "3be268c8e63079a6d6e3963f60602ad299ff66ab6bf0dd047f09bc1b2ef3807d",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/ProposalReview.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "66bf316c05af96c7ad47ea5b1b300ef87269ed825c7d3c61705e9a4a5abb7219",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/ProposalReview.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "a787283346a585820ca51cb99acb1970c0df75ecf8d948c93464779125f314f8",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/ProposalReview.tsx",
+    "kind": "raw-control",
+    "name": "textarea",
+    "signature": "bc4c044504bd877b583b7b8a70882b878e4162048e1378a53004f5eb0aea52a2",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "078603685de57f634336e2f84c5403c602577878edabfa2db16290e35c5ef484",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "191de74fefd4f11fc9f90486bb803467665cb49623d7a8a2322035f924e0a316",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "19759e52bfe58fedf41027a3daba6305935c1011854888e12588373fc82565e3",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "2811052c163bbeb0b534ade6a5ea581403b24ae56227c0d451284a920d63a183",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "textarea",
+    "signature": "465cac5826bf01cf4c07030258cc122fe306dbf49160252fcee9f42c16749fb4",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "6955b75c496fe6a2d1f66662aef191a3a9d314dde0e3d0a669dbda234155ef59",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "6b04beb462f871e22b5ada0b6f1efa00320ad6a630a25a2187fe02af4a3232ca",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "73d5a96316adbbfa32b38db5e7d19bdddd52d2179f0246d1a4ba9bd98c16e82b",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "7747b9e638c25948a0d06ae6ca92157e21eba867ed4d5c170736adad74f56d30",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "c58b0b6e5818f7bb8541b23444ee0fe92af4e98a3a090b6933346687fb7a9b61",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "c8ee6e7b8774e5b2b53a83dc6e568ba484461bb82bc72a9324aa5bb9da347425",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "textarea",
+    "signature": "cfa560afd3bc815d74d7e903deeda5293f9c63bad2dbacf3d6e5edaae379fc53",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RapidChats.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "d6f373a08ccff4acc6fd2da208a6f68047e103667bd64637d6600096c35db212",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Relay.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "192faa35da948cd42e0eeae03a2bf390b82a78795362c505ff5da811068060ee",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Relay.tsx",
+    "kind": "raw-control",
+    "name": "select",
+    "signature": "8b1ba96170d56ae8098051f206fab1c1f066d65831eb3358904e85ba1dfcf3e4",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Relay.tsx",
+    "kind": "raw-control",
+    "name": "select",
+    "signature": "ac937a797c38c420bd6c41ffe0effe06c01f99655330da75fcc3180e48328bb7",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Relay.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "cba528328dd0139b04f41b8e45a2fcdf435f2969542fcfbde1f50eaa03607795",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Reports.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "28167560cd1cf9399088d446c056f7ab9981d2d9a14fe67e3cbf09555fc6a438",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Reports.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "a9a27844ecfaf83e613599e1996ccad6e62fd953d179b32a59be2b4c4faf64f1",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/RestoreReport.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "583c5c4218e0281bc5c5591af0c04d9082820bfa1f09c2f371f069707081a29c",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Secrets.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "126af98c838d03ec9bc5e113578102663b319853fa5b5c86a833aa3d4754570a",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Secrets.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "6d8c77ca1cfddc8d446cc16ef8f43c7653792036b8a7f886fe10a6612a9ed8cf",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Skills.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "177e5b5cd3fe8a0dc209abcd3ef5b58f2f96cde9087d7a544e5c623299e5ebbb",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Skills.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "25dc203bfc21d59e274cd36ad8f5f1af6841340695becf05aa438fa18b9e3379",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/StateApp.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "2299e13d1de3885cd3c45f94fbd0e07afe9db178085040673e959ae47441cdf9",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Tasks.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "284c6419fb43bf8523349d921439e41d0350298d1bc3b8de23cdad3a9b42788d",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Tasks.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "4f9fabd6b6589ffe03d149b35bc483fc79d92630eae4539d938c4557ef85a858",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Tasks.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "5deba2a49e3074fc03ef8e499435391a05246f3d1abfc5f889831ae6b76c4f67",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Tasks.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "a0dac3e6b0f62c053c6e5a0c2ac5a189be1570bca0dba0f06acfc66589a9a707",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Tasks.tsx",
+    "kind": "raw-control",
+    "name": "textarea",
+    "signature": "d044caa3b0141629894aa1c948c8ca324972d03129e21e77ce5e191ceb9ebd8c",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/TeamsProjects.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "4c590886f721fd5ea3a8bec34aeb9d9e52491be787baf9da6f9c21dcbaadee9b",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/Tickets.tsx",
+    "kind": "raw-control",
+    "name": "input",
+    "signature": "553066dc25e75d770d2b5ae8946c1558f1c46422026eb5030cc9684ca1481044",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "196ccda303df1e7706fd5cd517cd17796edf8038a4d3754ddacba877f8074406",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "270c9fa5d506dc6ca13546d22e478b7cf6dc4d7e54a9d91415b9b2c7dc3f53ba",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "406c56000a3a9806ad3769468ad09fbb370ac97de4b74a3b207cfcb0239f5f41",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "select",
+    "signature": "54cf5dccafa44b4a56817f9a6a67748a9f26e119415119386a2ea8835c32ca16",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "77647d233163f98b3c74dd58f0a8c937a57fe06424a8173460d81700068b1eed",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "textarea",
+    "signature": "85d4219ae4f21b9e7e03594ef507d1bba598d0bdb260d291180af8b42d994f48",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "a02e8f713df9a4256c2d23aac33fd8ca52013cf45cd55d407b9b1ab0b1555d30",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerDocument.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "dfd6d2e69e033811f902fbb9e3891d195bb041de53e139c8e26ba1ea47d61d15",
+    "count": 1
+  },
+  {
+    "file": "services/web/src/pages/UiDesignerPlay.tsx",
+    "kind": "raw-control",
+    "name": "button",
+    "signature": "199164f2ced8a6f926f322e779f9faade73655d374c96c767a46deca1c78eef1",
+    "count": 1
+  }
+]

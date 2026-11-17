@@ -53,9 +53,9 @@
   /* status */
   --color-amber-400: #f5a623;
   --color-red-400: #f87171;
-  --color-red-600: #dc2626;
+  --color-red-600: #d32323;
   --color-green-400: #4ade80;
-  --color-green-600: #16a34a;
+  --color-green-600: #15803d;
   --color-blue-600: #2563eb;
 
   /* quota bars (docs/design/22) — the sidebar's two usage underlines. The
@@ -143,7 +143,7 @@
   --ds-text: #18181b;
   --ds-text-muted: #52606d;
   --ds-text-subtle: #5e6b79; /* darkened for WCAG AA on white */
-  --ds-accent: #0f766e; /* darker teal — AA contrast on white */
+  --ds-accent: #0d6f67; /* AA contrast on light surfaces and the active nav tint */
   --ds-accent-hover: #0a5d56;
   --ds-on-accent: #ffffff;
   --ds-warning: #b45309;

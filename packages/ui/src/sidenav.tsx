@@ -205,6 +205,7 @@ export function SideNav({ entries, activePath, activeSearch = "", badges = {},
               <span className="nav-parent">{renderLink(e, false, true)}</span>
               <button type="button" className={`nav-chevron${expanded ? " open" : ""}`}
                       aria-label={expanded ? `Collapse ${e.label}` : `Expand ${e.label}`}
+                      aria-expanded={expanded}
                       onClick={() => setOpen((o) => ({ ...o, [e.to]: !expanded }))}>
                 ›
               </button>

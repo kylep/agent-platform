@@ -151,7 +151,7 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
                   "PLAYWRIGHT_JSON_OUTPUT_NAME": str(out / "playwright-web.json")}
         pw_artifacts = [out / "junit-web.xml", out / "playwright-web.json"]
 
-    web_globs = ["services/web/**", "packages/ui/**"]
+    web_globs = ["services/web/**", "packages/ui/**", "apps/*/frontend/**", "package.json", "package-lock.json"]
     api_globs = ["services/backend/agentplatform/api/**"]
     suites = [
         _suite("backend", ["services/backend/**", "sdk/**", "bin/ap-verify", "bin/ap_verify*"],
@@ -180,13 +180,19 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
                requires=["npm"]),
         _suite("web-tokens", web_globs, "services/web", ["npm", "run", "-s", "check:tokens"],
                requires=["npm"]),
+        _suite("web-design-system-tests", web_globs, "services/web", ["npm", "run", "-s", "test:design-system"],
+               requires=["npm"]),
         _suite("web-build", web_globs, "services/web", ["npm", "run", "-s", "build"],
                requires=["npm"]),
         _suite("web-storybook", web_globs, "services/web", ["npm", "run", "-s", "build:storybook"],
                requires=["npm"]),
+        _suite("web-design-system", web_globs, "services/web", ["npm", "run", "-s", "check:design-system"],
+               requires=["npm"]),
         _suite("web-playwright", web_globs, "services/web",
                ["npx", "playwright", "test", "--reporter=line,junit,json"],
                env=pw_env, requires=["npx"], artifacts=pw_artifacts),
+        _suite("web-storybook-tests", web_globs, "services/web", ["npm", "run", "-s", "test:storybook:visual"],
+               requires=["npm", "docker"]),
     ]
 
     for app_dir in sorted((root / "apps").glob("*")):
@@ -225,7 +231,7 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
 def _matches(path: str, glob: str) -> bool:
     # fnmatch's `*` already crosses `/`, so `a/**` is "anything under a/".
     if glob.endswith("/**"):
-        return path == glob[:-3] or path.startswith(glob[:-2])
+        return fnmatchcase(path, glob[:-3]) or fnmatchcase(path, glob)
     return fnmatchcase(path, glob)
 
 

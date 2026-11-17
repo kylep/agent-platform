@@ -311,9 +311,12 @@ jobs:
   web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    # Match local Apple Silicon visual baselines without QEMU emulation.
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -330,8 +333,26 @@ jobs:
       - name: Design-system token gate
         # No raw hex outside packages/ui/src/tokens.css — see packages/ui/README.md
         run: cd services/web && npm run check:tokens
+      - name: Design-system checker regression tests
+        run: npm run test:design-system -w web
       - name: Storybook builds
-        run: cd services/web && npm run build:storybook
+        run: npm run build:storybook -w web
+      - name: Component adoption and story coverage
+        env:
+          UI_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: npm run check:design-system -w web
+      - name: Story rendering, accessibility, interactions and visual comparisons
+        run: npm run test:storybook:visual -w web
+      - name: Upload design-system report and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-system-coverage
+          include-hidden-files: true
+          path: |
+            .ap/design-system-report.json
+            .ap/design-system-report.md
+            services/web/storybook-tests/test-results/
 
   # The Playwright UI gate is ~145s of the old single web job, so it runs as its own
   # three shards (Playwright's native --shard, fullyParallel is already on).

@@ -55,6 +55,8 @@ def _names(suites):
         ("services/web/src/App.tsx", "web-lint"),
         ("services/web/src/App.tsx", "web-storybook"),
         ("packages/ui/src/sidenav.tsx", "web-playwright"),
+        ("apps/tcms/frontend/src/App.tsx", "web-design-system"),
+        ("package-lock.json", "web-storybook-tests"),
         ("tools/prices/run.py", "tool-prices"),
         ("charts/agent-platform/values.yaml", "helm"),
     ],
@@ -62,6 +64,11 @@ def _names(suites):
 def test_path_maps_to_suite(apv, path, expected):
     table = apv.suite_table(REPO_ROOT)
     assert expected in _names(apv.select(table, [path]))
+
+
+def test_frontend_glob_matches_nested_sources_but_not_app_backends(apv):
+    assert apv._matches("apps/tcms/frontend/src/nested/Page.tsx", "apps/*/frontend/**")
+    assert not apv._matches("apps/tcms/backend/main.py", "apps/*/frontend/**")
 
 
 def test_tool_change_also_runs_executor(apv):
@@ -73,7 +80,8 @@ def test_tool_change_also_runs_executor(apv):
 def test_web_change_runs_the_web_steps_in_ci_order(apv):
     table = apv.suite_table(REPO_ROOT)
     names = _names(apv.select(table, ["services/web/src/api.ts"]))
-    assert names == ["web-lint", "web-tokens", "web-build", "web-storybook", "web-playwright"]
+    assert names == ["web-lint", "web-tokens", "web-design-system-tests", "web-build",
+                     "web-storybook", "web-design-system", "web-playwright", "web-storybook-tests"]
 
 
 def test_runner_suite_runs_the_directory_like_ci(apv):

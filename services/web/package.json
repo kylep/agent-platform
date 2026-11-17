@@ -12,7 +12,12 @@
     "walk": "node scripts/walk.mjs",
     "storybook": "storybook dev -p 6006",
     "build:storybook": "storybook build",
-    "check:tokens": "node bin/check-no-raw-hex.mjs"
+    "check:tokens": "node bin/check-no-raw-hex.mjs",
+    "check:design-system": "node bin/check-design-system.mjs",
+    "test:design-system": "node --test bin/ui-adoption.test.mjs bin/ui-story-coverage.test.mjs bin/check-design-system.test.mjs",
+    "test:storybook": "playwright test --config playwright.storybook.config.ts",
+    "test:storybook:visual": "node bin/run-storybook-visual.mjs",
+    "check:ui": "npm run check:tokens && npm run test:design-system && npm run build:storybook && npm run check:design-system && npm run test:storybook:visual"
   },
   "dependencies": {
     "@ap/ui": "0.1.0",
