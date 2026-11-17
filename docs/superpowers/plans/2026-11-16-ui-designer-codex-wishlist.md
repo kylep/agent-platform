@@ -400,4 +400,18 @@ syntax, with authorized, bounded live thumbnails.
   remain unchanged; the visual sample and Linux/amd64 native render passed.
   Backend 4,021 passed / 21 skipped; browser 457, renderer 117, broker 472,
   facade 40 pass. Web build, Storybook, tokens, SDK drift and Helm lint pass.
-  Deployment/live acceptance follows this commit. Fresh weekly quota: 51%.
+  Pushed `ffa7067`, deployed `ud-effects-20261117` in Helm revision 163.
+  Live nested clipped backdrop and cropped pixels matched (123 grey), conic
+  continuity and generated SVG passed, and browser save/undo/redo passed at
+  versions 2/3/4. Temporary documents removed. Fresh weekly quota: 51%.
+
+- **P3.15 Status:** implemented shared native smart-animation manifests,
+  prototype playback, and pinned Remotion MP4/GIF exports with atomic artifact
+  receipts, resource limits and process-group cancellation cleanup.
+  Backend 4,028 passed / 21 skipped; final focused cancellation/API/client
+  checks passed. Browser 465, renderer 135, broker 473 and facade 40 pass.
+  Web build, Storybook, tokens, SDK drift (829 files) and Helm lint pass.
+  Linux/amd64 Node 22 acceptance passed: 120-frame MP4 (720²) and GIF
+  (480²) with concurrent static renders; peak 759 MiB under a 1 GiB cgroup,
+  no OOM events. The test caught and removed an incompatible Node flag.
+  Deployment and live API/browser acceptance are pending.

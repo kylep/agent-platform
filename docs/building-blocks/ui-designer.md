@@ -27,11 +27,24 @@ uses one tool with an `action`:
 | `history op=diff` | the writes between two version numbers, one line each |
 | `export` | a full-size PNG artifact of a frame, plus a card in `#design` |
 | `place` | copy an image artifact into the document and return the `sha256` an image node uses |
+| `motion` | preview a transition or save a short MP4/GIF artifact |
 
-Every write publishes on the `ui_designer.events` topic, which feeds the
+Document writes publish on the `ui_designer.events` topic, which feeds the
 `/api/ui-designer/events` live stream the web UI refreshes from. An export, and
 a version someone gives a label, also post a card to the `#design` channel (an
-event row, so a frame title can never summon an agent).
+event row, so a frame title can never summon an agent). Motion exports create
+artifacts without automatically posting to Relay.
+
+The editor's motion controls preview or export two frames from a retained
+document version. Matching `meta.motion_key` values animate position, size,
+rotation and opacity; changed content crossfades. Complex effects may use a
+dissolve, reported in the preview warnings. Prototype links can select
+**Smart animate** and an easing curve; reduced-motion preferences are respected.
+Exports allow 200–5,000 ms at 12 or 24 fps, with a maximum edge of 720 pixels
+for MP4 and 480 for GIF. Both formats flatten transparency onto white. Agents
+use `action=motion op=preview|export version=<n>` with
+`motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?}`.
+Export also requires the artifacts grant and a replay-safe `request_id`.
 
 The `ui-designer` [skill](skills.md) teaches the loop: outline, batched ops,
 look at a snapshot.

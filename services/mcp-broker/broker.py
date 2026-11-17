@@ -2433,7 +2433,7 @@ async def image_gen(action: str, prompt: str | None = None, model: str | None = 
 # for the artifacts reason: the author of every write is the forwarded bearer,
 # and the answer to `edit`/`snapshot` is PICTURES (`_with_pictures`).
 UI_DESIGNER_ACTIONS = ("list", "create", "get", "outline", "edit", "snapshot",
-                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library", "templates", "icons")
+                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library", "templates", "icons", "motion")
 _UI_DESIGNER = "/api/ui-designer"
 # Inside it the API commits first and renders under its own 15 s deadline.
 _UI_DESIGNER_TIMEOUT = 45
@@ -2522,7 +2522,7 @@ async def ui_designer(action: str, slug: str | None = None, title: str | None = 
                       y: float | None = None, parent_id: str | None = None,
                       from_version: int | None = None, to_version: int | None = None,
                       name: str | None = None, format: str = "png", tolerance: int = 0,
-                      severity: str | None = None, all_modes: bool = False, library: dict | None = None, template: dict | None = None, icon: dict | None = None):
+                      severity: str | None = None, all_modes: bool = False, library: dict | None = None, template: dict | None = None, icon: dict | None = None, motion: dict | None = None):
     """Design documents: UI frames you edit as ops and look at as pictures.
     Actions: list · create · get · outline · edit · snapshot · history ·
     restore · place · inspect · comments · export. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
@@ -2541,7 +2541,7 @@ Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
     opacity(0-1) visible clip shadow blur backdrop_blur blend meta link_to.
     Bounds: min_w/max_w/min_h/max_h are numbers 0..100000, min<=max. constraints={horizontal,vertical}: start|end|center|stretch|scale.
     Pins need numeric authored geometry on free/absolute children; scale needs positive original parent size. constraints are structural, not legacy overrides.
-    link_to = {target: authored page-frame id, trigger?: tap|hover|after-delay, transition?: instant|dissolve|slide,
+    link_to = {target: authored page-frame id, trigger?: tap|hover|after-delay, transition?: instant|dissolve|slide|smart-animate, easing?:linear|ease-in|ease-out|ease-in-out,
     duration_ms?: 0..2000, delay_ms?: 100..60000 (after-delay only)}; defaults tap/instant, duration 0 instant else 200, delay 1000.
     Clear links before deleting targets; play pinned versions at /ui-designer/<slug>/play?version=N (no URLs/scripts).
     fill = paint or a LIST of paints stacked bottom to top (max 8). paint = "#rrggbb"|"$color.name"
@@ -2582,7 +2582,7 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update is literal and cannot set id/type/children; a page only takes title. resize/boolean/icon return exact literal undo_ops (128 ops/8KiB max); redo the original request.
-Other actions: icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+Other actions: motion op:preview|export, version, motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?:mp4|gif}; export needs request_id. icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes need expected_version+request_id and exact-input retries. Pins render offline; preview catches conflicts; UUID updates never follow reused slugs; node="$libraries" pages provenance.
   lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
@@ -2692,6 +2692,38 @@ Example edit ops (new page: a frame, a text and a row of two cards):
                 return "error: library apply requires expected_version and request_id"
             payload.update(expected_version=expected_version, request_id=request_id)
         return await _artifact_call("POST", f"{base}/libraries/{pin}/{op}", json=payload, timeout=_UI_DESIGNER_TIMEOUT)
+    if action == "motion":
+        allowed = {"from_node", "to_node", "duration_ms", "easing", "fps", "max_edge", "format"}
+        if (op not in ("preview", "export") or version is None or not isinstance(motion, dict)
+                or not {"from_node", "to_node"} <= motion.keys() or set(motion) - allowed):
+            return "error: motion needs op=preview|export, version and motion={from_node,to_node,...}"
+        payload = {key: value for key, value in motion.items() if key != "format"}
+        payload.update(version=version)
+        if mode is not None:
+            payload["mode"] = mode
+        if op == "export":
+            if not request_id:
+                return "error: motion export requires request_id"
+            payload.update(format=motion.get("format", "mp4"), request_id=request_id)
+        out = await _artifact_call("POST", f"{base}/motion/{op}", json=payload, timeout=120)
+        result = _artifact_rows(out)
+        if not isinstance(result, dict):
+            return out
+        if op == "export":
+            return _json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        summary = {key: result[key] for key in ("motion_version", "width", "height", "frames",
+            "duration_ms", "fps", "easing", "warnings") if key in result}
+        summary["layers"] = len(result.get("layers", []))
+        pictures = []
+        try:
+            for key, caption in (("from_image", "Start frame"), ("to_image", "End frame")):
+                data = _b64.b64decode(result[key], validate=True)
+                if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) > 8 << 20:
+                    raise ValueError()
+                pictures.append((data, "image/png", caption))
+        except (KeyError, ValueError, TypeError):
+            return "error: invalid motion preview images"
+        return _with_pictures([_json.dumps(summary, ensure_ascii=False, separators=(",", ":"))], pictures)
     if action == "lint":
         if version is None:
             return "error: action='lint' requires an explicit retained version"

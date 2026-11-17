@@ -347,6 +347,46 @@ class RenderClient:
             raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean warnings exceed bounds')
         return body
 
+    async def _motion_call(self,s,path,req):
+        from .schema import image_assets
+        known={sha for _,sha in image_assets(req['doc'])}
+        for attempt in (0,1):
+            status,body=await self._call('POST',path,json=req,timeout_s=70)
+            if status==409 and attempt==0 and isinstance(body,dict) and body.get('missing'):
+                missing=body['missing']
+                if not isinstance(missing,list) or len(missing)>5000 or any(not isinstance(sha,str) or sha not in known for sha in missing):
+                    raise UiDesignerError(UD_RENDER_FAILED,'renderer requested unrelated motion assets')
+                await self._send_assets(s,list(dict.fromkeys(missing)));continue
+            if status!=200 or not isinstance(body,dict):_raise(status,body)
+            if body.get('renderer_version')!=renderer_version():raise UiDesignerError(UD_RENDER_FAILED,'motion renderer capability mismatch')
+            return body
+        raise UiDesignerError(UD_RENDER_FAILED,'renderer still lacks motion assets')
+
+    async def motion_preview(self,s,*,doc,from_node,to_node,mode=None,duration_ms=800,easing='ease-in-out',fps=24,max_edge=720):
+        req=dict(doc=doc,from_node=from_node,to_node=to_node,mode=mode,duration_ms=duration_ms,easing=easing,fps=fps,max_edge=max_edge)
+        body=await self._motion_call(s,'/motion/preview',req)
+        from .motion import validate_manifest
+        validate_manifest(body)
+        return {k:v for k,v in body.items() if k!="ok"}
+
+    async def motion_export(self,s,*,doc,from_node,to_node,format,mode=None,duration_ms=800,easing='ease-in-out',fps=24,max_edge=720,max_bytes=8<<20):
+        req=dict(doc=doc,from_node=from_node,to_node=to_node,format=format,mode=mode,duration_ms=duration_ms,easing=easing,fps=fps,max_edge=max_edge,max_bytes=max_bytes)
+        body=await self._motion_call(s,'/motion/export',req)
+        def fail():raise UiDesignerError(UD_RENDER_FAILED,'invalid motion export response')
+        mime={'mp4':'video/mp4','gif':'image/gif'}.get(format)
+        if not mime or body.get('mime')!=mime or body.get('format')!=format:fail()
+        w,h,n=body.get('width'),body.get('height'),body.get('frames')
+        if any(type(v) is not int or v<2 for v in (w,h,n)) or max(w,h)>(480 if format=='gif' else 720) or n>120 or w*h*n>(28_000_000 if format=='gif' else 64_000_000):fail()
+        if body.get('duration_ms')!=duration_ms or body.get('fps')!=fps:fail()
+        encoded=body.get('data')
+        if not isinstance(encoded,str) or len(encoded)>((max_bytes+2)//3)*4:fail()
+        try:data=base64.b64decode(encoded,validate=True)
+        except ValueError:fail()
+        if not data or len(data)>max_bytes or (format=='gif' and not data.startswith((b'GIF87a',b'GIF89a'))) or (format=='mp4' and data[4:8]!=b'ftyp'):fail()
+        notes=body.get('warnings')
+        if not isinstance(notes,list) or len(notes)>32 or any(not isinstance(n,str) or len(n.encode())>500 for n in notes):fail()
+        return {**body,'data':data}
+
     async def svg(self, s=None, *, doc: dict, mode: str | None, node: str | None = None, annotate: bool = False,
                   asset_prefix: str = "/api/ui-designer/assets/", assets: dict | None = None) -> dict:
         """SVG stays vector except native-effect patches. Assets are uploaded by

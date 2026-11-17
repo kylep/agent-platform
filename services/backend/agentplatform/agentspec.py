@@ -173,7 +173,7 @@ UI_DESIGNER_CHEATSHEET = r"""Document schema (closed: unknown keys are rejected;
     opacity(0-1) visible clip shadow blur backdrop_blur blend meta link_to.
     Bounds: min_w/max_w/min_h/max_h are numbers 0..100000, min<=max. constraints={horizontal,vertical}: start|end|center|stretch|scale.
     Pins need numeric authored geometry on free/absolute children; scale needs positive original parent size. constraints are structural, not legacy overrides.
-    link_to = {target: authored page-frame id, trigger?: tap|hover|after-delay, transition?: instant|dissolve|slide,
+    link_to = {target: authored page-frame id, trigger?: tap|hover|after-delay, transition?: instant|dissolve|slide|smart-animate, easing?:linear|ease-in|ease-out|ease-in-out,
     duration_ms?: 0..2000, delay_ms?: 100..60000 (after-delay only)}; defaults tap/instant, duration 0 instant else 200, delay 1000.
     Clear links before deleting targets; play pinned versions at /ui-designer/<slug>/play?version=N (no URLs/scripts).
     fill = paint or a LIST of paints stacked bottom to top (max 8). paint = "#rrggbb"|"$color.name"
@@ -214,7 +214,7 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update is literal and cannot set id/type/children; a page only takes title. resize/boolean/icon return exact literal undo_ops (128 ops/8KiB max); redo the original request.
-Other actions: icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+Other actions: motion op:preview|export, version, motion:{from_node,to_node,duration_ms?,easing?,fps?,max_edge?,format?:mp4|gif}; export needs request_id. icons search(q,limit,after); detail icon:{id,revision}; native copied components, no runtime dependency. templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes need expected_version+request_id and exact-input retries. Pins render offline; preview catches conflicts; UUID updates never follow reused slugs; node="$libraries" pages provenance.
   lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}

@@ -76,7 +76,12 @@ class _BoundedRoute(APIRoute):
             if request.method in ("POST", "PUT", "PATCH"):
                 bound = request.app.state.settings.ui_designer_max_body_bytes
                 try:
+                    original_request = request
                     request = await _bounded_body(request, bound)
+                    if request.url.path.endswith(("/motion/preview", "/motion/export")):
+                        # The bounded-body replay ends with a synthetic disconnect;
+                        # motion cancellation must watch the real ASGI connection.
+                        request.state.ui_motion_connection = original_request
                 except HTTPException as e:
                     if e.status_code != 413:
                         raise
@@ -1035,6 +1040,196 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
     return S.UiDocExportOut(slug=slug, version=version, artifact_id=art.id, name=art.name,
                             mime=art.mime, width=img.width, height=img.height, size=art.size,
                             url=f"/artifacts/{art.id}", card=chip, card_posted=posted, warnings=warnings)
+
+
+async def _motion_disconnected(request: Request) -> bool:
+    connection = getattr(request.state, "ui_motion_connection", request)
+    return await connection.is_disconnected()
+
+
+async def _await_motion(request: Request, operation):
+    """Propagate browser cancellation through HTTP to the isolated renderer."""
+    task = asyncio.create_task(operation)
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=0.1)
+            if await _motion_disconnected(request):
+                raise HTTPException(499, "motion request disconnected")
+            if done:
+                return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+def _motion_manifest(result: dict) -> S.UiMotionPreviewOut:
+    from pydantic import ValidationError
+    from agentplatform.ui_designer.motion import validate_manifest
+    try:
+        validate_manifest(result)
+        manifest = S.UiMotionPreviewOut.model_validate({key: value for key, value in result.items() if key != "ok"})
+        if len(manifest.model_dump_json(by_alias=True).encode()) > 16 << 20:
+            raise ValueError("motion manifest exceeds 16MiB")
+        if len(manifest.box) != 4 or manifest.box != [0, 0, manifest.width, manifest.height]:
+            raise ValueError("motion canvas is invalid")
+        return manifest
+    except (ValidationError, ValueError, TypeError) as error:
+        raise UiDesignerError(ud_errors.UD_RENDER_FAILED, "renderer returned an invalid motion manifest") from error
+
+
+def _motion_raster_pixels(manifest: S.UiMotionPreviewOut) -> int:
+    import struct
+    import hashlib
+    pixels = 0
+    seen = set()
+    images = [manifest.from_image, manifest.to_image, *manifest.assets.values()]
+    for index, encoded in enumerate(images):
+        try:
+            data = base64.b64decode(encoded, validate=True)
+            if data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+                raise ValueError()
+            width, height = struct.unpack(">II", data[16:24])
+            if not (1 <= width <= 720 and 1 <= height <= 720):
+                raise ValueError()
+            if index < 2 and (width, height) != (manifest.width, manifest.height):
+                raise ValueError()
+            digest = hashlib.sha256(data).digest()
+            if index < 2 or digest not in seen:
+                pixels += width * height
+            seen.add(digest)
+        except (ValueError, TypeError, struct.error) as error:
+            raise UiDesignerError(ud_errors.UD_RENDER_FAILED, "renderer returned invalid motion image dimensions") from error
+    return pixels
+
+
+def _motion_charge(request: Request, caller: Caller, pixels: int, *, cap: int) -> None:
+    from types import SimpleNamespace
+    if pixels > cap:
+        raise UiDesignerError(ud_errors.UD_IMAGE_TOO_LARGE,
+            "motion exceeds its raster work limit; lower max_edge, duration_ms or fps",
+            detail={"pixels": pixels, "limit_pixels": cap})
+    _check_pixel_budget(request, caller)
+    hourly = request.app.state.settings.ui_designer_pixels_per_hour_mp
+    if caller.agent is not None and hourly > 0:
+        used = sum(mp for _, mp in _pixel_window(request, caller.agent))
+        if used + pixels / 1e6 > hourly:
+            raise UiDesignerError(ud_errors.UD_BUDGET_PIXELS,
+                "motion would exceed the hourly pixel budget; lower max_edge or duration_ms",
+                detail={"used_mp": used, "requested_mp": pixels / 1e6, "limit_mp": hourly})
+    _charge_pixels(request, caller, [SimpleNamespace(width=pixels, height=1)])
+
+
+def _motion_args(body: S.UiMotionIn, *, max_edge: int | None = None) -> dict:
+    return {"from_node": body.from_node, "to_node": body.to_node, "mode": body.mode,
+            "duration_ms": body.duration_ms, "easing": body.easing, "fps": body.fps,
+            "max_edge": max_edge or body.max_edge}
+
+
+@router.post(PREFIX + "/docs/{slug}/motion/preview", response_model=S.UiMotionPreviewOut)
+async def preview_ui_motion(slug: str, body: S.UiMotionIn, request: Request,
+                            caller: Caller = Depends(require_ui_designer_access(*READ))):
+    view, _, _ = await _doc_at(request, caller, slug, body.version)
+    _check_pixel_budget(request, caller)
+    try:
+        async with request.app.state.session_factory() as session:
+            result = await _await_motion(request, _renderer(request).motion_preview(
+                session, doc=view["doc"], **_motion_args(body)))
+        manifest = _motion_manifest(result)
+        _motion_charge(request, caller, _motion_raster_pixels(manifest), cap=64_000_000)
+        return manifest
+    except UiDesignerError as error:
+        raise ud_http(error)
+
+
+async def _motion_receipt(session, slug: str, scope: str, request_id: str, fingerprint: str):
+    result = await store._receipt_lookup(session, scope, request_id, "motion-export", fingerprint)
+    if result is not None:
+        current = await store.get_document(session, slug)
+        if current["id"] != result["document_id"]:
+            raise UiDesignerError(ud_errors.UD_NOT_FOUND, "motion source document identity changed")
+    return result
+
+
+@router.post(PREFIX + "/docs/{slug}/motion/export", response_model=S.UiMotionExportOut)
+async def export_ui_motion(slug: str, body: S.UiMotionExportIn, request: Request,
+                           caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    if caller.agent is not None:
+        granted = await agents_api._caller_platform_tools(request, caller.agent)
+        if TOOL_ARTIFACTS not in granted:
+            raise HTTPException(403, "motion export needs the artifacts tool")
+    run_id = await caller_run_id(request, caller)
+    scope = _scope(caller, run_id)
+    fingerprint = store.args_hash(op="motion-export", slug=slug,
+        **body.model_dump(exclude={"request_id"}))
+    try:
+        async with request.app.state.session_factory() as session:
+            prior = await _motion_receipt(session, slug, scope, body.request_id, fingerprint)
+            if prior is not None:
+                return prior
+        view, _, _ = await _doc_at(request, caller, slug, body.version)
+        _check_pixel_budget(request, caller)
+        edge = min(body.max_edge, 480) if body.format == "gif" else body.max_edge
+        args = _motion_args(body, max_edge=edge)
+        async with request.app.state.session_factory() as session:
+            manifest = _motion_manifest(await _await_motion(request, _renderer(request).motion_preview(
+                session, doc=view["doc"], **args)))
+            _motion_charge(request, caller, _motion_raster_pixels(manifest), cap=64_000_000)
+            _motion_charge(request, caller, manifest.frames * manifest.width * manifest.height,
+                           cap=28_000_000 if body.format == "gif" else 64_000_000)
+            result = await _await_motion(request, _renderer(request).motion_export(
+                session, doc=view["doc"], **args, format=body.format,
+                max_bytes=min(8 << 20, request.app.state.settings.artifacts_max_bytes)))
+        expected_mime = "video/mp4" if body.format == "mp4" else "image/gif"
+        if (not isinstance(result, dict) or result.get("mime") != expected_mime or
+                not isinstance(result.get("data"), bytes) or not result["data"] or len(result["data"]) > 8 << 20 or
+                any(result.get(key) != getattr(manifest, key) for key in ("width", "height", "frames", "duration_ms"))):
+            raise UiDesignerError(ud_errors.UD_RENDER_FAILED, "renderer returned an invalid motion export")
+        warnings = result.get("warnings", manifest.warnings)
+        if (not isinstance(warnings, list) or len(warnings) > 32 or
+                any(not isinstance(warning, str) or len(warning.encode()) > 500 for warning in warnings)):
+            raise UiDesignerError(ud_errors.UD_RENDER_FAILED, "renderer returned invalid motion warnings")
+        data = result["data"]
+        if (body.format == "mp4" and (len(data) < 12 or data[4:8] != b"ftyp")) or (
+                body.format == "gif" and data[:6] not in (b"GIF87a", b"GIF89a")):
+            raise UiDesignerError(ud_errors.UD_RENDER_FAILED, "renderer returned invalid motion file bytes")
+        # Re-enter the same authorization door immediately before committing;
+        # later document ACLs and live run/grant checks belong to this seam.
+        await require_ui_designer_access(*WRITE, write=True)(request)
+        async with request.app.state.session_factory() as session:
+            current = await store._live(session, slug, lock=True)
+            if current.id != view["id"]:
+                raise UiDesignerError(ud_errors.UD_NOT_FOUND, "motion source document identity changed")
+            prior = await _motion_receipt(session, slug, scope, body.request_id, fingerprint)
+            if prior is not None:
+                return prior
+            if await _motion_disconnected(request):
+                raise HTTPException(499, "motion request disconnected")
+            artifact = await artifact_store.create(session, data=result["data"], owner=caller.participant,
+                name=f"{slug}-v{body.version}-motion.{body.format}", claimed_mime=expected_mime,
+                _trusted_mime=expected_mime if body.format == "mp4" else None,
+                source="tool", run_id=run_id, settings=request.app.state.settings, commit=False,
+                meta={"ui_designer": {"document_id": view["id"], "slug": slug,
+                      "version": body.version, "format": body.format, "from_node": body.from_node,
+                      "to_node": body.to_node}}, tags=["ui-designer", "motion"])
+            response = S.UiMotionExportOut(slug=slug, version=body.version, document_id=view["id"],
+                artifact_id=artifact.id, name=artifact.name, mime=artifact.mime,
+                width=manifest.width, height=manifest.height, frames=manifest.frames,
+                duration_ms=manifest.duration_ms, size=artifact.size, url=f"/artifacts/{artifact.id}",
+                warnings=warnings).model_dump(exclude={"replayed"})
+            try:
+                await store._receipt_write(session, scope, body.request_id, view["id"],
+                    "motion-export", fingerprint, response, utcnow())
+            except ValueError as error:
+                raise invalid([issue("UD-LIMIT", "$.warnings", "motion receipt exceeds 16KiB")]) from error
+            await session.commit()
+        await artifact_store.publish_artifact_event(getattr(request.app.state, "producer", None),
+            event="created", artifact=artifact_store.artifact_view(artifact), agent=caller.agent)
+        return response
+    except UiDesignerError as error:
+        raise ud_http(error)
+    except artifact_store.ArtifactRuleError as error:
+        raise HTTPException(error.status, str(error)) from error
 
 
 @router.post(PREFIX + "/docs/{slug}/visual-diff", response_model=S.UiVisualDiffOut)

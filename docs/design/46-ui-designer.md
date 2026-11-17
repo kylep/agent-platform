@@ -1550,3 +1550,40 @@ within the existing worker memory/deadline and eight-backdrop limits. Output
 byte limits remain in force. Tests cover sweep cardinals and continuous angles,
 alpha, nested/rotated/masked backdrop sampling, node crops, asset negotiation,
 export parity, budget refusal and unaffected legacy golden images.
+
+## 31. Smart animation and short motion exports (P3.15)
+
+Two explicit nodes/states from one immutable document version produce one
+canonical motion manifest. The browser and encoder consume the same matching,
+geometry and timing contract. Exact endpoints are retained; compatible nodes
+match by unique `meta.motion_key` or unambiguous component-relative identity.
+Geometry, rotation and opacity interpolate; changed content crossfades. Complex
+masks, backdrop/blend effects or incompatible hierarchy use an explicit warned
+frame/subtree dissolve. There is no fuzzy title matching or arbitrary script.
+Prototype links gain `smart-animate` and a closed easing choice; old defaults,
+reduced-motion behavior and navigation/automatic-transition guards stay intact.
+
+`POST /docs/{slug}/motion/preview` accepts a required retained `version`,
+`from_node`, `to_node`, optional mode, duration 200–5,000 ms, easing, 12/24 fps
+and maximum edge 64–720. It is a read behind the normal grant and pixel meter,
+and returns a bounded manifest rather than creating an artifact. The image-heavy
+route is excluded from the text facade. `/motion/export` adds MP4/GIF format and
+a required request ID, uses the write/run and artifact grants, and saves an
+artifact and replay receipt atomically after a final source-identity check.
+It posts no Relay message automatically. The broker exposes compact motion
+preview/export results instead of dumping embedded image data as text.
+
+Encoding uses a small adapter to the same pinned Remotion 4.0.539 backend as the
+local claude-video toolkit. Native-rendered numbered PNG frames go to
+`stitchFramesToVideo`; Chromium, TTS, audio, runtime network access, user code
+and arbitrary encoder options are unnecessary and excluded. One motion encode
+runs at a time with a separate deadline, process-group cleanup and private
+bounded temporary files. The existing static-render worker deadline remains.
+
+Limits: 120 frames / five seconds, 64 layers, 16 MiB manifest, 8 MiB output and
+128 MiB temporary files. MP4 has at most a 720-pixel edge and 64 million total
+frame pixels; GIF uses a 480-pixel edge and 28 million pixels to bound palette
+work. These motion-specific request limits retain the ordinary per-caller/run
+meter; static render limits do not change. Tests cover matching and fallback,
+endpoint/midpoint pixels, alpha/easing, malformed/oversized manifests, cancellation,
+concurrent receipt replay, source UUID reuse and both actual encoded formats.

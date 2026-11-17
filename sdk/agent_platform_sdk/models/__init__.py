@@ -396,6 +396,20 @@ from .ui_lint_finding import UiLintFinding
 from .ui_lint_finding_severity import UiLintFindingSeverity
 from .ui_lint_out import UiLintOut
 from .ui_lint_out_by_severity import UiLintOutBySeverity
+from .ui_motion_export_in import UiMotionExportIn
+from .ui_motion_export_in_easing import UiMotionExportInEasing
+from .ui_motion_export_in_format import UiMotionExportInFormat
+from .ui_motion_export_in_fps import UiMotionExportInFps
+from .ui_motion_export_out import UiMotionExportOut
+from .ui_motion_in import UiMotionIn
+from .ui_motion_in_easing import UiMotionInEasing
+from .ui_motion_in_fps import UiMotionInFps
+from .ui_motion_layer import UiMotionLayer
+from .ui_motion_pose import UiMotionPose
+from .ui_motion_preview_out import UiMotionPreviewOut
+from .ui_motion_preview_out_assets import UiMotionPreviewOutAssets
+from .ui_motion_preview_out_easing import UiMotionPreviewOutEasing
+from .ui_motion_preview_out_fps import UiMotionPreviewOutFps
 from .ui_placed_asset import UiPlacedAsset
 from .ui_placed_assets_out import UiPlacedAssetsOut
 from .ui_template_summary import UiTemplateSummary
@@ -828,6 +842,20 @@ __all__ = (
     "UiLintFindingSeverity",
     "UiLintOut",
     "UiLintOutBySeverity",
+    "UiMotionExportIn",
+    "UiMotionExportInEasing",
+    "UiMotionExportInFormat",
+    "UiMotionExportInFps",
+    "UiMotionExportOut",
+    "UiMotionIn",
+    "UiMotionInEasing",
+    "UiMotionInFps",
+    "UiMotionLayer",
+    "UiMotionPose",
+    "UiMotionPreviewOut",
+    "UiMotionPreviewOutAssets",
+    "UiMotionPreviewOutEasing",
+    "UiMotionPreviewOutFps",
     "UiPlacedAsset",
     "UiPlacedAssetsOut",
     "UiTemplatesOut",

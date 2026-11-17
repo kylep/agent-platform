@@ -41,7 +41,9 @@ MAX_ASSET_BYTES = 8 << 20
 MAX_ASSET_BYTES_PER_VERSION = 16 << 20
 MAX_RECEIPT_BYTES = 16 << 10
 MAX_RECEIPT_WARNINGS = 20
-RECEIPT_KEYS = {"version", "warnings", "text", "wants_snapshot", "slug", "ok", "undo_ops"}
+RECEIPT_KEYS = {"version", "warnings", "text", "wants_snapshot", "slug", "ok", "undo_ops",
+                "document_id", "artifact_id", "name", "mime", "width", "height", "size",
+                "url", "frames", "duration_ms"}
 _SHA_IN_TEXT = re.compile(r"[0-9a-f]{64}")
 
 

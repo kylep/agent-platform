@@ -24,12 +24,17 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
     try {
       const patch: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(draft)) {
-        if (key.startsWith("layout.") || key.startsWith("link.") || key.startsWith("constraints.") || key.startsWith("paint.")) continue;
+        if (key.startsWith("layout.") || key.startsWith("link.") || key.startsWith("constraints.") || key.startsWith("paint.") || key === "motion_key") continue;
         if (["x", "y", "w", "h", "opacity", "min_w", "max_w", "min_h", "max_h", "backdrop_blur"].includes(key)) {
           if (!val.trim()) patch[key] = null;
           else if (["w", "h"].includes(key) && ["hug", "fill"].includes(val.trim())) patch[key] = val.trim();
           else { const num = Number(val); if (!Number.isFinite(num) || (["w", "h"].includes(key) && num <= 0)) throw new Error("Enter valid dimensions and coordinates."); if (["min_w", "max_w", "min_h", "max_h"].includes(key) && (num < 0 || num > 100000)) throw new Error("Minimum and maximum sizes must be from 0 to 100000."); if (key === "backdrop_blur" && (num < 0 || num > 64)) throw new Error("Backdrop blur must be from 0 to 64 pixels."); patch[key] = num; }
         } else patch[key] = ["fill", "color", "align", "vertical_align", "decoration", "text_case"].includes(key) && !val.trim() ? null : val;
+      }
+      if (draft.motion_key !== undefined) {
+        const meta = authored?.meta && typeof authored.meta === "object" ? {...authored.meta as Record<string,unknown>} : {};
+        if(draft.motion_key.trim())meta.motion_key=draft.motion_key.trim();else delete meta.motion_key;
+        patch.meta=Object.keys(meta).length ? meta:null;
       }
       if (Object.keys(draft).some((key) => key.startsWith("paint."))) patch.fill = editedPaint(draft.fill === "" ? {} : authored?.fill, draft);
       const layoutChanges = Object.entries(draft).filter(([key]) => key.startsWith("layout."));
@@ -63,7 +68,8 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
         else {
           const trigger = linkValue("trigger", "tap"), transition = linkValue("transition", "instant");
           const next: Record<string, unknown> = { ...link, target: linkValue("target"), trigger, transition };
-          for (const [field, fallback, lo, hi] of [["duration_ms", transition === "instant" ? "0" : "200", 0, 2000], ["delay_ms", "1000", 100, 60000]] as const) {
+          if(transition==="smart-animate") next.easing=linkValue("easing","ease-in-out");else delete next.easing;
+          for (const [field, fallback, lo, hi] of [["duration_ms", transition === "instant" ? "0" : transition === "smart-animate" ? "800" : "200", transition === "smart-animate" ? 200 : 0, 2000], ["delay_ms", "1000", 100, 60000]] as const) {
             if (field === "delay_ms" && trigger !== "after-delay") { delete next.delay_ms; continue; }
             const raw = linkValue(field, fallback), num = Number(raw);
             if (!raw.trim() || !Number.isInteger(num) || num < lo || num > hi) throw new Error(`${field === "delay_ms" ? "Delay" : "Duration"} must be an integer from ${lo} to ${hi} ms.`);
@@ -113,12 +119,15 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
       </> : layoutDirection && <p className="ud-edit-field"><label htmlFor="ud-layout-wrap">Wrap</label><Select id="ud-layout-wrap" value={draft["layout.wrap"] ?? (typeof layout.wrap === "boolean" ? String(layout.wrap):"")} onChange={(e)=>change("layout.wrap",e.target.value)}><option value="">Default</option><option value="true">Wrap</option><option value="false">No wrap</option></Select></p>}
       {([['align', ['start','center','end','stretch']], ['justify', ['start','center','end','space-between']]] as const).filter(([key]) => layoutDirection !== "grid" || key !== "justify").map(([key, choices]) => <p className="ud-edit-field" key={key}><label htmlFor={`ud-layout-${key}`}>{key === 'align' ? 'Align' : 'Justify'}</label><Select id={`ud-layout-${key}`} value={draft[`layout.${key}`] ?? String(layout[key] ?? '')} onChange={(e) => change(`layout.${key}`,e.target.value)}><option value="">Default</option>{choices.map((v) => <option key={v} value={v}>{v}</option>)}</Select></p>)}
     </fieldset>}
+    <p className="ud-edit-field"><label htmlFor="ud-motion-key">Motion key</label><Input id="ud-motion-key" maxLength={64} disabled={disabled} value={draft.motion_key ?? String((authored.meta as Record<string,unknown> | undefined)?.motion_key ?? "")} onChange={(e)=>change("motion_key",e.target.value)} /></p>
+    <p className="muted">Use the same unique key on corresponding layers in different frames to animate them together.</p>
     <fieldset disabled={disabled}><legend>Prototype link</legend>
       <p className="ud-edit-field"><label htmlFor="ud-link-target">Destination frame</label><Select id="ud-link-target" value={linkValue("target")} onChange={(e)=>change("link.target",e.target.value)}><option value="">No link</option>{frames.map((f)=><option key={f.id} value={f.id}>{f.title || f.id}</option>)}</Select></p>
       {linkValue("target") && <>
         <p className="ud-edit-field"><label htmlFor="ud-link-trigger">Trigger</label><Select id="ud-link-trigger" value={linkValue("trigger","tap")} onChange={(e)=>change("link.trigger",e.target.value)}><option value="tap">Tap</option><option value="hover">Hover</option><option value="after-delay">After delay</option></Select></p>
-        <p className="ud-edit-field"><label htmlFor="ud-link-transition">Transition</label><Select id="ud-link-transition" value={linkValue("transition","instant")} onChange={(e)=>change("link.transition",e.target.value)}><option value="instant">Instant</option><option value="dissolve">Dissolve</option><option value="slide">Slide</option></Select></p>
-        <p className="ud-edit-field"><label htmlFor="ud-link-duration">Transition duration (ms)</label><Input id="ud-link-duration" inputMode="numeric" value={linkValue("duration_ms",linkValue("transition","instant")==="instant" ? "0":"200")} onChange={(e)=>change("link.duration_ms",e.target.value)} /></p>
+        <p className="ud-edit-field"><label htmlFor="ud-link-transition">Transition</label><Select id="ud-link-transition" value={linkValue("transition","instant")} onChange={(e)=>{change("link.transition",e.target.value);if(e.target.value==="smart-animate" && Number(linkValue("duration_ms","0"))<200)change("link.duration_ms","800");}}><option value="instant">Instant</option><option value="dissolve">Dissolve</option><option value="slide">Slide</option><option value="smart-animate">Smart animate</option></Select></p>
+        {linkValue("transition","instant")==="smart-animate" && <p className="ud-edit-field"><label htmlFor="ud-link-easing">Motion easing</label><Select id="ud-link-easing" value={linkValue("easing","ease-in-out")} onChange={(e)=>change("link.easing",e.target.value)}>{["linear","ease-in","ease-out","ease-in-out"].map((value)=><option key={value} value={value}>{value}</option>)}</Select></p>}
+        <p className="ud-edit-field"><label htmlFor="ud-link-duration">Transition duration (ms)</label><Input id="ud-link-duration" inputMode="numeric" value={linkValue("duration_ms",linkValue("transition","instant")==="instant" ? "0":linkValue("transition")==="smart-animate" ? "800":"200")} onChange={(e)=>change("link.duration_ms",e.target.value)} /></p>
         {linkValue("trigger","tap")==="after-delay" && <p className="ud-edit-field"><label htmlFor="ud-link-delay">Delay (ms)</label><Input id="ud-link-delay" inputMode="numeric" value={linkValue("delay_ms","1000")} onChange={(e)=>change("link.delay_ms",e.target.value)} /></p>}
       </>}
     </fieldset>

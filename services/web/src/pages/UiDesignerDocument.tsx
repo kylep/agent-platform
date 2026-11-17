@@ -7,6 +7,7 @@ import VectorTools from "../components/ui-designer/VectorTools";
 import LibrariesPanel from "../components/ui-designer/LibrariesPanel";
 import FindingsPanel from "../components/ui-designer/FindingsPanel";
 import CompareVersions from "../components/ui-designer/CompareVersions";
+import MotionControls from "../components/ui-designer/MotionControls";
 import ExportControls from "../components/ui-designer/ExportControls";
 import Inspector from "../components/ui-designer/Inspector";
 import { Button } from "@ap/ui/button";
@@ -244,6 +245,7 @@ export default function UiDesignerDocument() {
         </div>
       </div>
       {(version ?? pinned) && <ExportControls key={`${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canExport={canWrite} />}
+      {(version ?? pinned) && resolved && <MotionControls key={`motion:${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} frames={prototypeFrames(resolved)} canExport={canWrite} />}
       {comparing && page && (version ?? pinned) && <CompareVersions key={base} base={base} versions={versions} initialVersion={(version ?? pinned)!} pageId={page.id} selectedId={picked?.id ?? null} mode={mode} onSelectNode={(id) => { const node = known.find((n) => n.id === id); if (node) setSel(node); }} />}
       {showIcons && page && <IconPicker key={base} pageId={page.id} pageTitle={page.title || page.id} selected={picked} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || libraryLocked} onInsert={(op) => {
         if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !libraryLocked) editing.commit([op], []);

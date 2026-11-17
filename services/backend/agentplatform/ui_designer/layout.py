@@ -98,7 +98,7 @@ _RESOLVABLE = (str, dict, list)
 
 class Item:
     __slots__ = ("id", "type", "w", "h", "x", "y", "absolute", "rotate", "visible", "title", "of",
-                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to", "typography", "grid", "limits")
+                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to", "typography", "grid", "limits", "motion_key")
     # class-level defaults would clash with __slots__, so they are set in __init__
     def __init__(self):
         self.w = self.h = self.x = self.y = self.title = self.of = self.layout = self.text = None
@@ -114,6 +114,7 @@ class Item:
         self.link_to = None
         self.typography = {}
         self.grid = self.limits = None
+        self.motion_key = None
 
 
 class _Plan:
@@ -248,6 +249,10 @@ class _Builder:
                 it.rotate = rv(v) or 0
             elif k == "visible":
                 it.visible = v is not False
+            elif k == "meta" and isinstance(v, dict):
+                key = v.get("motion_key")
+                if "motion_key" in v:
+                    it.motion_key = key
             elif k == "link_to":
                 it.link_to = dict(v)
             elif k in ("vertical_align", "text_case", "decoration"):
@@ -795,6 +800,8 @@ class _Emit:
             d["of"] = it.of
         if it.title:
             d["title"] = it.title
+        if it.motion_key is not None:
+            d["motion_key"] = it.motion_key
         if it.link_to is not None:
             d["link_to"] = it.link_to
         if not it.visible:

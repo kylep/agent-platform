@@ -166,3 +166,18 @@ def test_removing_target_invalidates_default_component_links_and_overrides():
     assert any(i.path.endswith(".target") for i in S.collect_issues(doc))
     doc["components"]["card"].pop("link_to")
     S.validate_document(doc)
+
+
+def test_smart_animate_easing_is_closed_and_legacy_duration_bounds_stay():
+    doc = prototype_document()
+    link = doc["components"]["card"]["link_to"]
+    link.update(transition="smart-animate", easing="ease-in-out", duration_ms=1200)
+    S.validate_document(doc)
+    for bad in ("javascript:run()", None, 1, ["linear"]):
+        link["easing"] = bad
+        with pytest.raises(UiDesignerError):
+            S.validate_document(doc)
+    link["easing"] = "linear"
+    link["duration_ms"] = 5000
+    with pytest.raises(UiDesignerError):
+        S.validate_document(doc)

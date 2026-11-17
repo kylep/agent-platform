@@ -228,9 +228,12 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
         # Internal generated-export seam; never forwarded from public upload fields.
         # These remain files, so all byte-serving routes force attachment + nosniff.
         signatures = {"image/svg+xml": (b"<svg", b"<?xml"),
-                      "application/pdf": (b"%PDF-",), "text/html": (b"<!doctype html",)}
-        if (source != "tool" or _trusted_mime not in signatures or
-                not data.lstrip().lower().startswith(tuple(p.lower() for p in signatures[_trusted_mime]))):
+                      "application/pdf": (b"%PDF-",), "text/html": (b"<!doctype html",),
+                      "video/mp4": (b"",)}
+        valid_signature = (len(data) >= 12 and data[4:8] == b"ftyp") if _trusted_mime == "video/mp4" else (
+            _trusted_mime in signatures and data.lstrip().lower().startswith(
+                tuple(p.lower() for p in signatures[_trusted_mime])))
+        if source != "tool" or not valid_signature:
             raise ArtifactRuleError(400, "invalid trusted generated export")
         mime = _trusted_mime
     width = height = thumb = None

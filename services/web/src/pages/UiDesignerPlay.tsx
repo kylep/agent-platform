@@ -1,3 +1,5 @@
+import MotionPlayback from "../components/ui-designer/MotionPlayback";
+import type { MotionInput } from "../lib/uiMotion";
 import "../components/ui-designer/Prototype.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -17,6 +19,7 @@ export default function UiDesignerPlay() {
   const [previous,setPrevious] = useState<string | null>(null);
   const [epoch,setEpoch] = useState(0), [effect,setEffect] = useState({ transition:"instant",duration:0 });
   const [reduced,setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const [motion,setMotion]=useState<MotionInput|null>(null),[motionNotes,setMotionNotes]=useState<string[]>([]);
   const transitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chain = useRef(0), navigation = useRef(0), hoverLocked = useRef(false), pointer = useRef<{x:number;y:number} | null>(null);
   const invalidateNavigation = useCallback(() => {
@@ -33,6 +36,7 @@ export default function UiDesignerPlay() {
   useEffect(() => {
     const controller = new AbortController();
     let cancelled=false; invalidateNavigation(); chain.current=0; hoverLocked.current=false;
+    setMotion(null);setMotionNotes([]);
     setTree(null);setPrevious(null);setVersion(null);setReady(false);setLoaded(false);setError("");setPaused(false);setBack([]);
     async function load() {
       try {
@@ -50,6 +54,7 @@ export default function UiDesignerPlay() {
     }
     void load(); return ()=>{cancelled=true; controller.abort(); invalidateNavigation();};
   },[base,requestedVersion,mode,requestedFrame,invalidateNavigation]);
+  useEffect(()=>{if(reduced && motion){setMotion(null);setPrevious(null);setReady(loaded);}},[reduced,motion,loaded]);
   const frames=useMemo(()=>tree ? prototypeFrames(tree):[],[tree]);
   const frame=frames.find((f)=>f.id===frameId);
   const hotspots=useMemo(()=>frame ? prototypeHotspots(frame):[],[frame]);
@@ -62,10 +67,16 @@ export default function UiDesignerPlay() {
     if(target===frameId && !force) return;
     if(automatic && chain.current>=25) {setPaused(true);return;}
     chain.current=automatic ? chain.current+1:0;
+    setMotion(null);setMotionNotes([]);
     invalidateNavigation(); setPrevious(ready ? pictureUrl(frameId) : null); hoverLocked.current=true;setReady(false);setLoaded(false);setError("");setPaused(false);
     setBack(history ?? [...back,frameId]);setFrameId(target);setEpoch((n)=>n+1);
     const transition=link?.transition || "instant";
-    setEffect({transition:reduced ? "instant":transition,duration:reduced || transition==="instant" ? 0 : link?.duration_ms ?? 200});
+    const requestedDuration=link?.duration_ms ?? (transition==="smart-animate" ? 800:200);
+    if(transition==="smart-animate" && !reduced && requestedDuration>0 && version) {
+      setMotion({version,mode,from_node:frameId,to_node:target,duration_ms:Math.max(200,requestedDuration),easing:link?.easing ?? "ease-in-out",fps:24,max_edge:720});
+      if(requestedDuration<200)setMotionNotes(["Smart animation uses a minimum duration of 200 ms."]);
+    }
+    setEffect({transition:reduced ? "instant":transition,duration:reduced || transition==="instant" ? 0 : requestedDuration});
   }
   activateRef.current=(link,automatic=false)=>navigate(link.target,link,automatic);
   useEffect(()=>{
@@ -94,13 +105,15 @@ export default function UiDesignerPlay() {
       {!ready && !error && <p role="status">Loading frame…</p>}
       <div className="ud-prototype-stage" style={{aspectRatio:`${Math.max(1,crop.w)} / ${Math.max(1,crop.h)}`,maxWidth:`min(100%, ${Math.max(1,crop.w)}px)`}} onPointerMove={(e)=>{const next={x:e.clientX,y:e.clientY};if(pointer.current && (next.x!==pointer.current.x || next.y!==pointer.current.y)) hoverLocked.current=false;pointer.current=next;}} onPointerLeave={()=>{hoverLocked.current=false;pointer.current=null;}}>
         {previous && <img className="ud-prototype-previous" src={previous} alt="" aria-hidden="true" />}
-        <img key={`${base}:${version}:${frameId}:${epoch}`} className="ud-prototype-picture" alt={`Prototype frame ${nodeLabel(frame)}`} data-transition={loaded ? effect.transition : "instant"} data-loaded={loaded} style={{animationDuration:`${effect.duration}ms`}} src={pictureUrl(frameId)}
-          onLoad={()=>{if (imageToken !== navigation.current) return; setLoaded(true); if (effect.duration > 0) transitionTimer.current=setTimeout(()=>{if(imageToken===navigation.current){setReady(true);setPrevious(null);}},effect.duration); else {setReady(true);setPrevious(null);}}} onError={()=>{if(imageToken !== navigation.current)return;setReady(false);setError("Could not render this frame. Choose another frame or restart.");}} />
+        <img key={`${base}:${version}:${frameId}:${epoch}`} className="ud-prototype-picture" alt={`Prototype frame ${nodeLabel(frame)}`} data-transition={loaded ? effect.transition : "instant"} data-loaded={loaded && !motion} style={{animationDuration:`${effect.duration}ms`}} src={pictureUrl(frameId)}
+          onLoad={()=>{if (imageToken !== navigation.current) return; setLoaded(true); if (motion && !reduced) return; if (effect.duration > 0 && effect.transition!=="smart-animate") transitionTimer.current=setTimeout(()=>{if(imageToken===navigation.current){setReady(true);setPrevious(null);}},effect.duration); else {setReady(true);setPrevious(null);}}} onError={()=>{if(imageToken !== navigation.current)return;setReady(false);setError("Could not render this frame. Choose another frame or restart.");}} />
+        {loaded && motion && <div className="ud-prototype-motion"><MotionPlayback key={`${base}:${version}:${epoch}`} base={base} input={motion} reduced={reduced} onStart={()=>{if(imageToken===navigation.current)setPrevious(null);}} onNotes={setMotionNotes} onDone={()=>{if(imageToken===navigation.current){setReady(true);setPrevious(null);setMotion(null);}}} /></div>}
         {ready && hotspots.filter(({node})=>node.link_to?.trigger!=="after-delay").map(({node,box},i)=><button key={node.id} type="button" className="ud-prototype-hotspot" aria-label={`Go to ${node.link_to!.target} from ${nodeLabel(node)}`} data-trigger={node.link_to!.trigger || "tap"}
           style={{left:`${100*(box.x-crop.x)/Math.max(1,crop.w)}%`,top:`${100*(box.y-crop.y)/Math.max(1,crop.h)}%`,width:`${100*box.w/Math.max(1,crop.w)}%`,height:`${100*box.h/Math.max(1,crop.h)}%`,zIndex:i+1}}
           onClick={()=>{if (!node.link_to?.trigger || node.link_to.trigger==="tap") activateRef.current(node.link_to!);}} onPointerEnter={()=>{if(node.link_to?.trigger==="hover" && !hoverLocked.current) activateRef.current(node.link_to,true);}} onFocus={()=>{if(node.link_to?.trigger==="hover") activateRef.current(node.link_to,true);}} />)}
       </div>
       {hotspots.some(({node})=>node.bounds || node.rotate) && <p className="muted">Rotated interactive areas use approximate rectangular bounds.</p>}
+      {motionNotes.length>0 && <ul aria-label="Motion notes">{motionNotes.map((note,index)=><li key={index}>{note}</li>)}</ul>}
       {reduced && <p className="muted">Reduced motion: transitions appear instantly.</p>}
     </>}
   </div>;

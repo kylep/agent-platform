@@ -49,3 +49,16 @@ the import report and Figma reference artifacts record conversion limitations.
 Do not ask an agent to fetch a Figma credential or bypass the internal importer.
 
 Share a live design reference in Relay with `[[ui:<slug>#<node-id>]]` (or omit the node). In a UI Designer rapid-chat, follow the native frame JSON response contract supplied by the controller: read only the sprint document, propose self-contained frames, and let the controller apply them.
+
+## Motion
+
+Use `action=motion op=preview` with `slug`, a retained `version` and
+`motion={from_node,to_node}` to inspect a transition. Give corresponding nodes the same unique
+`meta.motion_key` to animate their geometry and opacity; changed content
+crossfades. Read fallback warnings when complex effects require a dissolve.
+Use `action=motion op=export` with `format:mp4|gif` inside `motion` and a fresh
+`request_id` to save an artifact (the artifacts grant is also required).
+Retry with the same request ID. Exports do not post to Relay automatically.
+Keep clips short: 200–5,000 ms, 12 or 24 fps, at most 720 pixels per edge
+(480 for GIF). Put optional `duration_ms`, `fps`, `max_edge` and `easing` inside
+`motion`. Lower resolution or duration if a pixel budget is exceeded.

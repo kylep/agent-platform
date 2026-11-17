@@ -61,4 +61,4 @@ export type UiEditOp = { op: "update" | "resize"; id: string; set: Record<string
 export type UiWriteResult = { version: number; replayed?: boolean; undo_ops?: UiEditOp[]; warnings?: Record<string, unknown>[] };
 export type UiInspection = { version: number; id: string; type?: string; authored: Record<string, unknown> | null; text?: string; warnings?: Record<string, unknown>[] };
 
-export type UiPrototypeLink = { target: string; trigger?: "tap" | "hover" | "after-delay"; transition?: "instant" | "dissolve" | "slide"; duration_ms?: number; delay_ms?: number };
+export type UiPrototypeLink = { target: string; trigger?: "tap" | "hover" | "after-delay"; transition?: "instant" | "dissolve" | "slide" | "smart-animate"; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; duration_ms?: number; delay_ms?: number };

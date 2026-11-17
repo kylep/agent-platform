@@ -2337,3 +2337,75 @@ class UiIconOut(UiIconSummary):
     view_box: list[float]
     d: str
     paths: list[UiIconPath]
+
+
+class UiMotionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1, strict=True)
+    from_node: str = Field(min_length=1, max_length=512)
+    to_node: str = Field(min_length=1, max_length=512)
+    mode: str | None = Field(default=None, max_length=16)
+    duration_ms: int = Field(default=800, ge=200, le=5000, strict=True)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] = "ease-in-out"
+    fps: Literal[12, 24] = 24
+    max_edge: int = Field(default=720, ge=64, le=720, strict=True)
+
+
+class UiMotionExportIn(UiMotionIn):
+    format: Literal["mp4", "gif"] = "mp4"
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class UiMotionPose(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    x: float = Field(ge=-1000000, le=1000000)
+    y: float = Field(ge=-1000000, le=1000000)
+    w: float = Field(ge=0, le=720)
+    h: float = Field(ge=0, le=720)
+    rotate: float = Field(ge=-1000000, le=1000000)
+    opacity: float = Field(ge=0, le=1)
+    asset: str
+
+
+class UiMotionLayer(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    id: str
+    from_: UiMotionPose | None = Field(alias="from")
+    to: UiMotionPose | None
+
+
+class UiMotionPreviewOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    renderer_version: str
+    motion_version: Literal["motion-1"]
+    mode: str | None = None
+    width: int = Field(ge=1, le=720)
+    height: int = Field(ge=1, le=720)
+    box: list[float]
+    duration_ms: int = Field(ge=200, le=5000)
+    fps: Literal[12, 24]
+    frames: int = Field(ge=2, le=120)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"]
+    from_image: str
+    to_image: str
+    assets: dict[str, str]
+    layers: list[UiMotionLayer] = Field(max_length=64)
+    warnings: list[str] = Field(default_factory=list, max_length=32)
+
+
+class UiMotionExportOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    document_id: str
+    artifact_id: str
+    name: str
+    mime: str
+    width: int
+    height: int
+    size: int
+    url: str
+    frames: int
+    duration_ms: int
+    warnings: list[str] = Field(default_factory=list)
+    replayed: bool = False

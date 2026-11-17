@@ -102,7 +102,7 @@ def test_the_image_file_set_is_enough_to_render(tmp_path):
     text = (SERVICE / "Dockerfile").read_text().replace("\\\n", " ")
     for line in text.splitlines():
         m = re.match(r"COPY\s+(.+)\s+(\S+)$", line.strip())
-        if not m or m.group(1).startswith("services/ui-renderer/requirements"):
+        if not m or m.group(1).startswith(("services/ui-renderer/requirements", "--from=")):
             continue
         srcs, dest = m.group(1).split(), m.group(2)
         into_dir = dest.endswith("/") or dest == "." or len(srcs) > 1

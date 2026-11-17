@@ -3,21 +3,21 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ud-effects-20261117
+    tag: ud-motion-20261117
   web:
-    tag: ud-effects-20261117
+    tag: ud-motion-20261117
   runner:
     tag: bk-1383a26
   runnerDev:
     tag: bk-edf7a44
   mcpFacade:
-    tag: ud-effects-20261117
+    tag: ud-motion-20261117
 mcpBroker:
   image:
-    tag: ud-effects-20261117
+    tag: ud-motion-20261117
 uiRenderer:
   image:
-    tag: ud-effects-20261117
+    tag: ud-motion-20261117
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"

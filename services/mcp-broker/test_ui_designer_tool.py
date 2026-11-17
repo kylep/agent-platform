@@ -291,3 +291,23 @@ def test_rapid_ui_tool_rejects_writes_and_other_documents_before_api(api,monkeyp
     assert published[-1][1]['data']['decision']=='deny:rapid-scope'
     ud(action='outline',slug='hud')
     assert api[-1][0:2]==('GET',f'{DOCS}/hud/outline')
+
+
+def test_motion_preview_compacts_manifest_and_attaches_only_endpoint_images(api):
+    png = base64.b64encode(b'\x89PNG\r\n\x1a\n' + b'p' * 32).decode()
+    api.replies[f'{DOCS}/hud/motion/preview'] = (200, json.dumps({
+        'motion_version': 'motion-1', 'width': 24, 'height': 24, 'frames': 20,
+        'duration_ms': 800, 'fps': 24, 'easing': 'linear', 'warnings': [],
+        'from_image': png, 'to_image': png, 'assets': {'large': 'DO NOT ECHO'},
+        'layers': [{'id': 'one'}]}))
+    out = ud(action='motion', slug='hud', op='preview', version=2,
+             motion={'from_node': 'a', 'to_node': 'b'})
+    assert len(images_of(out)) == 2 and 'DO NOT ECHO' not in text_of(out)
+    assert '"layers":1' in text_of(out)
+    assert api[-1] == ('POST', f'{DOCS}/hud/motion/preview', None,
+                       {'from_node': 'a', 'to_node': 'b', 'version': 2})
+    assert 'error:' in ud(action='motion', slug='hud', op='export', version=2,
+                         motion={'from_node': 'a', 'to_node': 'b'})
+    ud(action='motion', slug='hud', op='export', version=2, request_id='motion-one',
+       motion={'from_node': 'a', 'to_node': 'b', 'format': 'gif'})
+    assert api[-1][3]['format'] == 'gif' and api[-1][3]['request_id'] == 'motion-one'

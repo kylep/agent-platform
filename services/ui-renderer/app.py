@@ -61,6 +61,7 @@ class Config:
     # once, and one that waits longer than `queue_deadline_s` gives up (503).
     queue_max: int = 8
     queue_deadline_s: float = 10.0
+    process_group: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -427,7 +428,85 @@ def job_resolved(cfg: Config, req: dict) -> dict:
                                            for pg in r["pages"]]}}
 
 
-JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff, "lint": job_lint, "boolean": job_boolean}
+_MOTION_CACHE: OrderedDict[str, dict] = OrderedDict()
+
+
+def job_motion_preview(cfg: Config, req: dict) -> dict:
+    Path(cfg.asset_dir).mkdir(parents=True,exist_ok=True)
+    from agentplatform.ui_designer import motion, svg
+    from agentplatform.ui_designer.layout import layout_document
+    key = hashlib.sha256((svg.renderer_version()+cfg.asset_dir).encode()+json.dumps(req,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    if key in _MOTION_CACHE:
+        _MOTION_CACHE.move_to_end(key)
+        return copy.deepcopy(_MOTION_CACHE[key])
+    resolved = layout_document(req["doc"],req.get("mode"))
+    need = list(dict.fromkeys(sha for target in (req["from_node"],req["to_node"]) for sha in _paint_assets(resolved,target)))
+    missing = [sha for sha in need if not _asset_path(cfg,sha).is_file()]
+    if missing:return {"ok":False,"code":"MISSING-ASSETS","missing":missing}
+    infos={sha:_asset_info(cfg,sha) for sha in need}
+    raw={};total=0
+    for sha in need:
+        path=_asset_path(cfg,sha);total+=path.stat().st_size
+        if total>16<<20:return _err("UD-IMAGE-TOO-LARGE","motion source images exceed16MiB")
+        raw[sha]=path.read_bytes()
+    result={"ok":True,**motion.prepare(**req,assets=infos,asset_bytes=raw,raster=lambda source,w,h:_raster(source,w,h,None,cfg.asset_dir))}
+    # One immutable manifest fits both preview and its immediate export preflight.
+    _MOTION_CACHE.clear();_MOTION_CACHE[key]=copy.deepcopy(result)
+    return result
+
+
+def job_motion_export(cfg: Config, req: dict) -> dict:
+    import subprocess
+    import tempfile
+    from agentplatform.ui_designer import motion
+    format_=req["format"]
+    preview={k:v for k,v in req.items() if k not in ("format","max_bytes")}
+    if format_=="gif":preview["max_edge"]=min(480,preview["max_edge"])
+    manifest=job_motion_preview(cfg,preview)
+    if not manifest.get("ok"):return manifest
+    if manifest["width"]*manifest["height"]*manifest["frames"]>(28_000_000 if format_=="gif" else 64_000_000):
+        return _err("UD-IMAGE-TOO-LARGE","motion frame work exceeds format limit")
+    directory=os.environ.get("UI_MOTION_ENCODER_DIR",str(Path(__file__).with_name("motion_encoder")))
+    bridge=Path(directory)/"encode.mjs"
+    motion_root=Path(tempfile.gettempdir())/f"ui-motion-worker-{os.getpid()}"
+    motion_root.mkdir(mode=0o700,exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="job-",dir=motion_root) as tmp:
+        total=0
+        for i in range(manifest["frames"]):
+            im=motion.render_frame(manifest,i)
+            flat=__import__('PIL.Image',fromlist=['Image']).new('RGB',im.size,'#ffffff')
+            flat.paste(im,mask=im.getchannel('A'))
+            path=Path(tmp)/f"frame-{i:04d}.png";flat.save(path,'PNG')
+            total+=path.stat().st_size
+            if total>96<<20:return _err("UD-IMAGE-TOO-LARGE","motion temporary frames exceed96MiB")
+        (Path(tmp)/"encode.json").write_text(json.dumps({k:manifest[k] for k in ('width','height','frames','fps')}|{"format":format_}))
+        def encoder_limits():
+            # V8 reserves a large virtual cage. Native Python keeps its soft
+            # DATA limit; the Node child uses its explicit64MiB JS heap and the
+            # pod cgroup, bounded frames and encoder threads instead.
+            import resource
+            soft,hard=resource.getrlimit(resource.RLIMIT_DATA)
+            resource.setrlimit(resource.RLIMIT_DATA,(hard,hard))
+            resource.setrlimit(resource.RLIMIT_FSIZE,(8<<20,8<<20))
+        logpath=Path(tmp)/"encoder.log"
+        with logpath.open('wb') as logstream:
+            proc=subprocess.Popen(['node','--max-old-space-size=64',str(bridge),tmp],stdout=logstream,stderr=subprocess.STDOUT,env={**os.environ,'TMPDIR':tmp,'NODE_OPTIONS':''},preexec_fn=encoder_limits if os.name=='posix' else None)
+            try:status=proc.wait(timeout=50)
+            except subprocess.TimeoutExpired:
+                if cfg.process_group:os.killpg(os.getpgrp(),__import__('signal').SIGKILL)
+                proc.kill();proc.wait();return _err("UD-RENDER-FAILED","motion encoder timed out")
+        if status:
+            log.warning('motion encoder failed: %s',logpath.read_bytes()[-2000:].decode(errors='replace'))
+            return _err("UD-RENDER-FAILED","motion encoder failed")
+        output=Path(tmp)/f"output.{format_}"
+        if not output.is_file() or output.stat().st_size>req["max_bytes"]:
+            return _err("UD-IMAGE-TOO-LARGE","motion output exceeds8MiB")
+        data=output.read_bytes()
+        return {"ok":True,"renderer_version":manifest["renderer_version"],"data":data,"mime":"video/mp4" if format_=='mp4' else 'image/gif',"format":format_,
+                **{k:manifest[k] for k in ('width','height','frames','duration_ms','fps')},"warnings":manifest['warnings']+["Motion export is silent and transparency is flattened onto white; GIF colors use a palette."]}
+
+
+JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff, "lint": job_lint, "boolean": job_boolean, "motion_preview":job_motion_preview, "motion_export":job_motion_export}
 
 
 def _run_job(cfg: Config, kind: str, req: dict) -> dict:
@@ -442,10 +521,12 @@ def _run_job(cfg: Config, kind: str, req: dict) -> dict:
 
 
 def _worker_main(conn, cfg: Config) -> None:
+    if cfg.process_group and hasattr(os,"setsid"):
+        os.setsid()
     try:
         import resource
         lim = cfg.job_memory_mb << 20
-        resource.setrlimit(resource.RLIMIT_DATA, (lim, lim))
+        resource.setrlimit(resource.RLIMIT_DATA, (lim, resource.RLIM_INFINITY if cfg.process_group else lim))
     except (ImportError, ValueError, OSError) as e:  # not enforceable here (macOS dev); the cgroup remains
         log.warning("RLIMIT_DATA not set: %s", e)
     from agentplatform.ui_designer import svg  # import fonts, harfbuzz and resvg once per worker
@@ -473,28 +554,43 @@ class _Worker:
         self.proc.start()
         child.close()
         self.ready = False
+        self.killed = False
+        self.group = cfg.process_group
 
     def call(self, kind: str, req: dict, timeout: float, start_timeout: float) -> dict:
+        def poll(timeout):
+            deadline=time.monotonic()+timeout
+            while time.monotonic()<deadline:
+                if self.killed:raise JobFailed("worker cancelled")
+                if self.conn.poll(min(.1,max(0,deadline-time.monotonic()))):return True
+            return False
         try:
             if not self.ready:
-                if not self.conn.poll(start_timeout):
+                if not poll(start_timeout):
                     raise JobFailed("worker did not start")
                 self.conn.recv()
                 self.ready = True
             self.conn.send((kind, req))
-            if not self.conn.poll(timeout):
+            if not poll(timeout):
                 raise JobFailed(f"timed out after {timeout:g}s")
             return self.conn.recv()[1]
         except (EOFError, OSError, BrokenPipeError):
             raise JobFailed("worker exited (over its memory limit or crashed)") from None
 
     def kill(self) -> None:
+        self.killed = True
         try:
+            if self.group and hasattr(os,"killpg"):
+                try:os.killpg(self.proc.pid,__import__('signal').SIGKILL)
+                except ProcessLookupError:pass
             self.proc.kill()
             self.proc.join(2)
         except Exception:
             pass
         self.conn.close()
+        if self.group:
+            import tempfile, shutil
+            shutil.rmtree(Path(tempfile.gettempdir())/f"ui-motion-worker-{self.proc.pid}",ignore_errors=True)
 
 
 class Busy(Exception):
@@ -507,6 +603,7 @@ class Pool:
         self.idle: asyncio.Queue[_Worker] = asyncio.Queue()
         self.all: list[_Worker] = []
         self.waiting = 0
+        self.closed = False
 
     def start(self) -> None:
         for _ in range(self.cfg.workers):
@@ -515,7 +612,8 @@ class Pool:
             self.idle.put_nowait(w)
 
     def close(self) -> None:
-        for w in self.all:
+        self.closed = True
+        for w in list(self.all):
             w.kill()
 
     async def _acquire(self) -> _Worker:
@@ -534,7 +632,14 @@ class Pool:
         # already on a worker is shielded so the worker is never handed back
         # while still mid-call.
         w = await self._acquire()
-        return await asyncio.shield(asyncio.ensure_future(self._run_on(w, kind, req)))
+        task=asyncio.ensure_future(self._run_on(w,kind,req))
+        try:return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if self.cfg.process_group:
+                w.kill()
+                try:await asyncio.shield(task)
+                except (JobFailed,asyncio.CancelledError):pass
+            raise
 
     async def _run_on(self, w: "_Worker", kind: str, req: dict) -> dict:
         try:
@@ -542,12 +647,13 @@ class Pool:
                 None, w.call, kind, req, self.cfg.job_timeout_s, self.cfg.start_timeout_s)
         except JobFailed:
             w.kill()
-            self.all.remove(w)
-            w = _Worker(self.cfg)
-            self.all.append(w)
+            if w in self.all:self.all.remove(w)
+            if not self.closed:
+                w = _Worker(self.cfg)
+                self.all.append(w)
             raise
         finally:
-            self.idle.put_nowait(w)
+            if not self.closed:self.idle.put_nowait(w)
 
 
 # --- HTTP ------------------------------------------------------------------
@@ -561,7 +667,7 @@ def _status(res: dict) -> int:
 async def _job(request: web.Request, kind: str, req: dict) -> web.Response:
     t0 = time.monotonic()
     try:
-        res = await request.app[POOL].run(kind, req)
+        res = await request.app[MOTION_POOL if kind.startswith("motion_") else POOL].run(kind, req)
     except Busy as e:
         log.warning("%s refused: %s", kind, e)
         return web.json_response(_err("UD-RENDER-FAILED", f"{e}; retry shortly"), status=503,
@@ -573,7 +679,7 @@ async def _job(request: web.Request, kind: str, req: dict) -> web.Response:
     if kind == "render" and res.get("ok"):
         for im in res["images"]:
             im["data"] = base64.b64encode(im["data"]).decode()
-    if kind == "export" and res.get("ok"):
+    if kind in ("export","motion_export") and res.get("ok"):
         res["data"] = base64.b64encode(res["data"]).decode()
     if kind == "diff" and res.get("ok"):
         for key in ("image", "base_image"):
@@ -582,6 +688,7 @@ async def _job(request: web.Request, kind: str, req: dict) -> web.Response:
 
 
 POOL = web.AppKey("pool", Pool)
+MOTION_POOL = web.AppKey("motion_pool", Pool)
 
 
 class BadRequest(Exception):
@@ -682,6 +789,27 @@ def _export_req(body: Any) -> dict:
     return req
 
 
+def _motion_req(body: Any, export=False) -> dict:
+    req=_common(body)
+    allowed={'doc','mode','from_node','to_node','duration_ms','easing','fps','max_edge'}|({'format','max_bytes'} if export else set())
+    if set(body)-allowed:raise BadRequest('unknown motion field')
+    from agentplatform.ui_designer.motion import options
+    from agentplatform.ui_designer.errors import UiDesignerError
+    try:options(body.get('duration_ms',800),body.get('easing','ease-in-out'),body.get('fps',24),body.get('max_edge',720))
+    except UiDesignerError as exc:raise BadRequest(str(exc)) from None
+    for key in ('from_node','to_node'):
+        if not isinstance(body.get(key),str) or not re.fullmatch(r'[a-z0-9][a-z0-9/-]{0,511}',body[key]):raise BadRequest('motion node must be a native ID')
+    req={k:v for k,v in req.items() if k!='annotate'}
+    req.update({key:body[key] for key in ('from_node','to_node')})
+    req.update(duration_ms=body.get('duration_ms',800),easing=body.get('easing','ease-in-out'),fps=body.get('fps',24),max_edge=body.get('max_edge',720))
+    if export:
+        if body.get('format') not in ('mp4','gif'):raise BadRequest('motion format must be mp4|gif')
+        cap=body.get('max_bytes',8<<20)
+        if type(cap) is not int or not 1<=cap<=8<<20:raise BadRequest('motion byte cap invalid')
+        req.update(format=body['format'],max_bytes=cap)
+    return req
+
+
 def _svg_req(body: Any) -> dict:
     req = _common(body)
     node = body.get("node")
@@ -734,9 +862,12 @@ def create_app(cfg: Config | None = None) -> web.Application:
     async def on_start(a: web.Application) -> None:
         a[POOL] = Pool(cfg)
         a[POOL].start()
+        a[MOTION_POOL]=Pool(Config(workers=1,job_timeout_s=60,job_memory_mb=cfg.job_memory_mb,asset_dir=cfg.asset_dir,start_timeout_s=cfg.start_timeout_s,queue_max=1,queue_deadline_s=5,process_group=True))
+        a[MOTION_POOL].start()
 
     async def on_stop(a: web.Application) -> None:
         a[POOL].close()
+        a[MOTION_POOL].close()
 
     app.on_startup.append(on_start)
     app.on_cleanup.append(on_stop)
@@ -751,6 +882,22 @@ def create_app(cfg: Config | None = None) -> web.Application:
     async def resolved(r: web.Request) -> web.Response:
         return await _post(r, "resolved", _common)
 
+    async def motion_call(r,kind,parse):
+        task=asyncio.create_task(_post(r,kind,parse))
+        try:
+            while not task.done():
+                await asyncio.wait({task},timeout=.05)
+                if not task.done() and (r.transport is None or r.transport.is_closing()):
+                    raise asyncio.CancelledError()
+            return await task
+        except asyncio.CancelledError:
+            task.cancel()
+            await asyncio.gather(task,return_exceptions=True)
+            raise
+    async def motion_preview(r):return await motion_call(r,"motion_preview",_motion_req)
+    async def motion_export(r):return await motion_call(r,"motion_export",lambda body:_motion_req(body,True))
+    app.router.add_post("/motion/preview",motion_preview)
+    app.router.add_post("/motion/export",motion_export)
     app.router.add_post("/render", render)
     app.router.add_post("/svg", svg_)
     app.router.add_post("/resolved", resolved)
@@ -771,4 +918,4 @@ def create_app(cfg: Config | None = None) -> web.Application:
 
 if __name__ == "__main__":
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
-    web.run_app(create_app(), host="0.0.0.0", port=8000, access_log=None, handler_cancellation=True)
+    web.run_app(create_app(), handler_cancellation=True, host="0.0.0.0", port=8000, access_log=None)

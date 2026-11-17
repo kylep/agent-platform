@@ -615,7 +615,7 @@ def _asset(c: _Ctx, v: Any, path: str) -> None:
 
 def _link_to(c: _Ctx, value: Any, path: str) -> None:
     """A closed, inert interaction. Defaults are applied by the viewer."""
-    if not _obj(c, value, path, {"target", "trigger", "transition", "duration_ms", "delay_ms"},
+    if not _obj(c, value, path, {"target", "trigger", "transition", "duration_ms", "delay_ms", "easing"},
                 ("target",)):
         return
     c.links[path] = value
@@ -625,7 +625,10 @@ def _link_to(c: _Ctx, value: Any, path: str) -> None:
     trigger = value.get("trigger", "tap")
     transition = value.get("transition", "instant")
     _enum(c, trigger, join_path(path, "trigger"), ("tap", "hover", "after-delay"))
-    _enum(c, transition, join_path(path, "transition"), ("instant", "dissolve", "slide"))
+    _enum(c, transition, join_path(path, "transition"), ("instant", "dissolve", "slide", "smart-animate"))
+    if "easing" in value:
+        _enum(c, value["easing"], join_path(path, "easing"),
+              ("linear", "ease-in", "ease-out", "ease-in-out"))
     for field, lo, hi in (("duration_ms", 0, 2000), ("delay_ms", 100, 60000)):
         if field in value:
             number = value[field]

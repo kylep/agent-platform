@@ -349,3 +349,16 @@ test('conic creation, bounded validation and clearing backdrop blur', async ({pa
   await expect.poll(()=>state.writes.length).toBe(1);
   expect(state.writes[0].ops[0].set).toEqual({backdrop_blur:null,fill:{gradient:'angular',stops:[[0,'#000000'],[1,'#ffffff']]}});
 });
+
+
+test('smart transition and motion keys preserve metadata with CAS undo',async({page})=>{
+  const state=await setup(page);state.nodes[0].meta={purpose:'retained'};await pick(page);
+  await page.getByLabel('Motion key',{exact:true}).fill('shared-card');
+  await page.getByLabel('Destination frame').selectOption('frame');
+  await page.getByLabel('Transition',{exact:true}).selectOption('smart-animate');
+  await page.getByLabel('Motion easing',{exact:true}).selectOption('ease-in');
+  await page.getByRole('button',{name:'Save node'}).click();await expect(page.getByRole('button',{name:'Undo',exact:true})).toBeEnabled();
+  expect(state.writes[0].ops[0].set).toEqual({meta:{purpose:'retained',motion_key:'shared-card'},link_to:{target:'frame',trigger:'tap',transition:'smart-animate',easing:'ease-in',duration_ms:800}});
+  await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(page.getByRole('button',{name:'Redo',exact:true})).toBeEnabled();
+  expect(state.writes[1].ops[0].set).toEqual({meta:{purpose:'retained'},link_to:null});
+});
