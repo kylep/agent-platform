@@ -234,3 +234,16 @@ Agents can discover the catalog with `templates`, then create with a `template`
 object containing its `id` and `revision`, plus the usual slug and request ID.
 An optional title overrides the starter title. Retry uncertain creates with the
 same request ID and inputs. Templates need no external assets or font downloads.
+
+### Text controls
+
+The text inspector supports horizontal alignment including justification, vertical
+alignment within a fixed text box, underline/line-through decoration and text case.
+These are ordinary versioned properties: `align`, `vertical_align`, `decoration`
+and `text_case`. Choose Default to remove an explicit setting.
+
+Case changes affect appearance while preserving authored text and styled runs.
+Justification distributes space between words on non-final paragraph lines; it
+does not stretch single words or ellipsis lines. Vertical alignment uses available
+space in a definite text box. HTML exports use an SVG fallback for these settings
+to preserve the renderer's typography.

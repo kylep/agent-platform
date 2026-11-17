@@ -25,7 +25,7 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
           if (!val.trim()) patch[key] = null;
           else if (["w", "h"].includes(key) && ["hug", "fill"].includes(val.trim())) patch[key] = val.trim();
           else { const num = Number(val); if (!Number.isFinite(num) || (["w", "h"].includes(key) && num <= 0)) throw new Error("Enter valid dimensions and coordinates."); patch[key] = num; }
-        } else patch[key] = ["fill", "color"].includes(key) && !val.trim() ? null : val;
+        } else patch[key] = ["fill", "color", "align", "vertical_align", "decoration", "text_case"].includes(key) && !val.trim() ? null : val;
       }
       const layoutChanges = Object.entries(draft).filter(([key]) => key.startsWith("layout."));
       if (layoutChanges.length) {
@@ -61,7 +61,17 @@ export default function Inspector({ inspection, disabled, freePosition, frames =
     {inspection.type !== "text" && <p className="ud-edit-field"><label htmlFor="ud-fill">Fill (colour or token)</label><Input id="ud-fill" value={value("fill")} onChange={(e) => change("fill", e.target.value)} disabled={disabled} placeholder={authored.fill && typeof authored.fill === "object" ? "Mixed paints (preserved unless edited)" : "#rrggbb or $color.name"} /></p>}
     {inspection.type === "text" && <><p className="ud-edit-field"><label htmlFor="ud-text">Text</label><Textarea id="ud-text" value={draft.text ?? (typeof authored.text === "string" ? authored.text : inspection.text ?? "")} onChange={(e) => change("text", e.target.value)} disabled={disabled} rows={4} /></p>
       {Array.isArray(authored.text) && <p className="muted">Editing text replaces its inline formatting. Undo restores it.</p>}
-      <p className="ud-edit-field"><label htmlFor="ud-color">Text colour or token</label><Input id="ud-color" value={value("color")} onChange={(e) => change("color", e.target.value)} disabled={disabled} /></p></>}
+      <p className="ud-edit-field"><label htmlFor="ud-color">Text colour or token</label><Input id="ud-color" value={value("color")} onChange={(e) => change("color", e.target.value)} disabled={disabled} /></p>
+      <fieldset disabled={disabled}><legend>Typography</legend>
+        {([
+          ["align", "Text horizontal alignment", [["left","Left"],["center","Center"],["right","Right"],["justify","Justified"]]],
+          ["vertical_align", "Text vertical alignment", [["top","Top"],["center","Center"],["bottom","Bottom"]]],
+          ["decoration", "Text decoration", [["none","None"],["underline","Underline"],["line-through","Line through"]]],
+          ["text_case", "Text case", [["none","Original case"],["uppercase","Uppercase"],["lowercase","Lowercase"],["capitalize","Capitalize"]]],
+        ] as const).map(([key,label,options])=><p className="ud-edit-field" key={key}><label htmlFor={`ud-text-${key}`}>{label}</label><Select id={`ud-text-${key}`} value={value(key)} onChange={(e)=>change(key,e.target.value)}><option value="">Default</option>{options.map(([option,text])=><option key={option} value={option}>{text}</option>)}</Select></p>)}
+        <p className="muted">Case changes affect appearance; the original text stays unchanged. Vertical alignment uses the available height in a fixed-height text box.</p>
+      </fieldset>
+    </>}
     {inspection.type === "frame" && <fieldset disabled={disabled}><legend>Layout</legend>
       <p className="ud-edit-field"><label htmlFor="ud-direction">Direction</label><Select id="ud-direction" value={draft["layout.dir"] ?? String(layout.dir ?? "")} onChange={(e) => change("layout.dir", e.target.value)}><option value="">Free positioning</option><option value="row">Row</option><option value="column">Column</option></Select></p>
       {["gap", "pad"].map((key) => <p className="ud-edit-field" key={key}><label htmlFor={`ud-layout-${key}`}>{key === "gap" ? "Gap" : "Padding"}</label><Input id={`ud-layout-${key}`} inputMode="decimal" value={draft[`layout.${key}`] ?? (typeof layout[key] === "number" ? String(layout[key]) : "")} onChange={(e) => change(`layout.${key}`, e.target.value)} placeholder={Array.isArray(layout[key]) ? "Mixed padding (preserved unless edited)" : "0"} /></p>)}

@@ -208,3 +208,32 @@ test('prototype link fields save atomically and undo restores absent link', asyn
   await expect.poll(() => state.writes.length).toBe(2); expect(state.writes[1].ops[0].set).toEqual({ link_to: null });
   await expect(page.getByRole('link', { name: 'Play prototype' })).toHaveAttribute('href', /version=3/);
 });
+
+test('typography edits preserve rich authored text and undo restores absent properties', async ({ page }) => {
+  const state = await setup(page); await pick(page, 'text Greeting');
+  const text = structuredClone(state.nodes[1].text);
+  await page.getByLabel('Text horizontal alignment').selectOption('justify');
+  await page.getByLabel('Text vertical alignment').selectOption('center');
+  await page.getByLabel('Text decoration').selectOption('underline');
+  await page.getByLabel('Text case', { exact: true }).selectOption('uppercase');
+  await page.getByRole('button', { name: 'Save node' }).click();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  expect(state.writes[0].ops).toEqual([{ op: 'update', id: 'text', set: { align: 'justify', vertical_align: 'center', decoration: 'underline', text_case: 'uppercase' } }]);
+  expect(state.nodes[1].text).toEqual(text);
+  await expect(page.getByLabel('Text', { exact: true })).toHaveValue('Hello');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(() => state.writes.length).toBe(2);
+  expect(state.writes[1].ops).toEqual([{ op: 'update', id: 'text', set: { align: null, vertical_align: null, decoration: null, text_case: null } }]);
+  expect(state.nodes[1].text).toEqual(text);
+});
+
+test('typography default clears only that field and controls respect historical views', async ({ page }) => {
+  const state = await setup(page); state.nodes[1].text_case = 'lowercase'; state.nodes[1].decoration = 'line-through';
+  await pick(page, 'text Greeting'); await page.getByLabel('Text case', { exact: true }).selectOption('');
+  await page.getByRole('button', { name: 'Save node' }).click();
+  await expect.poll(() => state.writes.length).toBe(1); expect(state.writes[0].ops[0].set).toEqual({ text_case: null });
+  expect(state.nodes[1].decoration).toBe('line-through');
+  await page.getByLabel('Version', { exact: true }).selectOption('1'); await pick(page, 'text Greeting');
+  await expect(page.getByLabel('Text horizontal alignment')).toBeDisabled(); await expect(page.getByLabel('Text vertical alignment')).toBeDisabled();
+  await expect(page.getByLabel('Text decoration')).toBeDisabled(); await expect(page.getByLabel('Text case', { exact: true })).toBeDisabled();
+});

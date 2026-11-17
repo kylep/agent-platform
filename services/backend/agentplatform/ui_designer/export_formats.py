@@ -94,6 +94,8 @@ def html_document(doc: dict, resolved: dict, node: str | None, assets: dict, cap
         if stroke and (stroke.get('align', 'inside') != 'inside' or any(k in stroke for k in ('dash','sides'))):
             return True
         text = n.get('text') or {}
+        if isinstance(text,dict) and (text.get('align')=='justify' or any(key in text for key in ('vertical_align','text_case','decoration'))):
+            return True
         if isinstance(text, dict) and any(len(line.get('runs', [])) > 1 for line in text.get('lines', [])):
             return True
         return any(complex_node(k) for k in n.get('children', []))
@@ -168,7 +170,7 @@ def html_document(doc: dict, resolved: dict, node: str | None, assets: dict, cap
         # The painter has a closed vocabulary, outlined glyphs and trusted data
         # assets. It emits no scripts, foreignObject, navigation, or remote URLs.
         content = painted.svg
-        warnings.append('Complex paints, paths, rich text or effects use an outlined SVG fallback; edit the source document to change them.')
+        warnings.append('Complex paints, paths, rich text, typography or effects use an outlined SVG fallback; edit the source document to change them.')
     else:
         content = emit(root, painted.x, painted.y)
         warnings.append('HTML text uses installed browser fonts; shaping, baseline and wrapping may differ from the server painter.')

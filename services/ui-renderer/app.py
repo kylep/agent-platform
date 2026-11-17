@@ -348,6 +348,9 @@ def _slim(n: dict) -> dict:
     if isinstance(n.get("text"), dict):
         out["text"] = {"align": n["text"].get("align"), "truncated": n["text"].get("truncated"),
                        "lines": [{k: v for k, v in ln.items() if k != "runs"} for ln in n["text"].get("lines", [])]}
+        for field in ("vertical_align", "text_case", "decoration"):
+            if field in n["text"]:
+                out["text"][field] = n["text"][field]
     if n.get("children"):
         out["children"] = [_slim(c) for c in n["children"]]
     return out

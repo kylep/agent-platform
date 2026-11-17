@@ -297,5 +297,14 @@ Fresh starting Codex weekly usage: 26% (74% left).
   browser 432, broker 470, facade 40 pass. All four scenes validate and render in
   light/dark with no overflow/contrast warnings; 15 focused scene checks pass.
   Previews reviewed. Web/Storybook/token checks, SDK drift and Helm lint pass.
-  Deployment acceptance pending. P2.10 is planned as two complete deployments:
-  typography first, then grid/min-max/resize constraints and wrap controls.
+  Pushed `c868f15`, deployed `ud-templates-20261116` in Helm revision 157.
+  Live browser creation, all four dimensions, eight light/dark renders and
+  receipt replay passed; smoke documents removed. Fresh weekly quota: 35%.
+  P2.10a typography is underway; grid/min-max/constraints follow as P2.10b.
+
+- **P2.10a Status:** implemented text justification, vertical alignment, Unicode
+  case and decorations with inspector CAS/undo and faithful HTML SVG fallback.
+  Legacy SVG/PNG goldens remain unchanged; visual sample reviewed. Backend 3,886
+  passed / 21 skipped; browser 434, renderer 81, broker 470, facade 40 pass, plus
+  builds, Storybook, tokens, SDK drift and Helm lint. Deployment acceptance
+  pending. P2.10b has a coordinated layout/resize design; code remains unopened.

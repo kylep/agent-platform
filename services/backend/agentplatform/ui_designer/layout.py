@@ -77,7 +77,7 @@ from .errors import UD_EXPANSION, UiDesignerError, join_path
 from .fonts import face_by_key
 from .schema import (MAX_EXPANDED_NODES, MAX_INSTANCE_DEPTH, REF_RE, SCHEMA_VERSION, lint,
                      resolve_token)
-from .text import Style, layout_text, make_style, plain_text
+from .text import Style, layout_text, make_style, plain_text, transform_runs
 
 INF = math.inf
 CONTRAST_MIN = 3.0
@@ -97,7 +97,7 @@ _RESOLVABLE = (str, dict, list)
 
 class Item:
     __slots__ = ("id", "type", "w", "h", "x", "y", "absolute", "rotate", "visible", "title", "of",
-                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to")
+                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to", "typography")
     # class-level defaults would clash with __slots__, so they are set in __init__
     def __init__(self):
         self.w = self.h = self.x = self.y = self.title = self.of = self.layout = self.text = None
@@ -111,6 +111,7 @@ class Item:
         self.base = None            # JSON path of an authored top-level node / a component root
         self.cache = None
         self.link_to = None
+        self.typography = {}
 
 
 class _Plan:
@@ -241,6 +242,8 @@ class _Builder:
                 it.visible = v is not False
             elif k == "link_to":
                 it.link_to = dict(v)
+            elif k in ("vertical_align", "text_case", "decoration"):
+                it.typography[k] = v
             elif k == "title":
                 it.title = v
             elif k == "layout":
@@ -303,6 +306,7 @@ class _Builder:
         if not runs:
             runs.append(("", base))
             colors.append(color)
+        runs = transform_runs(runs, node.get("text_case", "none"))
         return runs, colors, node.get("align", "left"), node.get("max_lines"), color
 
 
@@ -357,10 +361,10 @@ def _measure(it: Item, cons: tuple) -> _Plan:
 
 def _measure_text(it: Item, cons: tuple) -> _Plan:
     minw, maxw, minh, maxh = cons
-    runs, _c, _a, max_lines, _col = it.text
+    runs, _c, align, max_lines, _col = it.text
     w = _known(it.w, minw, maxw)
     wrap = w if w is not None else maxw
-    tl = layout_text(runs, None if wrap == INF else wrap, max_lines)
+    tl = layout_text(runs, None if wrap == INF else wrap, max_lines, justify=align == "justify")
     if w is None:
         w = max(tl.w, minw)
     h = _known(it.h, minh, maxh)
@@ -734,7 +738,8 @@ class _Emit:
     def _text(self, it: Item, plan: _Plan, d: dict, x: float, y: float, bg) -> None:
         runs, colors, align, _ml, _c = it.text
         tl = plan.tl
-        key = (id(tl), tuple(colors))
+        decoration = it.typography.get("decoration", "none")
+        key = (id(tl), tuple(colors)) if decoration == "none" else (id(tl), tuple(colors), decoration)
         runs_out = self.run_cache.get(key)
         if runs_out is None:
             runs_out = []
@@ -743,19 +748,28 @@ class _Emit:
                 for f in ln.frags:
                     self.used.setdefault(f.face, set()).update(g[0] for g in f.glyphs)
                     fr.append({"face": f.face, "size": f.size, "color": colors[f.run], "glyphs": f.glyphs})
+                    if decoration != "none":
+                        fr[-1]["span"] = [round(f.start, 3), round(f.w, 3)]
                 runs_out.append(fr)
             self.run_cache[key] = runs_out
             self.keep.append(tl)    # keeps id(tl) from being reused while the cache lives
         lines = []
+        vertical = it.typography.get("vertical_align", "top")
+        free_height = max(0, plan.h-tl.h) if it.h is not None and it.h != "hug" else 0
+        vertical_offset = free_height * (0.5 if vertical == "center" else 1 if vertical == "bottom" else 0)
         for ln, fr in zip(tl.lines, runs_out):
             off = 0.0
             if align == "center":
                 off = (plan.w - ln.w) / 2
             elif align == "right":
                 off = plan.w - ln.w
-            lines.append({"x": round(x + off, 3) + 0.0, "y": round(y + ln.baseline, 3) + 0.0,
+            lines.append({"x": round(x + off, 3) + 0.0, "y": round(y + ln.baseline + vertical_offset, 3) + 0.0,
                           "w": round(ln.w, 3), "h": round(ln.h, 3), "text": ln.text, "runs": fr})
         d["text"] = {"align": align, "truncated": tl.truncated, "lines": lines}
+        for field, default in (("vertical_align", "top"), ("text_case", "none"), ("decoration", "none")):
+            value = it.typography.get(field, default)
+            if value != default:
+                d["text"][field] = value
         if tl.h > plan.h + 0.5 or tl.w > plan.w + 0.5:
             self.warn("UD-WARN-TEXT-OVERFLOW", it,
                       f"text {it.id!r} needs {_r(tl.w)} x {_r(tl.h)} but its box is "

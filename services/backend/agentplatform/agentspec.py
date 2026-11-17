@@ -191,9 +191,9 @@ UI_DESIGNER_CHEATSHEET = r"""Document schema (closed: unknown keys are rejected;
   frame: layout, children, mask. layout is an OBJECT: {dir: row|column, gap, pad, align:
     start|center|end|stretch, justify: start|center|end|space-between, wrap}; pad is
     n, [v,h] or [t,r,b,l].
-  text: text (string or runs [{text, style?, color?}]), style, color, align: left|center|right,
-    max_lines. style = {family: Inter|JetBrains Mono|Noto Sans|Nunito|Fredoka, size, weight, line, letter}
-    or "$type.name". Text colour is `color`, not `fill`.
+  text: text (string or runs [{text,style?,color?}]), style, color, max_lines; align:left|center|right|justify; vertical_align:top|center|bottom.
+    text_case:none|uppercase|lowercase|capitalize (display only); decoration:none|underline|line-through. Justify skips paragraph-final lines; vertical alignment needs spare height.
+    style={family:Inter|JetBrains Mono|Noto Sans|Nunito|Fredoka,size,weight,line,letter} or "$type.name". Text colour is `color`, not `fill`.
   path: d. image: asset (sha256 from `place`), fit: cover|contain|fill.
   instance: of (component or set id), overrides {"child-id.prop": value}, variant {axis:value}, props {name:value}.
   component_sets = {id:{axes:{axis:[values]}, properties:{name:{type,default,allowed?}},

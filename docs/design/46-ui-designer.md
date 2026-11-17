@@ -1370,3 +1370,25 @@ and offer retry. The broker exposes catalog discovery and template creation.
 Tests cover all generated documents in both modes, layout/render quality, catalog
 bounds, invalid ID/revision combinations, permissions, receipt replay and browser
 creation. Existing rendering goldens remain unchanged.
+
+## 25. Text layout and typography (P2.10a addendum)
+
+Add optional text-node properties `vertical_align: top|center|bottom`,
+`text_case: none|uppercase|lowercase|capitalize`, and
+`decoration: none|underline|line-through`; extend `align` with `justify`.
+Omitting these fields retains existing rendering byte for byte. Validators,
+instance overrides, inspection and editor controls share the same closed values.
+Ordinary CAS edits and exact inverse ops provide save/undo/redo.
+
+Case transforms affect a render copy, preserving authored strings and rich runs.
+Transform the logical string with Unicode-aware mapping back to styled runs,
+including length-changing case conversions and words crossing run boundaries.
+Justify interior word gaps on non-final paragraph lines; preserve final lines,
+single words and ellipsis lines. Vertically offset content only when a definite
+text box has spare height. Decorations follow bundled-font metrics and rich-run
+colours. Cache keys/copies must prevent styled renders from mutating plain ones.
+
+SVG and PNG use the same shaped geometry; PDF inherits the raster result. HTML
+uses a trusted SVG fallback for these new properties and reports that limitation.
+Tests cover Unicode/rich runs/newlines, fixed and fill dimensions, wrapping,
+truncation, decorations, legacy goldens, exports and browser undo/clear behavior.

@@ -154,3 +154,19 @@ def test_html_font_family_has_generic_fallback(tmp_path, family, fallback, token
     output = renderer.job_export(renderer.Config(asset_dir=str(tmp_path)), req)['data'].decode()
     expected = f'font-family:var(--type-body-family),{fallback};' if token else f'font-family:&quot;{family}&quot;,{fallback};'
     assert expected in output
+
+
+@pytest.mark.parametrize('typography',[{'align':'justify'},{'vertical_align':'bottom'},
+                                       {'text_case':'uppercase'},{'decoration':'line-through'}])
+def test_export_new_typography_is_outlined_and_resolved_metadata_survives(tmp_path,typography):
+    doc = copy.deepcopy(DOC)
+    label = doc['pages'][0]['children'][0]['children'][0]
+    label.update(typography,w=90,h=30,text='Some clear words')
+    req=request('html');req['doc']=doc
+    result=renderer.job_export(renderer.Config(asset_dir=str(tmp_path)),req)
+    assert b'<svg' in result['data']
+    assert any('typography' in warning for warning in result['warnings'])
+    tree=renderer.job_resolved(renderer.Config(),{'doc':doc,'mode':'dark'})['tree']
+    active=tree['pages'][0]['children'][0]['children'][0]['text']
+    for key,value in typography.items():
+        assert active[key]==value

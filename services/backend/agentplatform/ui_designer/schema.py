@@ -69,7 +69,7 @@ _SHARED = {"id", "type", "title", "w", "h", "x", "y", "absolute", "rotate", "fil
            "meta", "link_to"}
 TYPE_KEYS: dict[str, set[str]] = {
     "frame": _SHARED | {"layout", "children", "mask"},
-    "text": _SHARED | {"text", "style", "color", "align", "max_lines"},
+    "text": _SHARED | {"text", "style", "color", "align", "max_lines", "vertical_align", "text_case", "decoration"},
     "rect": set(_SHARED),
     "ellipse": set(_SHARED),
     "line": set(_SHARED),
@@ -633,7 +633,10 @@ PROP_CHECKS = {
     "mask": lambda c, v, p: _enum(c, v, p, ("alpha", "vector", "luminance")),
     "layout": _layout,
     "text": _text, "style": _style, "color": _color,
-    "align": lambda c, v, p: _enum(c, v, p, ("left", "center", "right")),
+    "align": lambda c, v, p: _enum(c, v, p, ("left", "center", "right", "justify")),
+    "vertical_align": lambda c, v, p: _enum(c, v, p, ("top", "center", "bottom")),
+    "text_case": lambda c, v, p: _enum(c, v, p, ("none", "uppercase", "lowercase", "capitalize")),
+    "decoration": lambda c, v, p: _enum(c, v, p, ("none", "underline", "line-through")),
     "max_lines": lambda c, v, p: (_num(c, v, p, 1, 1000, groups=())
                                   if not isinstance(v, float) or v == int(v) else
                                   c.add("UD-TYPE", p, "expected an integer", v)),

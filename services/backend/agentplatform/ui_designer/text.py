@@ -15,6 +15,7 @@ came from and the caller maps that to a colour.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Iterable
@@ -67,6 +68,8 @@ class Frag:
     size: float
     glyphs: list
     text: str
+    start: float = 0.0
+    w: float = 0.0
 
 
 @dataclass
@@ -242,7 +245,8 @@ def _width(items: Iterable[_Atom]) -> float:
     return sum(a.w for a in items)
 
 
-def _lines_of(paras: list[list[_Atom]], max_w: float | None, limit: int | None
+def _lines_of(paras: list[list[_Atom]], max_w: float | None, limit: int | None,
+              paragraph_ends: set[int] | None = None
               ) -> tuple[list[list[_Atom]], bool, bool]:
     """Greedy breaking. Returns (lines as atom lists, hard_broken, more) where
     `more` is True when the text continues past `limit` lines; breaking stops
@@ -279,6 +283,8 @@ def _lines_of(paras: list[list[_Atom]], max_w: float | None, limit: int | None
             cur_w += a.w
         _trim(cur)
         lines.append(cur)
+        if paragraph_ends is not None:
+            paragraph_ends.add(len(lines)-1)
         if limit is not None and len(lines) > limit:
             return lines, hard, True
     return lines, hard, False
@@ -345,25 +351,29 @@ def _prefix(atom: _Atom, budget: float) -> _Atom | None:
     return _piece(atom, 0, lo) if lo > 0 else None
 
 
-def _frags(items: list[_Atom]) -> list[Frag]:
+def _frags(items: list[_Atom], gap_extra: float = 0, gaps: set[int] | None = None) -> list[Frag]:
     frags: list[Frag] = []
     x = 0.0
-    for a in items:
+    for index, a in enumerate(items):
         if not frags or frags[-1].run != a.run or frags[-1].face != a.style.face.key \
                 or frags[-1].size != a.style.size:
-            frags.append(Frag(a.run, a.style.face.key, a.style.size, [], ""))
+            frags.append(Frag(a.run, a.style.face.key, a.style.size, [], "", x))
         f = frags[-1]
         for gid, pen, dy, _c in a.glyphs:
             f.glyphs.append([gid, round(x + pen, 3), round(dy, 3)] if dy else [gid, round(x + pen, 3)])
         f.text += a.text
         x += a.w
+        if gaps and index in gaps:
+            x += gap_extra
+        f.w = x-f.start
     return frags
 
 
-def _build(runs: list[tuple[str, Style]], max_w: float | None, max_lines: int | None) -> TextLayout:
+def _build(runs: list[tuple[str, Style]], max_w: float | None, max_lines: int | None, justify: bool = False) -> TextLayout:
     base = runs[0][1]
     paras = _runs_to_atoms(runs)
-    lines, hard, more = _lines_of(paras, max_w, max_lines)
+    paragraph_ends = set() if justify else None
+    lines, hard, more = _lines_of(paras, max_w, max_lines, paragraph_ends)
     truncated = False
     if max_lines is not None and (more or len(lines) > max_lines):
         lines = lines[:max_lines]
@@ -371,10 +381,21 @@ def _build(runs: list[tuple[str, Style]], max_w: float | None, max_lines: int | 
         truncated = True
     out: list[Line] = []
     top = 0.0
-    for items in lines:
+    for index, items in enumerate(lines):
         h, baseline = _metrics(items, base)
-        out.append(Line(top, top + baseline, _width(items), h, "".join(a.text for a in items),
-                        _frags(items)))
+        width = _width(items)
+        gaps = set()
+        if justify and max_w is not None and index not in paragraph_ends and not (truncated and index == len(lines)-1):
+            i=0
+            while i<len(items):
+                if not items[i].space:
+                    i+=1; continue
+                start=i
+                while i<len(items) and items[i].space: i+=1
+                if start>0 and i<len(items): gaps.add(i-1)
+        extra=max(0,(max_w-width)/len(gaps)) if gaps else 0
+        out.append(Line(top, top + baseline, max_w if extra else width, h, "".join(a.text for a in items),
+                        _frags(items,extra,gaps)))
         top += h
     if not out:
         h, baseline = _metrics([], base)
@@ -384,7 +405,7 @@ def _build(runs: list[tuple[str, Style]], max_w: float | None, max_lines: int | 
 
 
 def layout_text(runs: list[tuple[str, Style]], max_w: float | None = None,
-                max_lines: int | None = None) -> TextLayout:
+                max_lines: int | None = None, *, justify: bool = False) -> TextLayout:
     """Shape and break `runs` (a list of `(text, Style)`) at `max_w` px
     (None: only explicit newlines break). The result must be treated as
     read-only; it is shared through a cache."""
@@ -399,10 +420,10 @@ def layout_text(runs: list[tuple[str, Style]], max_w: float | None = None,
         _LAYOUTS.put((key, None, max_lines), natural, _cost(natural))
     if max_w is None or natural.w <= max_w + _EPS:
         return natural
-    k = (key, round(max_w, 3), max_lines)
+    k = (key, round(max_w, 3), max_lines, "justify") if justify else (key, round(max_w, 3), max_lines)
     hit = _LAYOUTS.get(k)
     if hit is None:
-        hit = _build(runs, max_w, max_lines)
+        hit = _build(runs, max_w, max_lines, justify)
         _LAYOUTS.put(k, hit, _cost(hit))
     return hit
 
@@ -418,3 +439,36 @@ def plain_text(spec: Any) -> str:
     if isinstance(spec, list):
         return "".join(r.get("text", "") for r in spec if isinstance(r, dict))
     return ""
+
+
+def transform_runs(runs: list[tuple[str, Style]], text_case: str) -> list[tuple[str, Style]]:
+    """Unicode case over the logical string, preserving rich-run ownership.
+
+    Default Unicode upper/lower expansions have per-character lengths even
+    where the character itself is contextual (Greek final sigma). Locale-
+    specific casing is deliberately not inferred from a user's environment.
+    """
+    if text_case == 'none':
+        return runs
+    original=''.join(text for text,_ in runs)
+    if text_case in ('uppercase','lowercase'):
+        operation=str.upper if text_case=='uppercase' else str.lower
+        transformed=operation(original)
+        lengths=[len(operation(char)) for char in original]
+    else:
+        pieces=[]; lengths=[]; word=False
+        for char in original:
+            piece=char.upper() if char.isalpha() and not word else char
+            if char.isalpha(): word=True
+            elif char.isdigit() or unicodedata.category(char).startswith('M') or (char in ("'",'’') and word): pass
+            else: word=False
+            pieces.append(piece);lengths.append(len(piece))
+        transformed=''.join(pieces)
+    if len(transformed)!=sum(lengths):
+        raise ValueError('Unicode case mapping changed contextual length unexpectedly')
+    output=[]; source=target=0
+    for text,style in runs:
+        count=sum(lengths[source:source+len(text)])
+        output.append((transformed[target:target+count],style))
+        source+=len(text);target+=count
+    return output

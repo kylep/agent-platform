@@ -46,7 +46,7 @@ from .schema import (BLEND_MODES, COLOR_RE, MAX_BACKDROPS, MAX_BLUR, MAX_BLURS, 
 from .text import layout_text, make_style
 
 # Bump with any change to what the painter emits; part of `renderer_version`.
-PAINTER_VERSION = 8
+PAINTER_VERSION = 9
 
 ANNOTATE_COLOR = "#ff2bd6"
 ANNOTATE_HALO = "#000000"
@@ -668,6 +668,21 @@ class _Painter:
                     gy = line["y"] + (g[2] if len(g) > 2 else 0)
                     parts.append(f'<use href="#{gref}" transform="translate({_n(gx)} {_n(gy)}) '
                                  f'scale({scale:.6g})"/>')
+                decoration = tx.get("decoration", "none")
+                if decoration != "none" and run.get("span"):
+                    face_info = face_by_key(face)
+                    if decoration == "underline":
+                        table = face_info.tt["post"]
+                        position = -getattr(table, "underlinePosition", -face_info.upem * .1)
+                        thickness = getattr(table, "underlineThickness", face_info.upem * .05)
+                    else:
+                        table = face_info.tt["OS/2"]
+                        position = -getattr(table, "yStrikeoutPosition", face_info.upem * .3)
+                        thickness = getattr(table, "yStrikeoutSize", face_info.upem * .05)
+                    start, width = run["span"]
+                    if width > 0:
+                        parts.append(f'<rect x="{_n(line["x"] + start)}" y="{_n(line["y"] + position * scale)}" '
+                                     f'width="{_n(width)}" height="{_n(max(.5, thickness * scale))}"/>')
                 if parts:
                     o.append(f'<g fill="{c[0]}"' + (f' fill-opacity="{_n(c[1])}"' if c[1] < 1 else "")
                              + ">" + "".join(parts) + "</g>")
