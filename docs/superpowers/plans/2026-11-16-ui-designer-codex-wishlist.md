@@ -345,4 +345,23 @@ Fresh starting Codex weekly usage: 26% (74% left).
   Canonical catalog regeneration is byte-identical and the visual sample was
   reviewed. Backend 3,990 passed / 21 skipped; browser 451, broker 471, facade 40
   pass. Builds, Storybook, tokens, SDK drift and Helm lint pass. The existing
-  renderer is unchanged. Live deployment acceptance pending.
+  renderer is unchanged. Pushed `828460c`, deployed `ud-icons-20261116`
+  in Helm revision 161 (renderer remains `ud-vector-20261116`). Live API
+  insertion/reuse/exact undo/receipt replay/local-edit protection passed; browser
+  48-pixel insertion, undo and redo passed at versions 2/3/4. Native render
+  inspected; temporary documents removed. Fresh weekly quota: 45% used / 55% left.
+
+## P2 completion checkpoint — 2026-11-16
+
+P2.6–P2.12 are implemented, locally verified, committed, pushed to main and
+deployed to pai. Three Sol agents handled disjoint implementation work; each
+chunk reached live acceptance before the next implementation chunk opened.
+Visual diff, design lint, pinned libraries, templates, typography/layout, vector
+editing and 2,053 native icons are available. All UI Designer work is committed.
+The last measured weekly Codex usage is 45%, leaving 55% for other work; the
+75% stop threshold was never reached.
+
+Material bounds remain explicit in the feature docs: visual path editing uses
+a bounded M/L/C/Z subset with raw-data fallback; Boolean operands require fixed
+numeric sibling geometry; icon size is chosen at insertion and scales native
+path coordinates. Legacy document renders and restore compatibility are kept.
