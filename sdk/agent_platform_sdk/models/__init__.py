@@ -374,6 +374,9 @@ from .ui_doc_write_out import UiDocWriteOut
 from .ui_doc_write_out_warnings_item import UiDocWriteOutWarningsItem
 from .ui_version_list import UiVersionList
 from .ui_version_row import UiVersionRow
+from .ui_visual_diff_in import UiVisualDiffIn
+from .ui_visual_diff_out import UiVisualDiffOut
+from .ui_visual_diff_region import UiVisualDiffRegion
 from .user_group_in import UserGroupIn
 from .user_out import UserOut
 from .user_out_kind import UserOutKind
@@ -775,6 +778,9 @@ __all__ = (
     "UiDocWriteOutWarningsItem",
     "UiVersionList",
     "UiVersionRow",
+    "UiVisualDiffIn",
+    "UiVisualDiffOut",
+    "UiVisualDiffRegion",
     "UserGroupIn",
     "UserOut",
     "UserOutKind",

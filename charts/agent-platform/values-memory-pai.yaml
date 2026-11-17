@@ -3,21 +3,21 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ud-export-20261116
+    tag: ud-diff-20261116
   web:
-    tag: ud-export-20261116
+    tag: ud-diff-20261116
   runner:
     tag: bk-1383a26
   runnerDev:
     tag: bk-edf7a44
   mcpFacade:
-    tag: ud-import-20261116
+    tag: ud-diff-20261116
 mcpBroker:
   image:
-    tag: ud-export-20261116
+    tag: ud-diff-20261116
 uiRenderer:
   image:
-    tag: ud-export-font-20261116
+    tag: ud-diff-20261116
 env:
   AP_STARTUP_MEMORY_PILOT_AGENTS: pai
   AP_MEMORY_SEMANTIC_ENABLED: "true"

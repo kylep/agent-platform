@@ -35,8 +35,8 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   not the kitchen.
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
-  endpoints. Never tools. 21 curated-out, plus 103 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 361 graded operations in all.
+  endpoints. Never tools. 21 curated-out, plus 104 session/internal/streaming/
+  byte-serving/connector/run-only operations below — 362 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
@@ -146,6 +146,8 @@ EXCLUDED_PATHS = (
     # into a document, and an admin bearer must not become a way to show an
     # artifact to every holder of the tool. Facade callers get text.
     (("GET",),  r"^/api/ui-designer/docs/\{slug\}/(?:render|svg|resolved)$"),
+    # Visual diff carries two PNG payloads; the broker emits ImageContent.
+    (("POST",), r"^/api/ui-designer/docs/\{slug\}/visual-diff$"),
     (("GET",),  r"^/api/ui-designer/assets/\{sha256\}$"),
     (("GET",),  r"^/api/ui-designer/events$"),
     (("POST",), r"^/api/ui-designer/docs/\{slug\}/place$"),

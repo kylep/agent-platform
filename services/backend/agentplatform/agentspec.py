@@ -215,7 +215,8 @@ Ops (one batch applies atomically; each op is an object with "op"):
   update cannot set id/type/children; a page only takes title.
 Other actions: inspect {node, mode?} (resolved box, colours, tokens, component of one node);
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
-  {op: diff, from_version, to_version} (the writes between two versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
+  {op: diff, from_version, to_version} (the writes between two versions), or
+  {op: visual_diff, from_version, to_version, node?, mode?, scale?, tolerance?:0..255} (aligned heatmap + changed regions/node ids; explicit retained versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
   (artifact + #design card; SVG self-contained, PDF raster/white transparency, HTML static DOM/SVG + token CSS vars). Check comments before editing and resolve
   what you fix. Figma REST imports are administrator jobs in the web UI; use list/outline
   to find and edit the completed document. Import never overwrites an existing slug.

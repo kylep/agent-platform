@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 137-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 179-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (187 tools)."""
+    """The admin-on surface — KEEP + GATE (237 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -187,7 +187,7 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (235 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (237 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
@@ -714,3 +714,8 @@ def test_ui_designer_text_routes_are_tools_and_pictures_are_not(spec, tools, adm
         assert not hidden & surface
     assert not gated & {(t._route.method, t._route.path) for t in tools}
     assert gated <= {(t._route.method, t._route.path) for t in admin_tools}
+
+
+def test_visual_diff_images_are_not_exposed_as_base64_text(tools, admin_tools):
+    for surface in (tools, admin_tools):
+        assert all(t._route.path != "/api/ui-designer/docs/{slug}/visual-diff" for t in surface)

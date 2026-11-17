@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
+import json
+from collections import OrderedDict
 import hashlib
 import io
 import logging
@@ -254,6 +257,71 @@ def job_export(cfg: Config, req: dict) -> dict:
             "warnings": [n.encode()[:500].decode(errors="ignore") for n in notes[:32]]}
 
 
+def _job_diff_uncached(cfg: Config, req: dict) -> dict:
+    from PIL import Image
+    from agentplatform.ui_designer import svg, visual_diff
+    from agentplatform.ui_designer.errors import UiDesignerError
+    from agentplatform.ui_designer.layout import layout_document
+    Path(cfg.asset_dir).mkdir(parents=True, exist_ok=True)
+    resolved = [layout_document(req[key], req['mode']) for key in ('before_doc', 'after_doc')]
+    selected = []
+    for tree in resolved:
+        try:
+            selected.append(svg.find_node(tree, req['node'])[0])
+        except UiDesignerError as exc:
+            if exc.code != 'UD-OP-TARGET':
+                raise
+            selected.append(None)
+    if not any(selected):
+        raise UiDesignerError('UD-OP-TARGET', 'selected node is missing from both versions')
+    need = list(dict.fromkeys(sha for node in selected if node for sha in _node_assets(node)))
+    missing = [sha for sha in need if not _asset_path(cfg, sha).is_file()]
+    if missing:
+        return {'ok': False, 'code': 'MISSING-ASSETS', 'missing': missing}
+    infos = {sha:_asset_info(cfg, sha) for sha in need}
+    paints = [svg.paint(tree, req['node'], assets=infos) if node else None for tree,node in zip(resolved,selected)]
+    box, width, height = visual_diff.union_box([[p.x,p.y,p.w,p.h] for p in paints if p], req['scale'])
+    images = []
+    for painted in paints:
+        if painted is None:
+            images.append(Image.new('RGBA', (width,height)))
+        else:
+            source = visual_diff.viewport(painted.svg, box, width, height)
+            image = Image.open(io.BytesIO(_raster(source, width, height, None, cfg.asset_dir)))
+            image.load()
+            images.append(image.convert('RGBA'))
+    nodes = [item for node in selected for item in visual_diff.node_boxes(node)]
+    result = visual_diff.compare(*images, box, req['scale'], nodes, req['tolerance'], req['max_bytes'])
+    return {'ok': True, 'renderer_version':svg.renderer_version(), **result}
+
+
+# Each worker has its own cache. Byte strings are immutable; deep-copy only the
+# response containers so HTTP base64 serialization never poisons cached bytes.
+_DIFF_CACHE: OrderedDict[str, tuple[dict, int]] = OrderedDict()
+_DIFF_CACHE_BYTES = 32 << 20
+_DIFF_CACHE_ENTRIES = 4
+
+
+def job_diff(cfg: Config, req: dict) -> dict:
+    from agentplatform.ui_designer.svg import renderer_version
+    encoded = json.dumps(req, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()
+    key = hashlib.sha256((renderer_version() + cfg.asset_dir).encode() + encoded).hexdigest()
+    cached = _DIFF_CACHE.get(key)
+    if cached is not None:
+        _DIFF_CACHE.move_to_end(key)
+        return copy.deepcopy(cached[0])
+    result = _job_diff_uncached(cfg, req)
+    if result.get('ok'):
+        size = sum(len(result.get(field, b'')) for field in ('image', 'base_image'))
+        size += len(json.dumps({k:v for k,v in result.items() if k not in ('image','base_image')}).encode())
+        if size <= _DIFF_CACHE_BYTES:
+            while _DIFF_CACHE and (len(_DIFF_CACHE) >= _DIFF_CACHE_ENTRIES or
+                                  sum(item[1] for item in _DIFF_CACHE.values()) + size > _DIFF_CACHE_BYTES):
+                _DIFF_CACHE.popitem(last=False)
+            _DIFF_CACHE[key] = (copy.deepcopy(result), size)
+    return result
+
+
 def _slim(n: dict) -> dict:
     out = {k: v for k, v in n.items() if k not in ("children", "text")}
     if isinstance(n.get("text"), dict):
@@ -272,7 +340,7 @@ def job_resolved(cfg: Config, req: dict) -> dict:
                                            for pg in r["pages"]]}}
 
 
-JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export}
+JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff}
 
 
 def _run_job(cfg: Config, kind: str, req: dict) -> dict:
@@ -420,6 +488,9 @@ async def _job(request: web.Request, kind: str, req: dict) -> web.Response:
             im["data"] = base64.b64encode(im["data"]).decode()
     if kind == "export" and res.get("ok"):
         res["data"] = base64.b64encode(res["data"]).decode()
+    if kind == "diff" and res.get("ok"):
+        for key in ("image", "base_image"):
+            res[key] = base64.b64encode(res[key]).decode()
     return web.json_response(res, status=_status(res))
 
 
@@ -459,6 +530,27 @@ def _render_req(body: Any) -> dict:
         raise BadRequest("`background` is #rrggbb")
     req.update(nodes=nodes, scale=scale, max_edge=max_edge, max_bytes=max_bytes or None, background=bg)
     return req
+
+
+def _diff_req(body: Any) -> dict:
+    if not isinstance(body, dict) or set(body) - {'before_doc','after_doc','node','mode','scale','tolerance','max_bytes'}:
+        raise BadRequest('unknown visual diff field')
+    if not all(isinstance(body.get(key), dict) for key in ('before_doc','after_doc')):
+        raise BadRequest('before_doc and after_doc must be documents')
+    req = _common({'doc':body['before_doc'], 'mode':body.get('mode')})
+    req.pop('doc'); req.pop('annotate')
+    node, scale = body.get('node'), body.get('scale',1)
+    tolerance, cap = body.get('tolerance',0), body.get('max_bytes',8 << 20)
+    if node is not None and (not isinstance(node,str) or len(node)>96):
+        raise BadRequest('node must be an id')
+    if isinstance(scale,bool) or scale not in SCALES:
+        raise BadRequest('invalid diff scale')
+    if isinstance(tolerance,bool) or not isinstance(tolerance,int) or not 0<=tolerance<=255:
+        raise BadRequest('tolerance must be an integer in 0..255')
+    if isinstance(cap,bool) or not isinstance(cap,int) or not 1<=cap<=8 << 20:
+        raise BadRequest('max_bytes must be an integer in 1..8388608')
+    return {**req, 'before_doc':body['before_doc'], 'after_doc':body['after_doc'],
+            'node':node, 'scale':scale, 'tolerance':tolerance, 'max_bytes':cap}
 
 
 def _export_req(body: Any) -> dict:
@@ -555,6 +647,9 @@ def create_app(cfg: Config | None = None) -> web.Application:
     async def export(r: web.Request) -> web.Response:
         return await _post(r, "export", _export_req)
     app.router.add_post("/export", export)
+    async def diff(r: web.Request) -> web.Response:
+        return await _post(r, "diff", _diff_req)
+    app.router.add_post("/diff", diff)
     return app
 
 

@@ -2126,3 +2126,39 @@ class UiDocExportOut(BaseModel):
     card: str                    # `[[artifact:<id>]]`, works in any message
     card_posted: bool = False
     warnings: list[str] = Field(default_factory=list)
+
+
+class UiVisualDiffIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    from_version: int = Field(ge=1, strict=True)
+    to_version: int = Field(ge=1, strict=True)
+    node: str | None = Field(default=None, max_length=96)
+    mode: str | None = Field(default=None, max_length=16)
+    scale: float = Field(default=1, strict=True)
+    tolerance: int = Field(default=0, ge=0, le=255, strict=True)
+
+
+class UiVisualDiffRegion(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+    node_ids: list[str]
+
+
+class UiVisualDiffOut(BaseModel):
+    slug: str
+    from_version: int
+    to_version: int
+    mime: Literal["image/png"]
+    image: str
+    base_image: str
+    width: int
+    height: int
+    box: list[float]
+    changed_pixels: int
+    total_pixels: int
+    regions: list[UiVisualDiffRegion]
+    node_ids: list[str]
+    truncated: bool
+    warnings: list[str] = Field(default_factory=list)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage } from "../api";
 import { prototypeFrames } from "../lib/prototype";
+import CompareVersions from "../components/ui-designer/CompareVersions";
 import ExportControls from "../components/ui-designer/ExportControls";
 import Inspector from "../components/ui-designer/Inspector";
 import { Button } from "@ap/ui/button";
@@ -9,7 +10,7 @@ import { useDesignerEditing } from "../lib/useDesignerEditing";
 import type { UiInspection } from "../lib/uiDesigner";
 import { Canvas } from "../components/ui-designer/Canvas";
 import { useTitle } from "../lib/title";
-import { UD, flatten, nodeLabel, opSummary, type RNode, type Resolved, type UiComment, type UiDiff, type UiEvent, type UiVersionRow } from "../lib/uiDesigner";
+import { UD, flatten, nodeLabel, type RNode, type Resolved, type UiComment, type UiEvent, type UiVersionRow } from "../lib/uiDesigner";
 
 // Read-only document view (docs/design/46 §7): outline, server-SVG canvas
 // with a hit overlay, a small inspector, and a version picker.
@@ -61,7 +62,7 @@ export default function UiDesignerDocument() {
   const [comments, setComments] = useState<UiComment[]>([]);
   const [hl, setHl] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [cmp, setCmp] = useState<{ from: string; to: string; diff: UiDiff | null } | null>(null);
+  const [comparing, setComparing] = useState(false);
   const base = `${UD}/${encodeURIComponent(slug)}`;
 
   const [canWrite, setCanWrite] = useState(false);
@@ -81,7 +82,7 @@ export default function UiDesignerDocument() {
   useEffect(() => {
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
-    setDraft(""); setCmp(null); setHl(null); setErr("");
+    setDraft(""); setComparing(false); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -183,16 +184,6 @@ export default function UiDesignerDocument() {
       body: JSON.stringify({ version: version ?? current, label }) });
     setRev((r) => r + 1);
   });
-  async function loadDiff(from: string, to: string) {
-    setCmp({ from, to, diff: null });
-    const d = await act(() => api<UiDiff>(`${base}/diff?from=${from}&to=${to}`));
-    setCmp({ from, to, diff: d ?? null });
-  }
-  const openCompare = () => {
-    const to = String(current ?? ""), from = String(versions.length > 1 ? versions[1].version : to);
-    return loadDiff(from, to);
-  };
-
   function pickVersion(v: string) {
     const next = new URLSearchParams(params);
     if (v) next.set("version", v); else next.delete("version");
@@ -218,44 +209,13 @@ export default function UiDesignerDocument() {
           {(version ?? pinned) && <Link to={`/ui-designer/${encodeURIComponent(slug)}/play?${new URLSearchParams({ version: String(version ?? pinned), mode, ...(page && page.children?.find((n)=>n.type === "frame" && !n.of) ? { frame: page.children.find((n)=>n.type === "frame" && !n.of)!.id } : {}) })}`}>Play prototype</Link>}
           {canWrite && !version && <><Button onClick={editing.undo} disabled={stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
           <button type="button" onClick={labelVersion}>Label this version</button>
-          <button type="button" onClick={() => (cmp ? setCmp(null) : openCompare())}>
-            {cmp ? "Close compare" : "Compare"}</button>
+          <button type="button" onClick={() => setComparing((open) => !open)}>
+            {comparing ? "Close compare" : "Compare"}</button>
 
         </div>
       </div>
       {(version ?? pinned) && <ExportControls key={`${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canExport={canWrite} />}
-      {cmp && page && (
-        <section aria-label="Compare versions">
-          <div className="ud-actions">
-            {(["from", "to"] as const).map((k) => (
-              <label key={k} className="muted">{k}{" "}
-                <select value={cmp[k]} aria-label={`Compare ${k}`}
-                        onChange={(e) => loadDiff(k === "from" ? e.target.value : cmp.from,
-                                                  k === "to" ? e.target.value : cmp.to)}>
-                  {versions.map((v) => <option key={v.version} value={v.version}>
-                    {`v${v.version}${v.label ? ` ${v.label}` : ""}`}</option>)}
-                </select>
-              </label>
-            ))}
-          </div>
-          <div className="ud-compare">
-            {[cmp.from, cmp.to].map((v, i) => (
-              <figure key={i}><img alt={`Version ${v}`}
-                src={`${base}/render?${new URLSearchParams({ mode, node: page.id, version: v })}`} />
-                <figcaption className="muted">v{v}</figcaption></figure>
-            ))}
-          </div>
-          {cmp.diff && (
-            <ul className="muted">
-              {cmp.diff.chunks.length === 0 && <li>No changes</li>}
-              {cmp.diff.chunks.map((c) => (
-                <li key={c.version}>v{c.version}{c.reason ? ` ${c.reason}` : ""}: {c.ops.map(opSummary).join(", ")}</li>
-              ))}
-              {cmp.diff.truncated && <li>Truncated</li>}
-            </ul>
-          )}
-        </section>
-      )}
+      {comparing && page && (version ?? pinned) && <CompareVersions key={base} base={base} versions={versions} initialVersion={(version ?? pinned)!} pageId={page.id} selectedId={picked?.id ?? null} mode={mode} onSelectNode={(id) => { const node = known.find((n) => n.id === id); if (node) setSel(node); }} />}
       {editing.message && <p role="status">{editing.message}</p>}
       {editing.uncertain && <Button onClick={editing.retry} disabled={editing.busy}>Retry save</Button>}
       {stale && <p role="status">The document changed. Your inspector draft is preserved. <Button onClick={() => { setStale(false); setInspection(null); }}>Discard draft and reload inspector</Button></p>}

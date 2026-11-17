@@ -1245,3 +1245,31 @@ Tests cover every format through renderer/API/tool/web boundaries, MIME and
 download disposition, missing assets, byte/pixel limits, typed token variables,
 injection strings, version pinning and legacy PNG behavior. Validate PDFs by
 opening/rasterizing the result, and live-check downloaded bytes after deployment.
+
+## 21. Visual comparison (P2.6 addendum)
+
+A read-only visual-diff operation compares two explicit retained versions of one
+document with the same node, mode, scale and renderer. The renderer aligns both
+renders in their union of document-space bounds, so moved frames and resized
+selections are not normalized into a false match. A node present in only one
+version compares against transparent pixels; missing from both is an error.
+
+Compare premultiplied colour and alpha so invisible RGB does not create noise.
+An explicit integer tolerance (0–255, default zero) controls pixel differences.
+Return an image, changed/total pixel counts, bounded changed regions, intersecting
+node IDs and truncation notes. Region-to-node mapping is approximate geometry,
+not a claim that each overlapping node was independently edited. Bound work to
+10 megapixels, encoded output to the export-size budget, and region/node lists
+to 200 entries. Both sources count against the existing aggregate request budget
+(default 10 megapixels, allowing a 5-megapixel comparison canvas). A 32 MiB,
+four-entry worker cache reuses successful comparisons; errors are not cached.
+Reuse the isolated renderer and document asset-transfer rules;
+never accept assets outside the two authorized documents.
+
+The API and `history op=visual_diff` use existing read/render access and work
+budgets. The broker returns MCP image content plus compact metadata, never a
+base64 text dump. Compare retains the existing side-by-side view and adds a
+visual layer with a client-only opacity control and explicit pinned versions.
+Scope changes cancel stale loads. No document mutation, new grants or database
+migration. Tests cover unchanged/moved/resized/text/transparent content, missing
+nodes, byte/pixel limits, asset scope, permissions and browser request races.

@@ -934,6 +934,35 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
                             url=f"/artifacts/{art.id}", card=chip, card_posted=posted, warnings=warnings)
 
 
+@router.post(PREFIX + "/docs/{slug}/visual-diff", response_model=S.UiVisualDiffOut)
+async def visual_diff_ui_document(slug: str, body: S.UiVisualDiffIn, request: Request,
+                                  caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """Compare two explicit retained versions in the same world-coordinate canvas."""
+    from types import SimpleNamespace
+    _check_scale(body.scale)
+    _check_pixel_budget(request, caller)
+    before, _, _ = await _doc_at(request, caller, slug, body.from_version)
+    after, _, _ = await _doc_at(request, caller, slug, body.to_version)
+    try:
+        async with request.app.state.session_factory() as s:
+            result = await _renderer(request).visual_diff(
+                s, before_doc=before["doc"], after_doc=after["doc"], node=body.node,
+                mode=body.mode, scale=body.scale, tolerance=body.tolerance)
+        # Both source renders and both aligned output images consume pixel work.
+        work = [SimpleNamespace(width=result["width"], height=result["height"])] * 2
+        try:
+            _check_megapixels(request, work)
+        except UiDesignerError as error:
+            raise UiDesignerError(error.code,
+                "visual diff counts both aligned images toward the per-request megapixel limit; "
+                "choose a smaller node or scale", detail=error.detail) from error
+    except UiDesignerError as e:
+        raise ud_http(e)
+    _charge_pixels(request, caller, work)
+    return S.UiVisualDiffOut(slug=slug, from_version=body.from_version,
+                             to_version=body.to_version, **result)
+
+
 # --- delete and reclaim (Kyle's session) ------------------------------------------
 
 @router.delete(PREFIX + "/docs/{slug}", response_model=S.UiDocDeleteOut)

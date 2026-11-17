@@ -249,3 +249,19 @@ violations. Apply both source-read and destination-write checks server-side;
 future per-document access must not widen through library reuse. Tests cover
 source deletion, offline rendering, safe upgrades, conflicting local overrides,
 cyclic components and retained-version restore.
+
+## P2 execution — authorized 2026-11-16
+
+Kyle authorized implementing the P2 work after P1 completion. Scope is the full
+P2 wishlist (6–12), in order: visual diff, lint, libraries, templates, layout
+improvements, vector editing and icons. Reuse three Sol implementation agents;
+finish, verify, commit, push and deploy bounded chunks before starting another.
+Standing unattended deployment authorization and the 75%-used quota stop remain.
+Fresh starting Codex weekly usage: 26% (74% left).
+
+- **P2.6 Status:** implemented aligned visual comparison, bounded change regions,
+  cached renderer results, image-native broker output and the Compare overlay.
+  Checks: backend 3,782 passed / 20 skipped; browser 409, renderer 54, broker
+  467, facade 40; builds, Storybook, tokens, SDK drift and Helm lint pass.
+  The raw image-bearing route is excluded from the text-only facade.
+  Deployment acceptance pending. P2.7–P2.12 implementation remains unopened.

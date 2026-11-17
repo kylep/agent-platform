@@ -2512,7 +2512,7 @@ async def ui_designer(action: str, slug: str | None = None, title: str | None = 
                       comment_id: str | None = None, x: float | None = None,
                       y: float | None = None, parent_id: str | None = None,
                       from_version: int | None = None, to_version: int | None = None,
-                      name: str | None = None, format: str = "png"):
+                      name: str | None = None, format: str = "png", tolerance: int = 0):
     """Design documents: UI frames you edit as ops and look at as pictures.
     Actions: list · create · get · outline · edit · snapshot · history ·
     restore · place · inspect · comments · export. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
@@ -2573,7 +2573,8 @@ Ops (one batch applies atomically; each op is an object with "op"):
   update cannot set id/type/children; a page only takes title.
 Other actions: inspect {node, mode?} (resolved box, colours, tokens, component of one node);
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
-  {op: diff, from_version, to_version} (the writes between two versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
+  {op: diff, from_version, to_version} (the writes between two versions), or
+  {op: visual_diff, from_version, to_version, node?, mode?, scale?, tolerance?:0..255} (aligned heatmap + changed regions/node ids; explicit retained versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
   (artifact + #design card; SVG self-contained, PDF raster/white transparency, HTML static DOM/SVG + token CSS vars). Check comments before editing and resolve
   what you fix. Figma REST imports are administrator jobs in the web UI; use list/outline
   to find and edit the completed document. Import never overwrites an existing slug.
@@ -2638,6 +2639,35 @@ Example edit ops (new page: a frame, a text and a row of two cards):
                      annotate=annotate if snapshot else None)},
             timeout=_UI_DESIGNER_TIMEOUT)
         return _ud_write(out, "edited")
+    if action == "history" and op == "visual_diff":
+        if from_version is None or to_version is None:
+            return "error: history op='visual_diff' requires from_version and to_version"
+        if isinstance(tolerance, bool) or not isinstance(tolerance, int) or not 0 <= tolerance <= 255:
+            return "error: tolerance must be an integer from 0 to 255"
+        out = await _artifact_call("POST", f"{base}/visual-diff", json={
+            "from_version": from_version, "to_version": to_version, "scale": scale,
+            "tolerance": tolerance, **_given(node=node, mode=mode)}, timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        if not isinstance(r, dict) or not isinstance(r.get("image"), str):
+            return out
+        try:
+            picture = _b64.b64decode(r["image"], validate=True)
+        except ValueError:
+            return "error: visual diff returned invalid image bytes"
+        if len(picture) > 8 << 20 or not picture.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "error: visual diff returned an invalid or over-budget image"
+        lines = [f"{slug} v{from_version} -> v{to_version}: "
+                 f"{r.get('changed_pixels', 0)}/{r.get('total_pixels', 0)} changed pixels "
+                 f"(tolerance {tolerance})",
+                 "world bounds: " + _json.dumps(r.get("box", [])),
+                 "nodes: " + ", ".join(str(v) for v in r.get("node_ids", [])[:20])]
+        for region in r.get("regions", [])[:10]:
+            lines.append("region " + _json.dumps({k: region.get(k) for k in ("x", "y", "w", "h")})
+                         + " · " + ", ".join(str(v) for v in region.get("node_ids", [])[:3]))
+        if r.get("truncated") or len(r.get("node_ids", [])) > 20 or len(r.get("regions", [])) > 10:
+            lines.append("… mapping cut; narrow node or inspect the affected nodes")
+        lines.extend(str(w)[:500] for w in r.get("warnings", [])[:3])
+        return _with_pictures(lines, [(picture, "image/png", "Aligned visual difference (magenta marks changes)")])
     if action == "history" and op == "diff":
         if from_version is None or to_version is None:
             return "error: history op='diff' requires from_version and to_version"

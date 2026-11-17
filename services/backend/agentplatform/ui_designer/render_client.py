@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import base64
 import math
+import json as json_module
+import re
+import struct
 from dataclasses import dataclass
 from typing import Any
 
@@ -69,6 +72,66 @@ def _raise(status: int, body: Any) -> None:
     if code not in CODES:
         code = UD_RENDER_FAILED
     raise UiDesignerError(code, str(body.get("message") or ""), detail=detail)
+
+
+def _validated_visual_diff(body: dict, max_bytes: int) -> dict:
+    def fail():
+        raise UiDesignerError(UD_RENDER_FAILED, "renderer returned an invalid or over-budget visual diff")
+    if body.get("renderer_version") != renderer_version() or body.get("mime") != "image/png":
+        fail()
+    width, height = body.get("width"), body.get("height")
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in (width, height)):
+        fail()
+    if (width * height > 10_000_000 or not isinstance(body.get("total_pixels"), int)
+            or isinstance(body.get("total_pixels"), bool) or body["total_pixels"] != width * height):
+        fail()
+    changed = body.get("changed_pixels")
+    if not isinstance(changed, int) or isinstance(changed, bool) or not 0 <= changed <= width * height:
+        fail()
+    box = body.get("box")
+    finite = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and abs(v) <= 100_000_000
+    if not (isinstance(box, list) and len(box) == 4 and all(finite(v) for v in box) and box[2] > 0 and box[3] > 0):
+        fail()
+    used = 0
+    for field in ("image", "base_image"):
+        encoded = body.get(field)
+        if not isinstance(encoded, str) or len(encoded) > ((max_bytes + 2) // 3) * 4:
+            fail()
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except ValueError:
+            fail()
+        used += len(data)
+        if (len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR"
+                or struct.unpack(">II", data[16:24]) != (width, height) or used > max_bytes):
+            fail()
+    id_ok = lambda value: isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9/-]{0,511}", value) is not None
+    ids = body.get("node_ids")
+    regions = body.get("regions")
+    warnings = body.get("warnings", [])
+    if not (isinstance(ids, list) and len(ids) <= 200 and all(id_ok(v) for v in ids)
+            and isinstance(regions, list) and len(regions) <= 200
+            and isinstance(body.get("truncated"), bool) and isinstance(warnings, list)
+            and len(warnings) <= 32 and all(isinstance(v, str) and len(v.encode()) <= 500 for v in warnings)):
+        fail()
+    for region in regions:
+        if not isinstance(region, dict) or set(region) != {"x", "y", "w", "h", "node_ids"}:
+            fail()
+        if not (all(finite(region[k]) for k in ("x", "y", "w", "h"))
+                and region["w"] > 0 and region["h"] > 0
+                and isinstance(region["node_ids"], list) and len(region["node_ids"]) <= 200
+                and all(id_ok(v) for v in region["node_ids"])):
+            fail()
+        if (region["x"] < box[0] - .01 or region["y"] < box[1] - .01
+                or region["x"] + region["w"] > box[0] + box[2] + .01
+                or region["y"] + region["h"] > box[1] + box[3] + .01):
+            fail()
+    metadata = {key: body[key] for key in ("mime", "width", "height", "box", "changed_pixels",
+                "total_pixels", "regions", "node_ids", "truncated")}
+    metadata["warnings"] = warnings
+    if len(json_module.dumps(metadata, separators=(",", ":")).encode()) > 64 << 10:
+        fail()
+    return {**metadata, "image": body["image"], "base_image": body["base_image"]}
 
 
 class RenderClient:
@@ -148,6 +211,28 @@ class RenderClient:
                                            width=im["width"], height=im["height"],
                                            max_bytes=self.cache_max_bytes)
         return [r for r in out if r is not None]
+
+    async def visual_diff(self, s, *, before_doc: dict, after_doc: dict,
+                          node: str | None, mode: str | None, scale: float = 1,
+                          tolerance: int = 0, max_bytes: int = 8 << 20) -> dict:
+        """Two aligned PNGs and bounded pixel-change metadata, without storage."""
+        from .schema import image_assets
+        req = {"before_doc": before_doc, "after_doc": after_doc, "node": node,
+               "mode": mode, "scale": scale, "tolerance": tolerance, "max_bytes": max_bytes}
+        for attempt in (0, 1):
+            status, body = await self._call("POST", "/diff", json=req)
+            if status == 409 and attempt == 0 and isinstance(body, dict) and body.get("missing"):
+                missing = body["missing"]
+                known = {sha for _, sha in image_assets(before_doc) + image_assets(after_doc)}
+                if not (isinstance(missing, list) and len(missing) <= 10000 and
+                        all(isinstance(sha, str) and sha in known for sha in missing)):
+                    raise UiDesignerError(UD_RENDER_FAILED, "renderer requested an unrelated diff asset")
+                await self._send_assets(s, list(dict.fromkeys(missing)))
+                continue
+            if status != 200 or not isinstance(body, dict):
+                _raise(status, body)
+            return _validated_visual_diff(body, max_bytes)
+        raise UiDesignerError(UD_RENDER_FAILED, "renderer still lacks diff assets after upload")
 
     async def export_file(self, s, *, doc: dict, mode: str | None, node: str | None,
                           format: str, scale: float = 1, max_bytes: int = 8 << 20) -> Exported:

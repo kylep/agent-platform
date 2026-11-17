@@ -168,3 +168,19 @@ SVG, PDF and HTML download as attachments with `nosniff`; the platform never
 injects exported HTML into its own page. The file cap is 8 MiB, with an additional
 200-expanded-node / 1 MiB limit for HTML. Smaller node selections or a lower PDF scale help when
 an export exceeds its budget.
+
+### Visual comparison
+
+Compare two retained versions with **Visual diff** in Compare, or use
+`history` with `op: "visual_diff"`, `from_version`, `to_version`, and optional
+`node`, `mode`, `scale` and `tolerance` (0–255, default zero). The result includes
+a visual change image, pixel counts, changed regions and intersecting node IDs.
+Regions and node associations are bounded geometric hints, not an exact account
+of which authored property caused each pixel to change.
+
+Both renders share a union of document coordinates, preserving movement and
+size changes. Invisible RGB is ignored while alpha changes count. The web
+opacity slider works locally over the aligned result. Comparisons are read-only
+and pinned; existing render access and aggregate pixel budgets apply to both
+versions. With the default 10-megapixel aggregate budget, the shared comparison
+canvas is at most 5 megapixels; use a smaller selection or scale for larger work.

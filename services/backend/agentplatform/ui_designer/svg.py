@@ -46,7 +46,7 @@ from .schema import (BLEND_MODES, COLOR_RE, MAX_BACKDROPS, MAX_BLUR, MAX_BLURS, 
 from .text import layout_text, make_style
 
 # Bump with any change to what the painter emits; part of `renderer_version`.
-PAINTER_VERSION = 5
+PAINTER_VERSION = 6
 
 ANNOTATE_COLOR = "#ff2bd6"
 ANNOTATE_HALO = "#000000"

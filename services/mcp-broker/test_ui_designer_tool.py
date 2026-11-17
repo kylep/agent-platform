@@ -209,3 +209,21 @@ def test_export_format_is_forwarded_to_api(api):
     ud(action='export', slug='hud', node='root', format='html')
     assert api[-1][3]['format'] == 'html'
     assert api[-1][3]['node'] == 'root'
+
+
+def test_history_visual_diff_is_image_content_not_base64_text(api):
+    png=b"\x89PNG\r\n\x1a\n"+b'p'*30
+    encoded=base64.b64encode(png).decode()
+    api.replies[f'{DOCS}/hud/visual-diff']=(200,json.dumps({
+        'image':encoded,'base_image':encoded,'mime':'image/png','width':20,'height':10,
+        'changed_pixels':20,'total_pixels':200,'box':[0,0,20,10],
+        'regions':[{'x':0,'y':0,'w':2,'h':10,'node_ids':['button']}],
+        'node_ids':['button'],'truncated':False,'warnings':[]}))
+    out=ud(action='history',slug='hud',op='visual_diff',from_version=1,to_version=2,node='root',tolerance=3)
+    assert images_of(out)[0].data==encoded
+    assert encoded not in text_of(out)
+    assert '20/200 changed pixels' in text_of(out) and 'button' in text_of(out)
+    assert api[-1]==('POST',f'{DOCS}/hud/visual-diff',None,{
+        'from_version':1,'to_version':2,'scale':1,'tolerance':3,'node':'root'})
+    assert 'requires from_version' in ud(action='history',slug='hud',op='visual_diff')
+    assert 'integer from 0 to 255' in ud(action='history',slug='hud',op='visual_diff',from_version=1,to_version=2,tolerance=True)
