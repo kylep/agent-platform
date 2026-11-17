@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -27,6 +27,7 @@ class UiDocExportOut:
         width (int):
         card_posted (bool | Unset):  Default: False.
         ok (bool | Unset):  Default: True.
+        warnings (list[str] | Unset):
     """
 
     artifact_id: str
@@ -41,6 +42,7 @@ class UiDocExportOut:
     width: int
     card_posted: bool | Unset = False
     ok: bool | Unset = True
+    warnings: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -68,6 +70,10 @@ class UiDocExportOut:
 
         ok = self.ok
 
+        warnings: list[str] | Unset = UNSET
+        if not isinstance(self.warnings, Unset):
+            warnings = self.warnings
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -88,6 +94,8 @@ class UiDocExportOut:
             field_dict["card_posted"] = card_posted
         if ok is not UNSET:
             field_dict["ok"] = ok
+        if warnings is not UNSET:
+            field_dict["warnings"] = warnings
 
         return field_dict
 
@@ -118,6 +126,8 @@ class UiDocExportOut:
 
         ok = d.pop("ok", UNSET)
 
+        warnings = cast(list[str], d.pop("warnings", UNSET))
+
         ui_doc_export_out = cls(
             artifact_id=artifact_id,
             card=card,
@@ -131,6 +141,7 @@ class UiDocExportOut:
             width=width,
             card_posted=card_posted,
             ok=ok,
+            warnings=warnings,
         )
 
         ui_doc_export_out.additional_properties = d

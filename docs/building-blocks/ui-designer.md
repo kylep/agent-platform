@@ -146,3 +146,25 @@ The inspector's prototype controls use normal save/undo. Playback uses server
 renders with rectangular interaction regions, respects reduced motion and
 pauses automatic loops after 25 transitions. Rotated hit regions use bounding
 boxes. It does not run arbitrary JavaScript or navigate to external URLs.
+
+### Export formats
+
+Export a pinned version of the current page or selected node as PNG (default),
+SVG, PDF, or an HTML + CSS snippet. The export controls provide artifact and
+download links; agents pass `format` to the existing export action. Exports
+retain the artifact grant and normal design/export budgets.
+
+- **SVG:** outlined text and embedded raster assets; self-contained, with no
+  external fonts or image URLs.
+- **PDF:** one rasterized page with transparency flattened onto white. The
+  scale controls raster detail; text is not selectable or editable.
+- **HTML + CSS:** static positioned markup for basic scenes, token custom
+  properties, and an outlined SVG fallback for complex visuals. This is a
+  starting point for application code. Layout and components are flattened,
+  browser text can differ, and prototype behavior is omitted. Export notes
+  describe the limitations for that result.
+
+SVG, PDF and HTML download as attachments with `nosniff`; the platform never
+injects exported HTML into its own page. The file cap is 8 MiB, with additional
+HTML node/byte limits. Smaller node selections or a lower PDF scale help when
+an export exceeds its budget.

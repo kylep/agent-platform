@@ -483,7 +483,9 @@ async def artifact_resource(request: Request, artifact_id: str,
     if data is None:
         raise HTTPException(404, "unknown artifact")
     return Response(content=data, media_type=row.mime, headers={
-        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
+        **({"Content-Disposition": f'attachment; filename="{row.name}"'}
+           if row.mime not in store.RASTERS else {})})
 
 
 @router.get("/api/artifacts/{artifact_id}/thumb", response_class=Response)

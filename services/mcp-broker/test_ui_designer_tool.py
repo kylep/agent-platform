@@ -202,4 +202,10 @@ def test_export_reports_the_card(api):
         "card_posted": True}))
     out = ud(action="export", slug="hud", node="root", scale=2, name="hud")
     assert f"[[artifact:{ART}]]" in out and "posted to #design" in out and "hud.png" in out
-    assert api[-1][3] == {"node": "root", "name": "hud", "scale": 2}
+    assert api[-1][3] == {"node": "root", "name": "hud", "scale": 2, "format": "png"}
+
+
+def test_export_format_is_forwarded_to_api(api):
+    ud(action='export', slug='hud', node='root', format='html')
+    assert api[-1][3]['format'] == 'html'
+    assert api[-1][3]['node'] == 'root'

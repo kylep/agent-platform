@@ -46,7 +46,7 @@ export type UiDiff = {
   slug: string; version: number; from_version: number; to_version: number;
   chunks: UiDiffChunk[]; text: string; truncated: boolean;
 };
-export type UiExport = { artifact_id: string; name: string; url: string; width: number; height: number };
+export type UiExport = { artifact_id: string; name: string; url: string; width: number; height: number; mime?: string; size?: number; warnings?: string[] };
 export type UiEvent = { type: string; slug: string; version?: number; author?: string };
 
 export const opSummary = (o: Record<string, unknown>) =>

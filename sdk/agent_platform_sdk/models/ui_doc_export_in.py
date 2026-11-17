@@ -6,6 +6,7 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.ui_doc_export_in_format import UiDocExportInFormat
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="UiDocExportIn")
@@ -15,6 +16,7 @@ T = TypeVar("T", bound="UiDocExportIn")
 class UiDocExportIn:
     """
     Attributes:
+        format_ (UiDocExportInFormat | Unset):  Default: UiDocExportInFormat.PNG.
         mode (None | str | Unset):
         name (None | str | Unset):
         node (None | str | Unset):
@@ -22,6 +24,7 @@ class UiDocExportIn:
         version (int | None | Unset):
     """
 
+    format_: UiDocExportInFormat | Unset = UiDocExportInFormat.PNG
     mode: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
     node: None | str | Unset = UNSET
@@ -30,6 +33,10 @@ class UiDocExportIn:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        format_: str | Unset = UNSET
+        if not isinstance(self.format_, Unset):
+            format_ = self.format_.value
+
         mode: None | str | Unset
         if isinstance(self.mode, Unset):
             mode = UNSET
@@ -59,6 +66,8 @@ class UiDocExportIn:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if format_ is not UNSET:
+            field_dict["format"] = format_
         if mode is not UNSET:
             field_dict["mode"] = mode
         if name is not UNSET:
@@ -75,6 +84,12 @@ class UiDocExportIn:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        _format_ = d.pop("format", UNSET)
+        format_: UiDocExportInFormat | Unset
+        if isinstance(_format_, Unset):
+            format_ = UNSET
+        else:
+            format_ = UiDocExportInFormat(_format_)
 
         def _parse_mode(data: object) -> None | str | Unset:
             if data is None:
@@ -115,6 +130,7 @@ class UiDocExportIn:
         version = _parse_version(d.pop("version", UNSET))
 
         ui_doc_export_in = cls(
+            format_=format_,
             mode=mode,
             name=name,
             node=node,

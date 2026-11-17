@@ -185,8 +185,15 @@ Then propose (don't build) designs for P2 items 6–8 in the same file.
 - **P1.4 Status:** implemented prototype interactions, inspector controls and a
   version-pinned click-through viewer. Backend 3,744 passed / 20 skipped;
   browser 397, renderer 14, broker 465, facade 39 tests pass, plus builds,
-  Storybook, tokens, SDK drift and Helm lint. Deployment acceptance pending.
-  P1.5 implementation remains unopened.
+  Storybook, tokens, SDK drift and Helm lint. Pushed `f7191db`, deployed
+  `ud-prototype-20261116` in Helm revision 151. Live browser verified v1
+  remains pinned across a v2 edit, tap/back navigation and delayed v2 playback.
+- **P1.5 Status:** implemented SVG/PDF/HTML exports across API/storage,
+  renderer/generators and browser controls. Backend 3,763 passed / 20 skipped;
+  browser 404, renderer 32, broker 466, facade 39 tests pass, plus web build,
+  Storybook, tokens, SDK drift and Helm lint. Attachments/nosniff, byte/pixel
+  budgets and literal HTML/CSS handling verified. PDF is rasterized; HTML
+  is static and bounded to 200 expanded nodes / 1 MiB. Deployment acceptance pending.
 - **Standing authorization:** Kyle explicitly authorized unattended deployments,
   frequent commits and direct pushes to main after the importer checkpoint.
   Continue chunk by chunk without asking again; quota stop remains 75%.

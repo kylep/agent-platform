@@ -872,8 +872,7 @@ async def label_ui_document(slug: str, body: S.UiDocLabelIn, request: Request,
 @router.post(PREFIX + "/docs/{slug}/export", response_model=S.UiDocExportOut)
 async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
                              caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
-    """Render a frame at full size to a PNG artifact owned by the caller, and put a
-    card in `#design`. PNG only: the artifacts store serves an SVG as an attachment."""
+    """Export one node/page to a bounded artifact and post its card in #design."""
     _check_scale(body.scale)
     if caller.agent is not None:
         granted = await agents_api._caller_platform_tools(request, caller.agent)
@@ -883,28 +882,41 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
     run_id = await caller_run_id(request, caller)
     view, sha, _cc = await _doc_at(request, caller, slug, body.version)
     _check_pixel_budget(request, caller)
+    warnings: list[str] = []
     async with request.app.state.session_factory() as s:
         try:
-            images = await _renderer(request).render(
-                s, document_id=view["id"], doc=view["doc"], doc_sha256=sha, mode=body.mode,
-                nodes=[body.node], scale=body.scale, max_edge=4096)
+            if body.format == "png":
+                images = await _renderer(request).render(
+                    s, document_id=view["id"], doc=view["doc"], doc_sha256=sha, mode=body.mode,
+                    nodes=[body.node], scale=body.scale, max_edge=4096)
+                img = images[0]
+                data, mime = img.png, "image/png"
+            else:
+                img = await _renderer(request).export_file(
+                    s, doc=view["doc"], mode=body.mode, node=body.node, format=body.format,
+                    scale=body.scale, max_bytes=min(8 << 20, request.app.state.settings.artifacts_max_bytes))
+                images = [img]
+                data, mime, warnings = img.data, img.mime, img.warnings
             await s.commit()
             _check_megapixels(request, images)
         except UiDesignerError as e:
             raise ud_http(e)
     _charge_pixels(request, caller, images)
-    img = images[0]
     version = view.get("at_version") or view["version"]
     name = (body.name or f"{slug}-{body.node or 'page'}-v{version}").strip()
-    if not name.lower().endswith(".png"):
-        name += ".png"
+    extension = "." + body.format
+    if not name.lower().endswith(extension):
+        name += extension
+    if body.format != "png":
+        name = artifact_store.flatten(name[:-len(extension)], artifact_store.NAME_LIMIT - len(extension)) + extension
     async with request.app.state.session_factory() as s:
         try:
             art = await artifact_store.create(
-                s, data=img.png, owner=caller.participant, name=name, claimed_mime="image/png",
+                s, data=data, owner=caller.participant, name=name, claimed_mime=mime,
+                _trusted_mime=mime if body.format != "png" else None,
                 source="tool", run_id=run_id, producer=getattr(request.app.state, "producer", None),
                 settings=request.app.state.settings,
-                meta={"ui_designer": {"slug": slug, "node": body.node, "version": version}},
+                meta={"ui_designer": {"slug": slug, "node": body.node, "version": version, "format": body.format}},
                 tags=["ui-designer"])
         except artifact_store.ArtifactRuleError as e:
             raise HTTPException(e.status, str(e)) from e
@@ -919,7 +931,7 @@ async def export_ui_document(slug: str, body: S.UiDocExportIn, request: Request,
                 node=body.node)
     return S.UiDocExportOut(slug=slug, version=version, artifact_id=art.id, name=art.name,
                             mime=art.mime, width=img.width, height=img.height, size=art.size,
-                            url=f"/artifacts/{art.id}", card=chip, card_posted=posted)
+                            url=f"/artifacts/{art.id}", card=chip, card_posted=posted, warnings=warnings)
 
 
 # --- delete and reclaim (Kyle's session) ------------------------------------------

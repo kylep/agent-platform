@@ -347,6 +347,7 @@ from .ui_doc_diff_out_chunks_item import UiDocDiffOutChunksItem
 from .ui_doc_edit_in import UiDocEditIn
 from .ui_doc_edit_in_ops_item import UiDocEditInOpsItem
 from .ui_doc_export_in import UiDocExportIn
+from .ui_doc_export_in_format import UiDocExportInFormat
 from .ui_doc_export_out import UiDocExportOut
 from .ui_doc_get_out import UiDocGetOut
 from .ui_doc_get_out_cursor_type_0 import UiDocGetOutCursorType0
@@ -749,6 +750,7 @@ __all__ = (
     "UiDocEditIn",
     "UiDocEditInOpsItem",
     "UiDocExportIn",
+    "UiDocExportInFormat",
     "UiDocExportOut",
     "UiDocGetOut",
     "UiDocGetOutCursorType0",

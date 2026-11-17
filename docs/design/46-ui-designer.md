@@ -1214,3 +1214,34 @@ self-links and hover loops must not cause uncontrolled timers/navigation.
 Tests cover all triggers/transitions, timing limits, invalid targets, inherited
 links, atomic edits, pinned historical versions, stale loads, loop guards,
 keyboard/mobile operation and unchanged render goldens.
+
+## 20. SVG, PDF and HTML/CSS exports (P1.5 addendum)
+
+Extend the existing export action with `format: png|svg|pdf|html`; PNG remains
+the default. All formats pin the requested document version, node and mode and
+retain the existing write/artifact grants, run fences, export-card budget and
+artifact ownership. The web provides format and selection controls and safe
+artifact links. No exported HTML is injected into the platform page.
+
+The isolated renderer generates bounded bytes through an internal export route,
+using the existing asset-transfer protocol. SVG embeds validated raster assets
+and outlined text, with no external references. PDF is a single rasterized page
+at the renderer's scale, with transparency flattened onto white; it preserves
+visual output, not editable text or vectors. Static HTML/CSS uses positioned
+DOM for supported basic nodes, token custom properties and trusted self-contained
+SVG fallbacks for complex visuals. It is a starting point for implementation,
+not a responsive app: component layout is flattened, browser text can differ,
+and prototype behavior is not exported as executable code.
+
+New exports remain attachment-only with `nosniff`. An internal generated-MIME
+path admits SVG/HTML deliberately; ordinary uploads cannot claim trusted
+content through it. Renderer and client both check format, dimensions, encoded
+and decoded sizes; the artifact cap remains 8 MiB. Existing pixel/work budgets
+apply. HTML has additional node and byte caps; all dynamic markup/CSS is escaped
+or derived from validated values, and assets are embedded. No arbitrary URLs,
+scripts, event handlers or document-supplied stylesheets.
+
+Tests cover every format through renderer/API/tool/web boundaries, MIME and
+download disposition, missing assets, byte/pixel limits, typed token variables,
+injection strings, version pinning and legacy PNG behavior. Validate PDFs by
+opening/rasterizing the result, and live-check downloaded bytes after deployment.

@@ -17,6 +17,7 @@ by `renderer_version` so a font or painter change invalidates every row).
 from __future__ import annotations
 
 import base64
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +38,20 @@ class Rendered:
     height: int
     boxes: dict | None    # the resolved box of the node and its children (None on a cache hit)
     cached: bool = False
+
+
+EXPORT_MIMES = {"svg": "image/svg+xml", "pdf": "application/pdf", "html": "text/html"}
+
+
+@dataclass
+class Exported:
+    data: bytes
+    format: str
+    mime: str
+    width: int
+    height: int
+    box: list
+    warnings: list[str]
 
 
 def cache_key(doc_sha256: str, node: str | None, mode: str | None, scale: float, annotate: bool = False,
@@ -133,6 +148,55 @@ class RenderClient:
                                            width=im["width"], height=im["height"],
                                            max_bytes=self.cache_max_bytes)
         return [r for r in out if r is not None]
+
+    async def export_file(self, s, *, doc: dict, mode: str | None, node: str | None,
+                          format: str, scale: float = 1, max_bytes: int = 8 << 20) -> Exported:
+        """One bounded, self-contained download. No export bytes enter the PNG cache."""
+        from .schema import image_assets
+        if format not in EXPORT_MIMES or not 1 <= max_bytes <= 8 << 20:
+            raise UiDesignerError(UD_RENDER_FAILED, "invalid export request")
+        req = {"doc": doc, "mode": mode, "node": node, "format": format,
+               "scale": scale, "max_bytes": max_bytes}
+        for attempt in (0, 1):
+            status, body = await self._call("POST", "/export", json=req)
+            if status == 409 and attempt == 0 and isinstance(body, dict) and body.get("missing"):
+                missing = body["missing"]
+                known = {sha for _, sha in image_assets(doc)}
+                if not (isinstance(missing, list) and len(missing) <= 5000 and
+                        all(isinstance(sha, str) and sha in known for sha in missing)):
+                    raise UiDesignerError(UD_RENDER_FAILED, "renderer requested an unrelated asset")
+                await self._send_assets(s, list(dict.fromkeys(missing)))
+                continue
+            if status != 200 or not isinstance(body, dict):
+                _raise(status, body)
+            if (body.get("renderer_version") != renderer_version() or body.get("format") != format
+                    or body.get("mime") != EXPORT_MIMES[format]):
+                raise UiDesignerError(UD_RENDER_FAILED, "renderer export capability mismatch")
+            box = body.get("box")
+            if not (isinstance(box, list) and len(box) == 4 and all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                    and abs(v) <= 100_000_000 for v in box)
+                    and box[2] > 0 and box[3] > 0 and box[2] * box[3] <= 40_000_000):
+                raise UiDesignerError(UD_RENDER_FAILED, "renderer export has invalid geometry")
+            encoded = body.get("data")
+            width, height = body.get("width"), body.get("height")
+            if not (isinstance(encoded, str) and len(encoded) <= ((max_bytes + 2) // 3) * 4
+                    and isinstance(width, int) and not isinstance(width, bool) and width > 0
+                    and isinstance(height, int) and not isinstance(height, bool) and height > 0
+                    and width * height <= 10_000_000):
+                raise UiDesignerError(UD_RENDER_FAILED, "renderer export exceeds its bounds")
+            try:
+                data = base64.b64decode(encoded, validate=True)
+            except ValueError as exc:
+                raise UiDesignerError(UD_RENDER_FAILED, "renderer returned invalid export bytes") from exc
+            if not data or len(data) > max_bytes:
+                raise UiDesignerError(UD_RENDER_FAILED, "renderer export exceeds its byte budget")
+            warnings = body.get("warnings", [])
+            if not (isinstance(warnings, list) and len(warnings) <= 32 and
+                    all(isinstance(w, str) and len(w.encode()) <= 500 for w in warnings)):
+                raise UiDesignerError(UD_RENDER_FAILED, "renderer export warnings exceed their bounds")
+            return Exported(data, format, EXPORT_MIMES[format], width, height, box, warnings)
+        raise UiDesignerError(UD_RENDER_FAILED, "renderer still lacks export assets after upload")
 
     async def svg(self, *, doc: dict, mode: str | None, node: str | None = None, annotate: bool = False,
                   asset_prefix: str = "/api/ui-designer/assets/", assets: dict | None = None) -> dict:

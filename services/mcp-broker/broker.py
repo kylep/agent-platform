@@ -2512,7 +2512,7 @@ async def ui_designer(action: str, slug: str | None = None, title: str | None = 
                       comment_id: str | None = None, x: float | None = None,
                       y: float | None = None, parent_id: str | None = None,
                       from_version: int | None = None, to_version: int | None = None,
-                      name: str | None = None):
+                      name: str | None = None, format: str = "png"):
     """Design documents: UI frames you edit as ops and look at as pictures.
     Actions: list · create · get · outline · edit · snapshot · history ·
     restore · place · inspect · comments · export. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
@@ -2573,8 +2573,8 @@ Ops (one batch applies atomically; each op is an object with "op"):
   update cannot set id/type/children; a page only takes title.
 Other actions: inspect {node, mode?} (resolved box, colours, tokens, component of one node);
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
-  {op: diff, from_version, to_version} (the writes between two versions); export {node?, scale?, name?}
-  (full-size PNG artifact + a card in #design). Check comments before editing and resolve
+  {op: diff, from_version, to_version} (the writes between two versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
+  (artifact + #design card; SVG self-contained, PDF raster/white transparency, HTML static DOM/SVG + token CSS vars). Check comments before editing and resolve
   what you fix. Figma REST imports are administrator jobs in the web UI; use list/outline
   to find and edit the completed document. Import never overwrites an existing slug.
 Component-set example (existing component button-base contains text button-label):
@@ -2663,14 +2663,15 @@ Example edit ops (new page: a frame, a text and a row of two cards):
     if action == "export":
         out = await _artifact_call("POST", f"{base}/export", json={
             **_given(node=node, mode=mode, name=name, version=version),
-            "scale": scale}, timeout=_UI_DESIGNER_TIMEOUT)
+            "scale": scale, "format": format}, timeout=_UI_DESIGNER_TIMEOUT)
         r = _artifact_rows(out)
         if not isinstance(r, dict) or not r.get("artifact_id"):
             return out
         return (f"exported {slug} v{r.get('version')} {node or 'page'} as {r.get('name')} "
                 f"{r.get('width')}×{r.get('height')} · {_size_text(r.get('size'))}\n"
                 f"card: {r['card']}  open: {r.get('url')}"
-                + ("\nposted to #design" if r.get("card_posted") else ""))
+                + ("\nposted to #design" if r.get("card_posted") else "")
+                + "".join(f"\nwarning: {_flat(w)}" for w in (r.get("warnings") or [])[:32]))
     if action == "history":
         out = await _artifact_call("GET", f"{base}/versions", {
             "limit": _clamp(limit, 100, 50), "before": before}, timeout=_UI_DESIGNER_TIMEOUT)

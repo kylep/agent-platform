@@ -72,8 +72,7 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | UiDocExportOut]:
     """Export Ui Document
 
-     Render a frame at full size to a PNG artifact owned by the caller, and put a
-    card in `#design`. PNG only: the artifacts store serves an SVG as an attachment.
+     Export one node/page to a bounded artifact and post its card in #design.
 
     Args:
         slug (str):
@@ -107,8 +106,7 @@ def sync(
 ) -> HTTPValidationError | UiDocExportOut | None:
     """Export Ui Document
 
-     Render a frame at full size to a PNG artifact owned by the caller, and put a
-    card in `#design`. PNG only: the artifacts store serves an SVG as an attachment.
+     Export one node/page to a bounded artifact and post its card in #design.
 
     Args:
         slug (str):
@@ -137,8 +135,7 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | UiDocExportOut]:
     """Export Ui Document
 
-     Render a frame at full size to a PNG artifact owned by the caller, and put a
-    card in `#design`. PNG only: the artifacts store serves an SVG as an attachment.
+     Export one node/page to a bounded artifact and post its card in #design.
 
     Args:
         slug (str):
@@ -170,8 +167,7 @@ async def asyncio(
 ) -> HTTPValidationError | UiDocExportOut | None:
     """Export Ui Document
 
-     Render a frame at full size to a PNG artifact owned by the caller, and put a
-    card in `#design`. PNG only: the artifacts store serves an SVG as an attachment.
+     Export one node/page to a bounded artifact and post its card in #design.
 
     Args:
         slug (str):

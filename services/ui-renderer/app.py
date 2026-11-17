@@ -211,6 +211,49 @@ def job_svg(cfg: Config, req: dict) -> dict:
             "box": [p.x, p.y, p.w, p.h], "warnings": resolved.get("warnings", [])}
 
 
+def job_export(cfg: Config, req: dict) -> dict:
+    from agentplatform.ui_designer import svg
+    from agentplatform.ui_designer.export_formats import MIMES, bounded, html_document, raster_pdf, standalone_svg
+    from agentplatform.ui_designer.layout import layout_document
+    resolved = layout_document(req["doc"], req["mode"])
+    node = svg.find_node(resolved, req["node"])[0]
+    need = list(dict.fromkeys(_node_assets(node)))
+    missing = [sha for sha in need if not _asset_path(cfg, sha).is_file()]
+    if missing:
+        return {"ok": False, "code": "MISSING-ASSETS", "missing": missing}
+    infos = {}
+    # Bound encoded inputs before constructing a potentially huge SVG string.
+    total = 0
+    for sha in need:
+        raw = _asset_path(cfg, sha).read_bytes()
+        total += len(raw) * 4 // 3 + 4
+        if total > req["max_bytes"]:
+            from agentplatform.ui_designer.errors import UiDesignerError
+            raise UiDesignerError("UD-IMAGE-TOO-LARGE", "embedded assets exceed the export byte cap")
+        info = _asset_info(cfg, sha)
+        infos[sha] = svg.AssetInfo("data:image/png;base64," + base64.b64encode(raw).decode(), info.w, info.h)
+    warnings_ = []
+    if req["format"] == "html":
+        data, painted, notes = html_document(req["doc"], resolved, req["node"], infos, req["max_bytes"])
+        warnings_.extend(notes)
+    else:
+        data, painted = standalone_svg(resolved, req["node"], infos, req["max_bytes"])
+        if req["format"] == "pdf":
+            width, height = max(1, round(painted.w * req["scale"])), max(1, round(painted.h * req["scale"]))
+            if width * height > MAX_PIXELS or max(width, height) > 4096:
+                from agentplatform.ui_designer.errors import UiDesignerError
+                raise UiDesignerError("UD-IMAGE-TOO-LARGE", "PDF raster is at most 4096 pixels per edge and 10 megapixels")
+            png = _raster(data.decode(), width, height, None, cfg.asset_dir)
+            data = raster_pdf(png, max(1, painted.w), max(1, painted.h), req["max_bytes"])
+            warnings_.append("PDF contains a raster image at the requested scale; text is not selectable and transparency is flattened onto white.")
+    # Warnings are inert human-readable strings, bounded across the transport.
+    notes = [str(w.get("message", w)) if isinstance(w, dict) else str(w) for w in warnings_ + list(resolved.get("warnings", []))]
+    return {"ok": True, "renderer_version": svg.renderer_version(), "format": req["format"],
+            "mime": MIMES[req["format"]], "data": data, "width": width if req["format"] == "pdf" else max(1, round(painted.w)),
+            "height": height if req["format"] == "pdf" else max(1, round(painted.h)), "box": [painted.x, painted.y, painted.w, painted.h],
+            "warnings": [n.encode()[:500].decode(errors="ignore") for n in notes[:32]]}
+
+
 def _slim(n: dict) -> dict:
     out = {k: v for k, v in n.items() if k not in ("children", "text")}
     if isinstance(n.get("text"), dict):
@@ -229,7 +272,7 @@ def job_resolved(cfg: Config, req: dict) -> dict:
                                            for pg in r["pages"]]}}
 
 
-JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved}
+JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export}
 
 
 def _run_job(cfg: Config, kind: str, req: dict) -> dict:
@@ -375,6 +418,8 @@ async def _job(request: web.Request, kind: str, req: dict) -> web.Response:
     if kind == "render" and res.get("ok"):
         for im in res["images"]:
             im["data"] = base64.b64encode(im["data"]).decode()
+    if kind == "export" and res.get("ok"):
+        res["data"] = base64.b64encode(res["data"]).decode()
     return web.json_response(res, status=_status(res))
 
 
@@ -413,6 +458,25 @@ def _render_req(body: Any) -> dict:
     if bg is not None and not (isinstance(bg, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", bg)):
         raise BadRequest("`background` is #rrggbb")
     req.update(nodes=nodes, scale=scale, max_edge=max_edge, max_bytes=max_bytes or None, background=bg)
+    return req
+
+
+def _export_req(body: Any) -> dict:
+    req = _common(body)
+    if set(body) - {"doc", "mode", "node", "format", "scale", "max_bytes"}:
+        raise BadRequest("unknown export field")
+    node = body.get("node")
+    if node is not None and (not isinstance(node, str) or len(node) > 96):
+        raise BadRequest("node must be an id")
+    format_ = body.get("format")
+    if format_ not in ("svg", "pdf", "html"):
+        raise BadRequest("format is svg, pdf or html")
+    scale, cap = body.get("scale", 1), body.get("max_bytes", 8 << 20)
+    if isinstance(scale, bool) or scale not in SCALES:
+        raise BadRequest("invalid export scale")
+    if isinstance(cap, bool) or not isinstance(cap, int) or not 1 <= cap <= 8 << 20:
+        raise BadRequest("max_bytes is an integer in 1..8388608")
+    req.update(node=node, format=format_, scale=scale, max_bytes=cap)
     return req
 
 
@@ -488,6 +552,9 @@ def create_app(cfg: Config | None = None) -> web.Application:
     app.router.add_post("/render", render)
     app.router.add_post("/svg", svg_)
     app.router.add_post("/resolved", resolved)
+    async def export(r: web.Request) -> web.Response:
+        return await _post(r, "export", _export_req)
+    app.router.add_post("/export", export)
     return app
 
 

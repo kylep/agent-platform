@@ -197,7 +197,7 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
                  source: str = "upload", meta=None, tags=None, run_id: str | None = None,
                  producer=None, settings=None, allow_generated: bool = False,
                  max_bytes: int | None = None, count_total: bool = True,
-                 before_commit=None, event_extra: dict | None = None, commit: bool = True) -> Artifact:
+                 before_commit=None, event_extra: dict | None = None, commit: bool = True, _trusted_mime: str | None = None) -> Artifact:
     """Store bytes as a new artifact and tell the topic. `owner` is a
     participant string the CALLER resolved from a token — nothing here checks
     it, because nothing here can. `allow_generated` is the generate route's
@@ -224,6 +224,15 @@ async def create(session, *, data: bytes, owner: str, name=None, claimed_mime=No
     elif source == "derived":
         raise ArtifactRuleError(400, "a derived artifact names an existing image in meta.parent_id")
     mime = sniff(data, claimed_mime)
+    if _trusted_mime is not None:
+        # Internal generated-export seam; never forwarded from public upload fields.
+        # These remain files, so all byte-serving routes force attachment + nosniff.
+        signatures = {"image/svg+xml": (b"<svg", b"<?xml"),
+                      "application/pdf": (b"%PDF-",), "text/html": (b"<!doctype html",)}
+        if (source != "tool" or _trusted_mime not in signatures or
+                not data.lstrip().lower().startswith(tuple(p.lower() for p in signatures[_trusted_mime]))):
+            raise ArtifactRuleError(400, "invalid trusted generated export")
+        mime = _trusted_mime
     width = height = thumb = None
     if mime in RASTERS:
         width, height, thumb = await asyncio.to_thread(measure_and_thumb, data)

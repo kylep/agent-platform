@@ -2104,6 +2104,7 @@ class UiDocLabelOut(BaseModel):
 
 
 class UiDocExportIn(BaseModel):
+    format: Literal["png", "svg", "pdf", "html"] = "png"
     node: str | None = None
     scale: float = 1
     mode: str | None = None
@@ -2124,3 +2125,4 @@ class UiDocExportOut(BaseModel):
     url: str                     # `/artifacts/<id>`, where Kyle opens it
     card: str                    # `[[artifact:<id>]]`, works in any message
     card_posted: bool = False
+    warnings: list[str] = Field(default_factory=list)
