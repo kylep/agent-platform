@@ -674,3 +674,17 @@ async def test_agents_resolve_only_their_threads_and_are_budgeted(sf, seed_agent
     assert r.status_code == 429 and r.json()["detail"]["code"] == "UD-BUDGET-WRITES"
     r = await token_client.post(f"{P}/docs/{SLUG}/label", headers=h, json={"label": "v"})
     assert r.status_code == 429
+
+
+async def test_render_thumbnail_bound_has_distinct_cache_and_etag(admin_client, renderer):
+    await mk(admin_client)
+    first=await admin_client.get(f'{P}/docs/{SLUG}/render?node=page&max_edge=320')
+    assert first.status_code==200
+    assert renderer.calls[-1][1]['max_edge']==320
+    thumb_etag=first.headers['etag']
+    again=await admin_client.get(f'{P}/docs/{SLUG}/render?node=page&max_edge=320',headers={'if-none-match':thumb_etag})
+    assert again.status_code==304
+    normal=await admin_client.get(f'{P}/docs/{SLUG}/render?node=page')
+    assert normal.status_code==200 and normal.headers['etag']!=thumb_etag
+    assert renderer.calls[-1][1]['max_edge']==1568
+    assert (await admin_client.get(f'{P}/docs/{SLUG}/render?max_edge=999999')).status_code==422

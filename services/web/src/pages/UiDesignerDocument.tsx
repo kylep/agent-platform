@@ -52,11 +52,14 @@ export default function UiDesignerDocument() {
   const { slug = "" } = useParams<{ slug: string }>();
   const [params, setParams] = useSearchParams();
   const mode = useMode();
+  const linkedNode = params.get("node");
+  const handledLink = useRef("");
   const vParam = params.get("version");
   const version = vParam && /^\d+$/.test(vParam) ? Number(vParam) : null;
   useTitle(slug, "UI Designer");
 
   const [resolved, setResolved] = useState<Resolved | null>(null);
+  const resolvedOwner = useRef("");
   const [versions, setVersions] = useState<UiVersionRow[]>([]);
   const [current, setCurrent] = useState<number | null>(null);
   const [pageId, setPageId] = useState<string | null>(null);
@@ -89,6 +92,7 @@ export default function UiDesignerDocument() {
   const eventHandler = useRef(editing.external); eventHandler.current = editing.external;
   useEffect(() => { api<{ role: string }>("/api/whoami").then((me) => setCanWrite(["admin", "operator"].includes(me.role))).catch(() => setCanWrite(false)); }, []);
   useEffect(() => {
+    resolvedOwner.current = "";
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
     setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false); setVectorEpoch(0); setShowIcons(false); setHl(null); setErr("");
@@ -134,15 +138,27 @@ export default function UiDesignerDocument() {
     let cancelled = false;
     const q = new URLSearchParams({ mode, version: String(version ?? pinned) });
     api<Resolved>(`${UD}/${encodeURIComponent(slug)}/resolved?${q}`)
-      .then((r) => { if (!cancelled) setResolved(r); })
+      .then((r) => { if (!cancelled) { resolvedOwner.current = base; setResolved(r); } })
       .catch((e) => { if (!cancelled) setErr(String(e.message ?? e)); });
     return () => { cancelled = true; };
-  }, [slug, version, pinned, mode, rev]);
+  }, [base, slug, version, pinned, mode, rev]);
 
   const pages = resolved?.pages ?? [];
   const page = pages.find((p) => p.id === pageId) ?? pages[0] ?? null;
   const known = useMemo(() => flatten(page?.children ?? []), [page]);
   const picked = sel ? known.find((n) => n.id === sel.id) ?? null : null;
+
+  useEffect(() => {
+    const key = `${base}:${linkedNode ?? ""}`;
+    if (!linkedNode) { handledLink.current = ""; return; }
+    if (!resolved || resolvedOwner.current !== base || handledLink.current === key) return;
+    handledLink.current = key;
+    for (const candidate of resolved.pages ?? []) {
+      const node = flatten(candidate.children ?? []).find((item) => item.id === linkedNode);
+      if (node) { setPageId(candidate.id); setSel(node); return; }
+    }
+    setErr("The linked node is unavailable in this version.");
+  }, [base, linkedNode, resolved]);
 
   const selectedId = picked?.id;
   const pageNodes = useRef<RNode[]>([]); pageNodes.current = page?.children ?? [];

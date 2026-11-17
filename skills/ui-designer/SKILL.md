@@ -47,3 +47,5 @@ using the configured `figma-token` secret. They create a new slug and never
 replace an existing document. Use `list` and `outline` on the completed document;
 the import report and Figma reference artifacts record conversion limitations.
 Do not ask an agent to fetch a Figma credential or bypass the internal importer.
+
+Share a live design reference in Relay with `[[ui:<slug>#<node-id>]]` (or omit the node). In a UI Designer rapid-chat, follow the native frame JSON response contract supplied by the controller: read only the sprint document, propose self-contained frames, and let the controller apply them.

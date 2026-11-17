@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentSummary } from "../api";
+import { api, apiErrorMessage, type AgentSummary } from "../api";
 import { Button } from "@ap/ui/button";
 import { Chip } from "@ap/ui/chip";
 import { FormDialog } from "@ap/ui/dialog";
@@ -15,7 +15,7 @@ type Chat = { id: string; title: string; goal: string; participants: string[];
   sink: { kind: string; slug: string; mode: string }; areas: Area[]; state: string;
   end_reason: string | null; started_at: string | null; ended_at: string | null;
   duration_minutes: number; max_turns: number; turns_total: number; last_quota: Quota | null;
-  output_ref: { slug: string; version: number } | null; summary: string | null;
+  output_ref: { kind?: string; slug: string; version: number } | null; summary: string | null;
   last_error: string | null; created_at: string;
   limits?: { claude_5h_max_pct: number; claude_7d_max_pct: number; codex_7d_max_pct: number };
   participant_counts?: Record<string, number> };
@@ -52,6 +52,7 @@ export default function RapidChats() {
   const [areasText, setAreasText] = useState("");
   const [slug, setSlug] = useState("");
   const [mode, setMode] = useState("replace");
+  const [sinkKind, setSinkKind] = useState("wiki");
   const [duration, setDuration] = useState(60);
   const [maxTurns, setMaxTurns] = useState(200);
   const [turnTimeout, setTurnTimeout] = useState(240);
@@ -100,11 +101,11 @@ export default function RapidChats() {
     try {
       const c = await api<Chat>("/api/rapid-chats", { method: "POST", body: JSON.stringify({
         title: title.trim(), goal, participants: picked, areas: parseAreas(),
-        sink: { kind: "wiki", slug: slug.trim(), mode }, duration_minutes: duration,
+        sink: { kind: sinkKind, slug: slug.trim(), mode: sinkKind === "ui_designer" ? "replace" : mode }, duration_minutes: duration,
         max_turns: maxTurns, turn_timeout_seconds: turnTimeout,
         limits: { claude_5h_max_pct: lim5h, claude_7d_max_pct: lim7d, codex_7d_max_pct: limCodex } }) });
       setSelId(c.id); setLaunchOpen(false); load();
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(apiErrorMessage(e, "Could not launch rapid-chat.")); }
     finally { setBusy(false); }
   }
   async function stop(c: Chat) {
@@ -126,14 +127,14 @@ export default function RapidChats() {
     <div className="row-actions" style={{ justifyContent: "space-between" }}>
       <h1>Rapid Chats</h1>
       <Button onClick={() => { setError(null); setLaunchOpen(true); }}>New rapid-chat</Button></div>
-    <p className="muted">Time-boxed multi-agent working sessions that write a spec to the wiki.</p>
+    <p className="muted">Time-boxed multi-agent working sessions that produce a wiki spec or a UI design.</p>
     {error && !launchOpen && <div className="error" role="alert">{error}</div>}
 
     <FormDialog open={launchOpen} title="New rapid-chat" submitLabel={busy ? "Launching..." : "Launch"}
       disabled={busy || !valid} onSubmit={launch} onCancel={() => setLaunchOpen(false)}>
       <div className="task-form" style={{ maxHeight: "60vh", overflowY: "auto" }}>
-      <label>Title</label><input value={title} maxLength={128} onChange={(e) => setTitle(e.target.value)} />
-      <label>Goal</label><textarea rows={5} value={goal} onChange={(e) => setGoal(e.target.value)} />
+      <label htmlFor="rapid-title">Title</label><input id="rapid-title" value={title} maxLength={128} onChange={(e) => setTitle(e.target.value)} />
+      <label htmlFor="rapid-goal">Goal</label><textarea id="rapid-goal" rows={5} value={goal} onChange={(e) => setGoal(e.target.value)} />
       <label>Participants (1-5)</label>
       <div>{candidates.map((a) => <label key={a.name} style={{ display: "inline-block", marginRight: 16 }}>
         <input type="checkbox" checked={picked.includes(a.name)}
@@ -142,10 +143,12 @@ export default function RapidChats() {
       <label><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show all agents</label>
       <label>Areas (one per line; "Title :: seed text" seeds an area)</label>
       <textarea rows={5} value={areasText} onChange={(e) => setAreasText(e.target.value)} />
-      <label>Wiki output slug</label><input value={slug} onChange={(e) => setSlug(e.target.value)} />
-      <label>Mode</label>
-      <Select value={mode} onChange={(e) => setMode(e.target.value)}>
-        <option value="replace">replace</option><option value="append">append</option></Select>
+      <label htmlFor="rapid-sink">Output kind</label><Select id="rapid-sink" value={sinkKind} onChange={(e) => { setSinkKind(e.target.value); if (e.target.value === "ui_designer") setMode("replace"); }}><option value="wiki">Wiki specification</option><option value="ui_designer">UI Designer document</option></Select>
+      {sinkKind === "ui_designer" && <p className="muted">Creates a new design document. Existing document slugs cannot be overwritten.</p>}
+      <label htmlFor="rapid-slug">{sinkKind === "ui_designer" ? "UI Designer output slug" : "Wiki output slug"}</label><input id="rapid-slug" value={slug} onChange={(e) => setSlug(e.target.value)} />
+      <label htmlFor="rapid-mode">Mode</label>
+      <Select id="rapid-mode" disabled={sinkKind === "ui_designer"} value={sinkKind === "ui_designer" ? "replace" : mode} onChange={(e) => setMode(e.target.value)}>
+        <option value="replace">replace</option>{sinkKind === "wiki" && <option value="append">append</option>}</Select>
       <label>Duration (minutes, 5-240)</label>
       <input type="number" min={5} max={240} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
       <label>Max turns (1-500)</label>
@@ -180,8 +183,8 @@ export default function RapidChats() {
       <pre className="task-prompt">{sel.goal}</pre>
       {active(sel) && <Button variant="secondary" disabled={busy || sel.state === "stopping"} onClick={() => stop(sel)}>
         {sel.state === "stopping" ? "Stopping..." : "Stop"}</Button>}
-      {sel.output_ref && <p>Output: <Link to={`/wiki/${sel.output_ref.slug}`}>{sel.output_ref.slug}</Link> (v{sel.output_ref.version})</p>}
-      {!sel.output_ref && <p className="muted">Output slug: <Link to={`/wiki/${sel.sink.slug}`}>{sel.sink.slug}</Link></p>}
+      {sel.output_ref && <p>Output: <Link to={sel.output_ref.kind === "ui_designer" || sel.sink.kind === "ui_designer" ? `/ui-designer/${encodeURIComponent(sel.output_ref.slug)}?version=${sel.output_ref.version}` : `/wiki/${encodeURIComponent(sel.output_ref.slug)}`}>{sel.output_ref.slug}</Link> (v{sel.output_ref.version})</p>}
+      {!sel.output_ref && <p className="muted">Output slug: <Link to={sel.sink.kind === "ui_designer" ? `/ui-designer/${encodeURIComponent(sel.sink.slug)}` : `/wiki/${encodeURIComponent(sel.sink.slug)}`}>{sel.sink.slug}</Link></p>}
       {sel.summary && <><h3>Summary</h3><pre className="task-prompt">{sel.summary}</pre></>}
       <h3>Areas</h3>
       {sel.areas.length === 0 ? <p className="muted">No areas yet.</p> :

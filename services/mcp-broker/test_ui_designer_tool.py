@@ -278,3 +278,16 @@ def test_icons_search_and_pinned_detail_without_document_slug(api):
     assert 'error:' in ud(action='icons', icon={'id': '../bad', 'revision': 1})
     assert 'error:' in ud(action='icons', icon={'id': 'arrow', 'revision': True})
     assert len(api) == before
+
+
+def test_rapid_ui_tool_rejects_writes_and_other_documents_before_api(api,monkeypatch,published):
+    async def whoami():
+        return {'agent':'pai','run_id':'r1','tools':['mcp__platform__ui_designer'],
+                'rapid':True,'rapid_ui_slug':'hud'}
+    monkeypatch.setattr(broker,'_whoami',whoami)
+    for action,slug in [('edit','hud'),('list',None),('get','other'),('export','hud')]:
+        assert 'only read its UI sink' in ud(action=action,slug=slug)
+    assert not api
+    assert published[-1][1]['data']['decision']=='deny:rapid-scope'
+    ud(action='outline',slug='hud')
+    assert api[-1][0:2]==('GET',f'{DOCS}/hud/outline')

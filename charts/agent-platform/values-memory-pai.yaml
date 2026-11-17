@@ -3,18 +3,18 @@
 # No prompts, credentials or database image/storage changes belong here.
 images:
   backend:
-    tag: ud-icons-20261116
+    tag: ud-relay-20261117
   web:
-    tag: ud-icons-20261116
+    tag: ud-relay-20261117
   runner:
     tag: bk-1383a26
   runnerDev:
     tag: bk-edf7a44
   mcpFacade:
-    tag: ud-icons-20261116
+    tag: ud-relay-20261117
 mcpBroker:
   image:
-    tag: ud-icons-20261116
+    tag: ud-relay-20261117
 uiRenderer:
   image:
     tag: ud-vector-20261116

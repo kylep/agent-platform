@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 
+from agentplatform.ui_designer.errors import UiDesignerError
 from agentplatform import rapid_chat
 from agentplatform import wiki_store
 from agentplatform.api import schemas as S
@@ -90,6 +91,9 @@ async def create_rapid_chat(request: Request, body: S.RapidChatIn,
             await rapid_chat.init_sink(st.session_factory, st.producer, st.settings, chat)
         except wiki_store.WikiRuleError as exc:
             raise HTTPException(422, str(exc)) from None
+        except UiDesignerError as exc:
+            from agentplatform.api.ui_designer import ud_http
+            raise ud_http(exc) from None
         s.add(chat)
         await s.commit()
         return _view(chat)

@@ -17,6 +17,7 @@ def _get_kwargs(
     mode: None | str | Unset = UNSET,
     scale: float | Unset = 1.0,
     annotate: bool | Unset = False,
+    max_edge: int | Unset = 1568,
     version: int | None | Unset = UNSET,
 ) -> dict[str, Any]:
 
@@ -39,6 +40,8 @@ def _get_kwargs(
     params["scale"] = scale
 
     params["annotate"] = annotate
+
+    params["max_edge"] = max_edge
 
     json_version: int | None | Unset
     if isinstance(version, Unset):
@@ -97,6 +100,7 @@ def sync_detailed(
     mode: None | str | Unset = UNSET,
     scale: float | Unset = 1.0,
     annotate: bool | Unset = False,
+    max_edge: int | Unset = 1568,
     version: int | None | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
     """Render Ui Document
@@ -107,6 +111,7 @@ def sync_detailed(
         mode (None | str | Unset):
         scale (float | Unset):  Default: 1.0.
         annotate (bool | Unset):  Default: False.
+        max_edge (int | Unset):  Default: 1568.
         version (int | None | Unset):
 
     Raises:
@@ -123,6 +128,7 @@ def sync_detailed(
         mode=mode,
         scale=scale,
         annotate=annotate,
+        max_edge=max_edge,
         version=version,
     )
 
@@ -141,6 +147,7 @@ def sync(
     mode: None | str | Unset = UNSET,
     scale: float | Unset = 1.0,
     annotate: bool | Unset = False,
+    max_edge: int | Unset = 1568,
     version: int | None | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
     """Render Ui Document
@@ -151,6 +158,7 @@ def sync(
         mode (None | str | Unset):
         scale (float | Unset):  Default: 1.0.
         annotate (bool | Unset):  Default: False.
+        max_edge (int | Unset):  Default: 1568.
         version (int | None | Unset):
 
     Raises:
@@ -168,6 +176,7 @@ def sync(
         mode=mode,
         scale=scale,
         annotate=annotate,
+        max_edge=max_edge,
         version=version,
     ).parsed
 
@@ -180,6 +189,7 @@ async def asyncio_detailed(
     mode: None | str | Unset = UNSET,
     scale: float | Unset = 1.0,
     annotate: bool | Unset = False,
+    max_edge: int | Unset = 1568,
     version: int | None | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
     """Render Ui Document
@@ -190,6 +200,7 @@ async def asyncio_detailed(
         mode (None | str | Unset):
         scale (float | Unset):  Default: 1.0.
         annotate (bool | Unset):  Default: False.
+        max_edge (int | Unset):  Default: 1568.
         version (int | None | Unset):
 
     Raises:
@@ -206,6 +217,7 @@ async def asyncio_detailed(
         mode=mode,
         scale=scale,
         annotate=annotate,
+        max_edge=max_edge,
         version=version,
     )
 
@@ -222,6 +234,7 @@ async def asyncio(
     mode: None | str | Unset = UNSET,
     scale: float | Unset = 1.0,
     annotate: bool | Unset = False,
+    max_edge: int | Unset = 1568,
     version: int | None | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
     """Render Ui Document
@@ -232,6 +245,7 @@ async def asyncio(
         mode (None | str | Unset):
         scale (float | Unset):  Default: 1.0.
         annotate (bool | Unset):  Default: False.
+        max_edge (int | Unset):  Default: 1568.
         version (int | None | Unset):
 
     Raises:
@@ -250,6 +264,7 @@ async def asyncio(
             mode=mode,
             scale=scale,
             annotate=annotate,
+            max_edge=max_edge,
             version=version,
         )
     ).parsed

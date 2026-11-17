@@ -1498,3 +1498,30 @@ The agent tool exposes catalog discovery and the same atomic edit operation.
 Tests cover deterministic conversion, source/license packaging, path/stroke
 scaling, canonical reuse/collisions, component budgets, undo, receipt replay,
 permissions and browser insertion. Existing renderer goldens remain unchanged.
+
+## 29. Relay design chips and native rapid-chat sink (P3.13)
+
+Relay recognizes `[[ui:slug]]` and `[[ui:slug#node]]` (also the earlier slash-node
+spelling). Chips link to UI Designer and display an authorized thumbnail of the
+latest version. Loading is bounded, deferred until visible, and cancelled when
+the reference changes; deleted, inaccessible and failed renders degrade to a
+link/status. Shared event handling refreshes visible thumbnails without opening
+one SSE connection per chip. No external image URLs or inline user SVG are used.
+
+A `ui_designer` rapid-chat sink creates a new native document with `mode:replace`.
+Author options and revision proposals carry one bounded JSON frame subtree;
+critic picks select an existing proposal and merges provide a complete frame.
+The controller validates and namespaces these self-contained frames, composes
+stable area frames into a page and checkpoints through the normal store with
+CAS and request receipts. Proposals cannot carry assets, token references,
+instances or prototype links. Invalid proposals leave the prior accepted scene
+intact. Documents belong to the real creating principal; audit entries identify
+the rapid-chat controller. UUID pinning prevents reused slugs from changing the
+target, and an external edit marks a conflict rather than overwriting it.
+
+Rapid-turn authority intersects the agent's existing UI Designer grant with a
+read-only fence to the pinned sink document. Global document/catalog/asset/event
+reads and every direct write remain unavailable. Existing wiki sessions retain
+their current fence. The controller alone writes the design. Tests cover native
+proposal composition, malformed/oversized inputs, CAS, restart/replay, deleted
+or replaced targets, exact read-path/query boundaries and browser chip refresh.

@@ -306,3 +306,5 @@ operation `{op:"icon",icon:"camera",revision:1,parent:"frame",id:"camera-instanc
 size:24,color:"#64748b",stroke_width:2}` with an expected version and request ID.
 Use the returned `undo_ops` for exact undo. The catalog is bundled from Lucide;
 its source revision and license notices ship with the application.
+
+**Live references and design sprints.** Relay `[[ui:my-design#node-id]]` references show a live thumbnail and open the selected node. Omit `#node-id` for the document. Previews load near the viewport, share one event stream and show an unavailable state when access or rendering fails. Rapid-chats can create a new UI Designer document from validated native frame proposals; only the controller writes it, and a concurrent human edit stops those writes. See [Rapid-chat](rapid-chat.md).

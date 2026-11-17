@@ -365,3 +365,27 @@ Material bounds remain explicit in the feature docs: visual path editing uses
 a bounded M/L/C/Z subset with raw-data fallback; Boolean operands require fixed
 numeric sibling geometry; icon size is chosen at insertion and scales native
 path coordinates. Legacy document renders and restore compatibility are kept.
+
+## P3 execution — authorized 2026-11-17
+
+Kyle requested all remaining P3 items, 13–19, unattended. Figma import work is
+out of scope. Continue with the three Sol implementers and complete each chunk
+through local verification, commit/push and live acceptance before opening the
+next. Fresh weekly quota at start: 47%; stop opening work at 75% and preserve the
+final 20%. Sequence: 13 Relay/rapid-chat, 14 rendering effects, 15 motion export,
+16 fonts, then 18 document access before 17 presence and 19 comment wake-ups.
+
+P3.13 uses native design proposals: bounded JSON frame subtrees inside rapid-chat
+Options/Proposals, composed and saved only by the controller. The sink creates a
+new document, pins its UUID/version and uses stable receipts. An external edit
+stops sink writes. Rapid turns can read only the pinned sink document with their
+existing UI Designer grant; they cannot write or browse unrelated documents.
+Relay chips support the requested `[[ui:slug#node]]` syntax and legacy slash node
+syntax, with authorized, bounded live thumbnails.
+
+- **P3.13 Status:** implemented live Relay node previews and the native rapid-chat
+  sink, including bounded frame validation, UUID/CAS fences, crash receipt
+  recovery and post-commit refresh events. Backend 4,006 passed / 21 skipped;
+  browser 455, broker 472, facade 40 pass. Web build, Storybook, tokens, SDK
+  drift and Helm lint pass. Deployment/live acceptance follows this commit.
+  Fresh weekly quota: 49% used. No paid agent sprint was started for testing.

@@ -1610,6 +1610,8 @@ class WhoAmI(BaseModel):
     tools: list[str] | None
     # A dream run (docs/design/44): `tools` is narrowed to memory.
     dream: bool = False
+    rapid: bool = False
+    rapid_ui_slug: str | None = None
 
 
 # --- quota (docs/design/22) ---------------------------------------------------
@@ -1802,9 +1804,16 @@ class RapidChatAreaIn(BaseModel):
 
 class RapidChatSinkIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["wiki", "relay", "artifact"] = "wiki"
+    kind: Literal["wiki", "relay", "artifact", "ui_designer"] = "wiki"
     slug: str = Field(min_length=1, max_length=64)
     mode: Literal["replace", "append"] = "replace"
+
+
+    @model_validator(mode="after")
+    def ui_replace_only(self):
+        if self.kind == "ui_designer" and self.mode != "replace":
+            raise ValueError("ui_designer sink supports replace mode only")
+        return self
 
 
 class RapidChatLimitsIn(BaseModel):

@@ -1379,13 +1379,14 @@ def _etag_hit(request: Request, etag: str) -> bool:
 @router.get(PREFIX + "/docs/{slug}/render", response_class=Response)
 async def render_ui_document(slug: str, request: Request, node: str | None = None,
                              mode: str | None = None, scale: float = 1, annotate: bool = False,
+                             max_edge: int = Query(1568, ge=64, le=1568),
                              version: int | None = Query(None, ge=1),
                              caller: Caller = Depends(require_ui_designer_access(*READ))):
     _check_scale(scale)
     view, sha, cc = await _doc_at(request, caller, slug, version)
     # An agent's picture goes into a model's context: the byte ladder applies.
     max_bytes = request.app.state.settings.ui_designer_snapshot_max_bytes if caller.agent is not None else None
-    etag = '"' + render_client.cache_key(sha, node, mode, scale, annotate, max_bytes=max_bytes) + '"'
+    etag = '"' + render_client.cache_key(sha, node, mode, scale, annotate, max_edge=max_edge, max_bytes=max_bytes) + '"'
     headers = {"Cache-Control": cc, "ETag": etag, "X-Content-Type-Options": "nosniff"}
     if _etag_hit(request, etag):
         return Response(status_code=304, headers=headers)
@@ -1394,7 +1395,7 @@ async def render_ui_document(slug: str, request: Request, node: str | None = Non
         try:
             images = await _renderer(request).render(
                 s, document_id=view["id"], doc=view["doc"], doc_sha256=sha, mode=mode, nodes=[node],
-                scale=scale, annotate=annotate, max_bytes=max_bytes)
+                scale=scale, annotate=annotate, max_edge=max_edge, max_bytes=max_bytes)
             await s.commit()
             _check_megapixels(request, images)
         except UiDesignerError as e:

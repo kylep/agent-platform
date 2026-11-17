@@ -442,6 +442,13 @@ def _metered(tool: str, grant: bool = False):
             if grant and declared is not None and f"mcp__platform__{tool}" not in declared:
                 await record("deny:undeclared")
                 return f"error: your agent does not declare the {tool} tool"
+            if tool == "ui_designer" and ident.get("rapid"):
+                read_action = action in {"get", "outline", "inspect", "snapshot", "history", "lint"}
+                if action == "history" and audited.get("op") not in (None, "list", "diff"):
+                    read_action = False
+                if not read_action or not ident.get("rapid_ui_slug") or audited.get("slug") != ident["rapid_ui_slug"]:
+                    await record("deny:rapid-scope")
+                    return "error: a rapid-chat turn may only read its UI sink; the controller writes it"
             # An unresolved caller is not metered: `""` is not an identity, it
             # is EVERY identity that failed to resolve, so keying a bucket on it
             # would turn one bad minute of `/api/whoami` into a platform-wide
