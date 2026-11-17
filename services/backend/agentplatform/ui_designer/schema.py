@@ -83,7 +83,7 @@ TYPE_KEYS: dict[str, set[str]] = {
 _NO_OVERRIDE = {"id", "type", "children", "layout", "mask", "of", "overrides", "asset", "variant", "props"}
 
 # Value positions that are text, not token references (resolution skips them).
-_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image", "props", "variant", "axes", "properties", "when", "bindings", "link_to", "target"}
+_LITERAL_KEYS = {"text", "meta", "title", "id", "d", "asset", "of", "image", "props", "variant", "axes", "properties", "when", "bindings", "link_to", "target", "libraries"}
 
 
 # --- ids -----------------------------------------------------------------
@@ -211,7 +211,7 @@ def resolve_tokens(doc: dict, mode: str | None = None) -> dict:
 
     out = {}
     for k, v in doc.items():
-        out[k] = copy.deepcopy(v) if k in ("tokens", "schema", "title", "modes") else sub(v, k)
+        out[k] = copy.deepcopy(v) if k in ("tokens", "schema", "title", "modes", "libraries") else sub(v, k)
     return out
 
 
@@ -230,7 +230,7 @@ def iter_token_refs(doc: dict) -> Iterator[tuple[str, str]]:
                     continue
                 yield from walk(x, join_path(path, k), k)
     for k, v in doc.items():
-        if k not in ("tokens", "schema", "title", "modes"):
+        if k not in ("tokens", "schema", "title", "modes", "libraries"):
             yield from walk(v, join_path("$", k), k)
 
 
@@ -754,7 +754,7 @@ def collect_issues(doc: Any) -> list[Issue]:
     modes = doc.get("modes") if isinstance(doc.get("modes"), list) else None
     c = _Ctx(tokens=tokens, modes=[m for m in modes if isinstance(m, str)] if modes else None,
              components=comps, component_sets=doc.get("component_sets", {}) if isinstance(doc.get("component_sets", {}), dict) else {})
-    _obj(c, doc, "$", {"schema", "title", "tokens", "modes", "components", "component_sets", "pages"},
+    _obj(c, doc, "$", {"schema", "title", "tokens", "modes", "components", "component_sets", "libraries", "pages"},
          ("schema", "pages"))
     if "schema" in doc and doc["schema"] != SCHEMA_VERSION:
         c.add("UD-VALUE", "$.schema", f"schema must be {SCHEMA_VERSION}", doc["schema"])
@@ -800,6 +800,8 @@ def collect_issues(doc: Any) -> list[Issue]:
                 _node(c, root, p, 1, key, root_key=key)
     from .components import validate_sets
     validate_sets(doc, c)
+    from .libraries import validate_libraries
+    validate_libraries(doc, c)
     for path, n, scope in c.instances:
         _check_instance(c, path, n, scope)
     if c.link_count > MAX_LINKS:

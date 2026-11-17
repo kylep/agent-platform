@@ -1039,6 +1039,167 @@ async def lint_ui_document(slug: str, request: Request,
     return S.UiLintOut(**out)
 
 
+# Pinned libraries copy authorized data once; rendering never reads a source.
+def _library_report(report: dict, *, slug: str, version: int, library_id: str,
+                    source_version: int, budget: int = 32 << 10) -> dict:
+    import json
+    out = {"slug": slug, "version": version, "library_id": library_id,
+           "source_version": source_version, "counts": report.get("counts", {}),
+           "added": list(report.get("added", []))[:200],
+           "updated": list(report.get("updated", []))[:200],
+           "removed": list(report.get("removed", []))[:200],
+           "conflicts": list(report.get("conflicts", []))[:200],
+           "truncated": bool(report.get("truncated"))}
+    if any(len(report.get(key, [])) > 200 for key in ("added", "updated", "removed", "conflicts")):
+        out["truncated"] = True
+    while len(json.dumps(out, ensure_ascii=False, separators=(",", ":")).encode()) > budget:
+        key = next((key for key in ("removed", "updated", "added", "conflicts") if out[key]), None)
+        if key is None:
+            raise HTTPException(413, "library report exceeds the configured text budget")
+        out[key].pop()
+        out["truncated"] = True
+    return out
+
+
+async def _library_source(s, source_id: str, source_version: int) -> dict:
+    from agentplatform.db import UiDesignerDocument
+    row = await s.get(UiDesignerDocument, source_id)
+    if row is None or row.deleted_at is not None:
+        raise HTTPException(404, "library source is unavailable")
+    # A pinned copy is a source read, never a cross-document write/row lock.
+    view = await store.get_document(s, row.slug, version=source_version)
+    if view["id"] != source_id:
+        raise HTTPException(404, "library source identity changed")
+    return view
+
+
+async def _library_place_assets(s, destination_id: str, source: dict, shas: set[str], by: str) -> None:
+    from agentplatform.db import UiDesignerDocumentAsset
+    wanted = set(shas)
+    referenced = {sha for _, sha in image_assets(source["doc"])}
+    placed = await store.placed_assets(s, source["id"])
+    if not wanted <= referenced & placed:
+        raise HTTPException(403, "library assets must belong to the pinned source document")
+    existing = await store.placed_assets(s, destination_id)
+    ordered = sorted(wanted)
+    for start in range(0, len(ordered), 500):
+        batch = ordered[start:start + 500]
+        locked = (await s.execute(store._for_update(s, select(UiDesignerAsset.sha256).where(
+            UiDesignerAsset.sha256.in_(batch)).order_by(UiDesignerAsset.sha256)))).scalars().all()
+        if set(locked) != set(batch):
+            raise HTTPException(404, "a pinned library asset is unavailable")
+    s.add_all([UiDesignerDocumentAsset(document_id=destination_id, sha256=sha, placed_by=by,
+                 placed_from=f"library:{source['id']}:{source['at_version']}", placed_at=utcnow())
+               for sha in ordered if sha not in existing])
+    await s.flush()
+
+
+@router.get(PREFIX + "/docs/{slug}/libraries", response_model=S.UiLibraryListOut)
+async def list_ui_libraries(slug: str, request: Request,
+                            version: int | None = Query(None, ge=1),
+                            caller: Caller = Depends(require_ui_designer_access(*READ))):
+    view, _, _ = await _doc_at(request, caller, slug, version)
+    pins = [{"library_id": key, "namespace": record["namespace"],
+             "source_id": record["source_id"], "source_slug": record["source_slug"],
+             "source_version": record["source_version"],
+             "counts": {group: len(values) for group, values in record["owned"].items()}}
+            for key, record in view["doc"].get("libraries", {}).items()]
+    return S.UiLibraryListOut(slug=slug, version=view["at_version"], libraries=pins)
+
+
+@router.post(PREFIX + "/docs/{slug}/libraries/{library_id}/preview", response_model=S.UiLibraryPreviewOut)
+async def preview_ui_library(slug: str, library_id: str, body: S.UiLibraryPreviewIn,
+                              request: Request,
+                              caller: Caller = Depends(require_ui_designer_access(*READ))):
+    from agentplatform.ui_designer import libraries
+    async with request.app.state.session_factory() as s:
+        try:
+            destination = await store.get_document(s, slug)
+            pin = destination["doc"].get("libraries", {}).get(library_id)
+            if pin is None:
+                raise HTTPException(404, "library pin not found")
+            source = await _library_source(s, pin["source_id"], body.source_version)
+            plan = libraries.plan_update(destination["doc"], source["doc"], destination_id=destination["id"],
+                library_id=library_id, source_version=body.source_version, source_slug=source["slug"])
+            await s.commit()
+        except UiDesignerError as error:
+            raise ud_http(error)
+    return S.UiLibraryPreviewOut(**_library_report(plan["report"], slug=slug,
+        version=destination["version"], library_id=library_id, source_version=body.source_version,
+        budget=min(32 << 10, _text_cap(request))))
+
+
+async def _mutate_ui_library(slug: str, request: Request, caller: Caller,
+                              body: S.UiLibraryImportIn | S.UiLibraryApplyIn,
+                              library_id: str | None = None) -> S.UiLibraryWriteOut:
+    from agentplatform.ui_designer import libraries
+    run_id = await caller_run_id(request, caller)
+    scope = _scope(caller, run_id)
+    importing = isinstance(body, S.UiLibraryImportIn)
+    op = "library-import" if importing else "library-apply"
+    reason = "import pinned library" if importing else "update pinned library"
+    stable_args = body.model_dump(exclude={"expected_version", "request_id"})
+    if not importing:
+        stable_args["library_id"] = library_id
+    library_id = body.library.namespace if importing else library_id
+    fingerprint = store.edit_fingerprint(op=op, slug=slug, ops=None,
+        expected_version=body.expected_version, reason=reason, stable_args=stable_args)
+    async with request.app.state.session_factory() as s:
+        try:
+            # Serialize before receipt lookup: two identical retries cannot plan twice.
+            destination = await store._live(s, slug, lock=True)
+            prior = await store._receipt_lookup(s, scope, body.request_id, op, fingerprint)
+            if prior is not None:
+                return S.UiLibraryWriteOut(**_write_out(prior, slug).model_dump(), library_id=library_id)
+            if destination.version != body.expected_version:
+                from agentplatform.ui_designer.ops import apply_ops
+                apply_ops(destination.doc, [], version=destination.version,
+                          expected_version=body.expected_version,
+                          ops_since=await store.chunks_after(s, destination.id, body.expected_version))
+            await _check_write_budget(request, caller)
+            if importing:
+                spec = body.library
+                source = await _library_source(s, spec.source_id, spec.source_version)
+                plan = libraries.plan_import(destination.doc, source["doc"], destination_id=destination.id,
+                    source_id=source["id"], source_version=spec.source_version, source_slug=source["slug"],
+                    namespace=spec.namespace, components=spec.components,
+                    component_sets=spec.component_sets, tokens=spec.tokens)
+            else:
+                pin = destination.doc.get("libraries", {}).get(library_id)
+                if pin is None:
+                    raise HTTPException(404, "library pin not found")
+                source = await _library_source(s, pin["source_id"], body.source_version)
+                plan = libraries.plan_update(destination.doc, source["doc"], destination_id=destination.id,
+                    library_id=library_id, source_version=body.source_version, source_slug=source["slug"])
+            if plan["report"].get("conflicts"):
+                report = _library_report(plan["report"], slug=slug, version=destination.version,
+                    library_id=library_id, source_version=source["at_version"], budget=min(32 << 10, _text_cap(request)))
+                raise HTTPException(409, {"code": "UD-LIBRARY-CONFLICT", "message": "library update has conflicts", **report})
+            await _library_place_assets(s, destination.id, source, plan["assets"], caller.participant)
+            out = await store.edit_document(s, slug, ops=[{"op": "set_doc", "doc": plan["doc"]}],
+                expected_version=body.expected_version, author=caller.participant, run_id=run_id,
+                reason=reason, request_id=body.request_id, scope=scope, op=op, caps=caps(request),
+                _stable_args=stable_args)
+            await s.commit()
+        except UiDesignerError as error:
+            raise ud_http(error)
+    if not out.get("replayed"):
+        await _emit(request, caller, "version", slug, out["version"], run_id)
+    return S.UiLibraryWriteOut(**_write_out(out, slug).model_dump(), library_id=library_id)
+
+
+@router.post(PREFIX + "/docs/{slug}/libraries/import", response_model=S.UiLibraryWriteOut)
+async def import_ui_library(slug: str, body: S.UiLibraryImportIn, request: Request,
+                            caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    return await _mutate_ui_library(slug, request, caller, body)
+
+
+@router.post(PREFIX + "/docs/{slug}/libraries/{library_id}/apply", response_model=S.UiLibraryWriteOut)
+async def apply_ui_library(slug: str, library_id: str, body: S.UiLibraryApplyIn, request: Request,
+                           caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
+    return await _mutate_ui_library(slug, request, caller, body, library_id)
+
+
 # --- delete and reclaim (Kyle's session) ------------------------------------------
 
 @router.delete(PREFIX + "/docs/{slug}", response_model=S.UiDocDeleteOut)

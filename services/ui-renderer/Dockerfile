@@ -14,6 +14,7 @@ COPY services/backend/agentplatform/ui_designer/__init__.py \
      services/backend/agentplatform/ui_designer/export_formats.py \
      services/backend/agentplatform/ui_designer/visual_diff.py \
      services/backend/agentplatform/ui_designer/lint.py \
+     services/backend/agentplatform/ui_designer/libraries.py \
      services/backend/agentplatform/ui_designer/layout.py \
      services/backend/agentplatform/ui_designer/text.py \
      services/backend/agentplatform/ui_designer/fonts.py \

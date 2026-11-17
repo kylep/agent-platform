@@ -70,6 +70,7 @@ class Cutter:
 
 TOKENS_NODE = "$tokens"
 COMPONENT_SETS_NODE = "$component_sets"
+LIBRARIES_NODE = "$libraries"
 
 
 def _metadata_entries(value: Any, path: list | None = None):
@@ -89,7 +90,8 @@ def _metadata_entries(value: Any, path: list | None = None):
         yield {"path": path, "value": value}
 
 
-def _component_set_cut(c: Cutter, sets: dict, after: str | None, budget: int) -> dict:
+def _component_set_cut(c: Cutter, sets: dict, after: str | None, budget: int, *,
+                       sentinel: str = COMPONENT_SETS_NODE, label: str = "component set") -> dict:
     # Small metadata retains the authored shape. Large metadata has an explicit
     # leaf cursor, so even one huge definition/default can be read completely.
     if after is None and size(sets) <= max(0, budget - 384):
@@ -99,7 +101,7 @@ def _component_set_cut(c: Cutter, sets: dict, after: str | None, budget: int) ->
     start = 0
     if after is not None:
         if len(after) > 12 or not after.isdecimal() or not 0 <= int(after) < len(entries):
-            raise _not_found(f"component set metadata position {after!r}")
+            raise _not_found(f"{label} metadata position {after!r}")
         start = int(after) + 1
     shown, used = [], 0
     for index in range(start, len(entries)):
@@ -108,7 +110,7 @@ def _component_set_cut(c: Cutter, sets: dict, after: str | None, budget: int) ->
             if not shown:
                 # The caller can retry with its normal text cap; never emit an
                 # oversized individual record to make artificial progress.
-                c.notes.append("component set metadata needs a larger text budget")
+                c.notes.append(f"{label} metadata needs a larger text budget")
             break
         shown.append(entries[index])
         used += cost
@@ -117,10 +119,10 @@ def _component_set_cut(c: Cutter, sets: dict, after: str | None, budget: int) ->
     if end < len(entries):
         cursor = str(end - 1) if end else None
         out["_more"] = {"count": len(entries) - end, "after": cursor}
-        c.notes.append(f"more component set metadata; get node={COMPONENT_SETS_NODE}" +
+        c.notes.append(f"more {label} metadata; get node={sentinel}" +
                        (f" after={cursor}" if cursor is not None else ""))
         if c.cursor is None:
-            c.cursor = {"node": COMPONENT_SETS_NODE}
+            c.cursor = {"node": sentinel}
             if cursor is not None:
                 c.cursor["after"] = cursor
     c.left -= size(out)
@@ -183,7 +185,10 @@ def cut_document(doc: dict, *, node: str | None, depth: int, after: str | None, 
     is cut in order: tokens, then components, then pages (and their leaves);
     whatever is left out sets `truncated` and a cursor."""
     c = Cutter(budget)
-    if node == COMPONENT_SETS_NODE:
+    if node == LIBRARIES_NODE:
+        body = {"libraries": _component_set_cut(c, doc.get("libraries") or {}, after, budget,
+                                               sentinel=LIBRARIES_NODE, label="library")}
+    elif node == COMPONENT_SETS_NODE:
         body = {"component_sets": _component_set_cut(c, doc.get("component_sets") or {}, after, budget)}
     elif node == TOKENS_NODE:
         body = {"tokens": _token_cut(c, doc.get("tokens") or {}, after, max(budget, 256))}
@@ -195,8 +200,18 @@ def cut_document(doc: dict, *, node: str | None, depth: int, after: str | None, 
     else:
         if after is not None:
             raise _not_found("a cursor needs `node`")
-        body = {k: v for k, v in doc.items() if k not in ("pages", "components", "tokens", "component_sets")}
+        body = {k: v for k, v in doc.items() if k not in ("pages", "components", "tokens", "component_sets", "libraries")}
         c.left -= size(body)
+        if doc.get("libraries"):
+            share = max(0, c.left // 4)
+            if size(doc["libraries"]) <= share:
+                body["libraries"] = _component_set_cut(c, doc["libraries"], None, share + 384,
+                                                       sentinel=LIBRARIES_NODE, label="library")
+            else:
+                body["libraries"] = {"_cut": True, "count": len(doc["libraries"])}
+                c.left -= size(body["libraries"])
+                c.notes.append(f"libraries omitted (budget); get node={LIBRARIES_NODE}")
+                c.cursor = {"node": LIBRARIES_NODE}
         if doc.get("component_sets"):
             share = max(0, c.left // 4)
             if size(doc["component_sets"]) <= share:
@@ -205,7 +220,8 @@ def cut_document(doc: dict, *, node: str | None, depth: int, after: str | None, 
                 body["component_sets"] = {"_cut": True, "count": len(doc["component_sets"])}
                 c.left -= size(body["component_sets"])
                 c.notes.append(f"component sets omitted (budget); get node={COMPONENT_SETS_NODE}")
-                c.cursor = {"node": COMPONENT_SETS_NODE}
+                if c.cursor is None:
+                    c.cursor = {"node": COMPONENT_SETS_NODE}
         if doc.get("tokens"):
             body["tokens"] = _token_cut(c, doc["tokens"], None, max(c.left // 4, 512))
         comps = [(k, v) for k, v in (doc.get("components") or {}).items()]

@@ -43,13 +43,13 @@ def build_tools(spec, admin_tools):
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 180-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 184-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (238 tools)."""
+    """The admin-on surface — KEEP + GATE (242 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -175,11 +175,11 @@ async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, 
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 180."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 184."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 180, \
+    assert len(tools) == len(expected) == 184, \
         sorted({(t._route.method, t._route.path) for t in tools})
     assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
             ("GET", "/api/backups/jobs/{name}")} <= {
@@ -187,14 +187,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (238 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (242 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 238, \
+    assert len(admin_tools) == len(expected) == 242, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -698,7 +698,8 @@ def test_ui_designer_text_routes_are_tools_and_pictures_are_not(spec, tools, adm
     for name in ("list_ui_documents", "create_ui_document", "get_ui_document", "edit_ui_document",
                  "ui_document_outline", "ui_document_versions", "restore_ui_document",
                  "inspect_ui_document", "export_ui_document", "diff_ui_document",
-                 "list_ui_comments", "add_ui_comment", "resolve_ui_comment", "label_ui_document", "lint_ui_document"):
+                 "list_ui_comments", "add_ui_comment", "resolve_ui_comment", "label_ui_document", "lint_ui_document", "list_ui_libraries", "import_ui_library",
+                 "preview_ui_library", "apply_ui_library"):
         assert name in default, name
     P = "/api/ui-designer"
     hidden = {("GET", f"{P}/docs/{{slug}}/render"), ("GET", f"{P}/docs/{{slug}}/svg"),

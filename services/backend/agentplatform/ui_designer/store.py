@@ -400,16 +400,29 @@ async def placed_assets(s, document_id: str) -> set[str]:
         UiDesignerDocumentAsset.document_id == document_id))).scalars())
 
 
+def edit_fingerprint(*, op: str, slug: str, ops: Any, expected_version: Any,
+                     reason: str, stable_args: dict | None = None) -> str:
+    """Library receipts bind caller inputs, before any source lookup or planning."""
+    if stable_args is not None:
+        if op not in ("library-import", "library-apply"):
+            raise ValueError("stable input fingerprints are only for library mutations")
+        return args_hash(op=op, slug=slug, expected_version=expected_version,
+                         reason=reason, stable_args=stable_args)
+    return args_hash(op=op, slug=slug, ops=ops, expected_version=expected_version, reason=reason)
+
+
 async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author: str,
                         run_id: str | None = None, reason: str = "", request_id: str | None = None,
                         scope: str | None = None, wants_snapshot: bool = False, op: str = "edit",
-                        fold: bool = True, caps: Caps = Caps(), now: datetime | None = None) -> dict:
+                        fold: bool = True, caps: Caps = Caps(), now: datetime | None = None,
+                        _stable_args: dict | None = None) -> dict:
     """One accepted write = one version number. Returns `{version, warnings,
     doc, replayed}`; a repeat of `(scope, request_id)` with the same args
     answers from the receipt (text only) and writes nothing."""
     now = now or utcnow()
     scope = _scope(scope, run_id, request_id)
-    h = args_hash(op=op, slug=slug, ops=ops, expected_version=expected_version, reason=reason)
+    h = edit_fingerprint(op=op, slug=slug, ops=ops, expected_version=expected_version,
+                         reason=reason, stable_args=_stable_args)
     if scope:
         prior = await _receipt_lookup(s, scope, request_id, op, h)
         if prior is not None:
@@ -664,6 +677,14 @@ async def gc_assets(s) -> dict:
     doomed = cands - live
     freed = 0
     if doomed:
+        # Acquire row locks in their own statement. Under PostgreSQL READ
+        # COMMITTED, DELETE's snapshot can otherwise predate a placement that
+        # commits while DELETE waits for that asset lock (there is no FK).
+        # The following DELETE gets a fresh snapshot after every lock wait.
+        doomed = set((await s.execute(_for_update(s, select(UiDesignerAsset.sha256).where(
+            UiDesignerAsset.sha256.in_(doomed)).order_by(UiDesignerAsset.sha256)))).scalars())
+        if not doomed:
+            return {"assets_removed": 0, "bytes_freed": 0}
         freed = int((await s.execute(select(func.coalesce(func.sum(UiDesignerAsset.bytes), 0)).where(
             UiDesignerAsset.sha256.in_(doomed)))).scalar_one())
         # The delete re-checks placement itself, so a placement committed after

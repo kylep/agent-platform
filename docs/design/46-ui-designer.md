@@ -1299,3 +1299,51 @@ users filter and page results, and selects reported nodes. Navigation/filter
 changes cancel obsolete results. Tests cover known positive and negative fixtures,
 contrast boundaries and alpha, uncertainty, budgets, cursor scope, permission
 fences, immutable versions and browser races. Legacy render goldens stay intact.
+
+## 23. Pinned cross-document libraries (P2.8 addendum)
+
+A consumer imports an explicit retained source version and selected component,
+component-set and token IDs under a local namespace. The source UUID is the
+identity; a slug is only a display/discovery convenience and can be reused after
+deletion. Copy the selected definitions, their semantic dependencies and required
+asset placements into the consumer. Rendering remains self-contained when the
+source is unavailable or deleted. No moving-head references or renderer network
+dependencies.
+
+Optional closed `libraries` metadata records source/version, namespace, selected
+IDs, deterministic local mappings, ownership hashes and bounded ancestry. Rename
+semantic references in instances, variants, property swaps, bindings, overrides
+and tokens; preserve literal text, titles, metadata and path data. Metadata itself
+is never token-resolved. Reject namespace collisions, dependency cycles and
+foreign prototype links; incompatible document modes require an explicit repair
+before import. Existing schema, document, asset and expansion limits still apply.
+
+Four routes expose library pins, import, update preview and apply. Import/apply
+are normal versioned writes: require destination write and source read access,
+run fences, write budgets and `expected_version`. Asset placements and the single
+CAS edit commit together. Stable input fingerprints and existing receipts make
+transport retries idempotent, including after a source is deleted following a
+successful import. An untrusted caller cannot supply resolved definitions or
+authorize asset hashes through provenance metadata.
+
+An update names a retained source version. Preview reports bounded added/changed/
+removed definitions and conflicts against the current consumer. Apply repeats
+those checks at the submitted destination version. Previous ownership hashes
+detect locally changed imported definitions; updates refuse to overwrite them.
+Final validation also rejects removals that leave dangling consumer references.
+Normal retained-version restore recovers both copied definitions and their pins.
+
+The Libraries panel supports explicit import, pin inspection and preview/apply.
+It shares the editor's write lock, preserves uncertain request IDs for retry and
+invalidates previews when scope changes. Accepted library writes reset ordinary
+field-edit undo history. Historical documents expose pins without write controls.
+The tool offers the same operations with compact metadata and clear conflicts.
+Tests cover semantic remapping, literals, modes, component families, assets,
+source UUID/slug reuse, deletion, receipts, permission fences, CAS, local edits,
+cycles, budgets, offline renders and restore.
+
+Asset cleanup takes candidate row locks before issuing a separate placement
+recheck/delete statement. This matters under PostgreSQL READ COMMITTED: a delete
+that starts before a copy commits can otherwise retain an older placement snapshot
+while waiting for the asset lock. A real PostgreSQL concurrency regression covers
+the cleanup/copy interleaving in addition to ordinary library asset tests.

@@ -167,7 +167,7 @@ def platform_token_role(tools: list[str]) -> str | None:
 # filters it out of every other run with the sensitive set, so declaring it
 # elsewhere does nothing either.
 UI_DESIGNER_CHEATSHEET = r"""Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
-  doc: {schema:1, title?, tokens?, modes?, components?: {id: node}, component_sets?, pages: [{id, title?, children: [node]}]}
+  doc: {schema:1, title?, tokens?, modes?, components?: {id: node}, component_sets?, libraries?, pages: [{id, title?, children: [node]}]}
   node = {id, type, ...props}; type is frame|text|rect|ellipse|line|path|image|instance.
   All nodes: title w h (number|"fill"|"hug") x y absolute rotate fill stroke radius
     opacity(0-1) visible clip shadow blur backdrop_blur blend meta link_to.
@@ -213,17 +213,17 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update cannot set id/type/children; a page only takes title.
-Other actions: lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
+Other actions: library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+  import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
+  preview/apply spec={library_id:namespace,source_version}; writes require expected_version+request_id, retry exact same inputs after uncertain saves.
+  Pins copy dependencies/assets and render offline; preview detects local conflicts; updates never follow reused slugs. Read provenance with node="$libraries" and after cursor.
+  lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
   (read-only findings; bounded pages; approximate contrast is advisory, not a compliance audit); inspect {node, mode?} (resolved box, colours, tokens, component of one node);
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
   {op: diff, from_version, to_version} (the writes between two versions), or
   {op: visual_diff, from_version, to_version, node?, mode?, scale?, tolerance?:0..255} (aligned heatmap + changed regions/node ids; explicit retained versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
-  (artifact + #design card; SVG self-contained, PDF raster/white transparency, HTML static DOM/SVG + token CSS vars). Check comments before editing and resolve
-  what you fix. Figma REST imports are administrator jobs in the web UI; use list/outline
-  to find and edit the completed document. Import never overwrites an existing slug.
-Component-set example (existing component button-base contains text button-label):
-  {"op":"component_sets","set":{"button":{"axes":{},"properties":{"label":{"type":"text","default":"Play"}},"variants":[{"when":{},"of":"button-base","bindings":{"label":["button-label"]}}]}}}
-  Instance: {"id":"play","type":"instance","of":"button","props":{"label":"Start"}}.
+  (artifact + #design card; SVG self-contained, PDF raster/white transparency, HTML static DOM/SVG + token CSS vars).
+  Read/resolve comments while editing. Figma REST imports are admin web jobs; list/outline finds completed docs; imports never overwrite a slug.
 Example edit ops (new page: a frame, a text and a row of two cards):
   [{"op":"set_doc","doc":{"schema":1,"title":"Demo","tokens":{"color":{"bg":"#0f172a","card":"#1e293b","ink":"#f8fafc"}},"pages":[{"id":"home","title":"Home","children":[{"id":"root","type":"frame","w":800,"h":400,"fill":"$color.bg","layout":{"dir":"column","gap":16,"pad":24},"children":[{"id":"hello","type":"text","text":"Hello","style":{"size":28,"weight":700},"color":"$color.ink"},{"id":"cards","type":"frame","w":"fill","h":"hug","layout":{"dir":"row","gap":16},"children":[{"id":"card-1","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12},{"id":"card-2","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12}]}]}]}]}}]"""
 

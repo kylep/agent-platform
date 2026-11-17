@@ -197,3 +197,28 @@ matching tokens and unused tokens. Approximation labels explain where geometry
 or complex paint prevents a definite conclusion. Normal text needs 4.5:1 contrast;
 large text needs 3:1. An empty result is not an accessibility certification.
 Lint never edits the document; applying a suggestion uses ordinary versioned edits.
+
+### Shared libraries
+
+Use **Libraries** to import components, component families and tokens from an
+explicit version of another document. Choose a local namespace and the source
+IDs to include; dependencies and required assets are copied with them. The
+consumer keeps working if the source is later unavailable or deleted.
+
+Pins never follow the latest source automatically. Enter a source version and
+preview its changes before applying an update. Updates preserve ordinary page
+content and refuse to overwrite locally changed imported definitions. Repair
+reported conflicts before retrying; every accepted import/update creates one
+version and participates in the normal concurrency checks and history.
+
+Source and consumer modes must be compatible. Components with links into source
+pages cannot be imported as isolated definitions. Namespaces separate imported
+IDs from local content, while source UUIDs prevent a reused slug from changing
+the meaning of an existing pin.
+
+Agents use `library` with `op: list|import|preview|apply`. Import accepts a
+`library` specification containing `source_id`, `source_version`, `namespace`,
+`components`, `component_sets` and `tokens` (for example `color.brand`).
+Writes require `expected_version` and `request_id`; update operations identify
+the library namespace and a newer source version. Use `get node="$libraries"`
+with its returned cursor to read provenance that exceeds a normal text page.

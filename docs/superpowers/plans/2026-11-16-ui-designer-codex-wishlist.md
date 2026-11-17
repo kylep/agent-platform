@@ -273,5 +273,17 @@ Fresh starting Codex weekly usage: 26% (74% left).
   API/tool pages and Findings panel. Contrast thresholds/alpha/uncertainty,
   overflow/clipping, spacing and token hygiene are covered. Backend 3,790 passed /
   20 skipped; browser 415, renderer 77, broker 468, facade 40 pass, plus web
-  build, Storybook, tokens, SDK drift and Helm lint. Deployment acceptance
-  pending. P2.8 has a prepared design; implementation remains unopened.
+  build, Storybook, tokens, SDK drift and Helm lint. Pushed `066519d`; deployed
+  `ud-lint-20261116` in Helm revision 155. Live API/browser verified findings,
+  pagination, a contrast fix in v2 and unchanged v1 findings. Smoke document
+  removed. Fresh weekly quota: 31% used. P2.8 implementation is underway.
+
+- **P2.8 Status:** implemented pinned library copies, semantic dependency/ID/token
+  remapping, source-bound assets, explicit update previews, local-edit conflicts,
+  CAS/receipt recovery and the Libraries panel. Full backend: 3,817 passed /
+  21 skipped; the sole help-length failure was repaired and 33 focused guidance/
+  broker/catalog checks pass. Browser 422 passed, followed by 8 final focused
+  library checks; renderer 77, broker 469, facade 40 pass. PostgreSQL CI checks
+  20 passed; the final deterministic GC/copy regression also passed separately.
+  Builds, Storybook, tokens, SDK drift and Helm lint pass. Deployment acceptance
+  pending. P2.9 is designed; implementation remains unopened.

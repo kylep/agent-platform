@@ -2183,3 +2183,68 @@ class UiLintOut(BaseModel):
     by_severity: dict[str, int]
     next_cursor: str | None = None
     truncated: bool = False
+
+
+class UiLibrarySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    source_version: int = Field(ge=1, strict=True)
+    namespace: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,15}$")
+    components: list[str] = Field(default_factory=list, max_length=200)
+    component_sets: list[str] = Field(default_factory=list, max_length=50)
+    tokens: list[str] = Field(default_factory=list, max_length=512)
+
+
+class UiLibraryImportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+    library: UiLibrarySpec
+
+
+class UiLibraryPreviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_version: int = Field(ge=1, strict=True)
+
+
+class UiLibraryApplyIn(UiLibraryPreviewIn):
+    expected_version: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class UiLibrarySummary(BaseModel):
+    library_id: str
+    namespace: str
+    source_id: str
+    source_slug: str
+    source_version: int
+    counts: dict[str, int]
+
+
+class UiLibraryListOut(BaseModel):
+    slug: str
+    version: int
+    libraries: list[UiLibrarySummary]
+
+
+class UiLibraryConflict(BaseModel):
+    kind: str
+    id: str
+    message: str
+
+
+class UiLibraryPreviewOut(BaseModel):
+    slug: str
+    version: int
+    library_id: str
+    source_version: int
+    counts: dict[str, int]
+    added: list[str]
+    updated: list[str]
+    removed: list[str]
+    conflicts: list[UiLibraryConflict]
+    truncated: bool = False
+
+
+class UiLibraryWriteOut(UiDocWriteOut):
+    library_id: str

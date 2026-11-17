@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage } from "../api";
 import { prototypeFrames } from "../lib/prototype";
+import LibrariesPanel from "../components/ui-designer/LibrariesPanel";
 import FindingsPanel from "../components/ui-designer/FindingsPanel";
 import CompareVersions from "../components/ui-designer/CompareVersions";
 import ExportControls from "../components/ui-designer/ExportControls";
@@ -65,6 +66,8 @@ export default function UiDesignerDocument() {
   const [draft, setDraft] = useState("");
   const [comparing, setComparing] = useState(false);
   const [showFindings, setShowFindings] = useState(false);
+  const [showLibraries, setShowLibraries] = useState(false);
+  const [libraryLocked, setLibraryLocked] = useState(false);
   const base = `${UD}/${encodeURIComponent(slug)}`;
 
   const [canWrite, setCanWrite] = useState(false);
@@ -84,7 +87,7 @@ export default function UiDesignerDocument() {
   useEffect(() => {
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
-    setDraft(""); setComparing(false); setShowFindings(false); setHl(null); setErr("");
+    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -159,7 +162,7 @@ export default function UiDesignerDocument() {
   }, [base, selectedId, pinned, version, mode, stale]);
   const parent = parents.at(-1);
   const freePosition = !parent?.layout || !!inspection?.authored?.absolute;
-  const editable = canWrite && !version && !stale && !!inspection?.authored && inspection.version === pinned && inspection.id === picked?.id && !editing.busy && !editing.uncertain;
+  const editable = canWrite && !version && !stale && !!inspection?.authored && inspection.version === pinned && inspection.id === picked?.id && !editing.busy && !editing.uncertain && !libraryLocked;
   function saveNode(id: string, changes: Record<string, unknown>) {
     if (!editable || inspection?.id !== id || picked?.id !== id || !inspection.authored) return;
     const before = Object.fromEntries(Object.keys(changes).map((key) => [key, inspection.authored![key] ?? null]));
@@ -198,7 +201,7 @@ export default function UiDesignerDocument() {
         <h1><Link to="/ui-designer">UI Designer</Link> / {slug}</h1>
         <label className="muted">Version{" "}
           <select value={version ?? ""} onChange={(e) => pickVersion(e.target.value)}
-                  aria-label="Version">
+                  aria-label="Version" disabled={libraryLocked}>
             <option value="">{current ? `Latest (v${current})` : "Latest"}</option>
             {versions.map((v) => (
               <option key={v.version} value={v.version}>
@@ -209,7 +212,8 @@ export default function UiDesignerDocument() {
         </label>
         <div className="ud-actions">
           {(version ?? pinned) && <Link to={`/ui-designer/${encodeURIComponent(slug)}/play?${new URLSearchParams({ version: String(version ?? pinned), mode, ...(page && page.children?.find((n)=>n.type === "frame" && !n.of) ? { frame: page.children.find((n)=>n.type === "frame" && !n.of)!.id } : {}) })}`}>Play prototype</Link>}
-          {canWrite && !version && <><Button onClick={editing.undo} disabled={stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
+          {canWrite && !version && <><Button onClick={editing.undo} disabled={libraryLocked || stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={libraryLocked || stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
+          <Button disabled={libraryLocked} onClick={() => setShowLibraries((open) => !open)}>{showLibraries ? "Close libraries" : "Libraries"}</Button>
           <Button onClick={() => setShowFindings((open) => !open)}>{showFindings ? "Close findings" : "Findings"}</Button>
           <button type="button" onClick={labelVersion}>Label this version</button>
           <button type="button" onClick={() => setComparing((open) => !open)}>
@@ -219,6 +223,9 @@ export default function UiDesignerDocument() {
       </div>
       {(version ?? pinned) && <ExportControls key={`${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canExport={canWrite} />}
       {comparing && page && (version ?? pinned) && <CompareVersions key={base} base={base} versions={versions} initialVersion={(version ?? pinned)!} pageId={page.id} selectedId={picked?.id ?? null} mode={mode} onSelectNode={(id) => { const node = known.find((n) => n.id === id); if (node) setSel(node); }} />}
+      {showLibraries && (version ?? pinned) && <LibrariesPanel key={base} base={base} version={(version ?? pinned)!} canWrite={canWrite && !version} editorBusy={editing.busy || editing.uncertain} onWriteLock={setLibraryLocked} onCommitted={(savedVersion) => {
+        editing.reset("Library changes saved. Undo history was cleared."); editing.pin(savedVersion); refresh(Math.max(pinned ?? 0, savedVersion), true);
+      }} onConflict={() => { editing.reset("The document changed before the library save. Reloaded the latest version; undo history was cleared."); refresh(undefined, true); }} />}
       {showFindings && (version ?? pinned) && <FindingsPanel key={base} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canvasNodeIds={pages.flatMap((p) => flatten(p.children ?? []).map((n) => n.id))} onSelectNode={(id) => {
         for (const candidatePage of pages) { const node = flatten(candidatePage.children ?? []).find((n) => n.id === id); if (node) { setPageId(candidatePage.id); setSel(node); return; } }
       }} />}

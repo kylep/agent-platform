@@ -241,3 +241,18 @@ def test_lint_read_only_pinned_page_and_cursor(api):
         'severity':'warning','limit':20,'cursor':'opaque-prev'},None)
     assert 'explicit retained version' in ud(action='lint',slug='hud')
     assert 'choose mode' in ud(action='lint',slug='hud',version=2,all_modes=True,mode='dark')
+
+
+def test_library_actions_use_small_specs_and_receipt_inputs(api):
+    spec={'source_id':'a'*32,'source_version':2,'namespace':'shared','components':['button']}
+    ud(action='library',op='import',slug='hud',library=spec,expected_version=4,request_id='lib-import')
+    assert api[-1]==('POST',f'{DOCS}/hud/libraries/import',None,{
+        'library':spec,'expected_version':4,'request_id':'lib-import'})
+    ud(action='library',op='preview',slug='hud',library={'library_id':'shared','source_version':3})
+    assert api[-1]==('POST',f'{DOCS}/hud/libraries/shared/preview',None,{'source_version':3})
+    ud(action='library',op='apply',slug='hud',library={'library_id':'shared','source_version':3},expected_version=5,request_id='lib-apply')
+    assert api[-1][3]=={'source_version':3,'expected_version':5,'request_id':'lib-apply'}
+    ud(action='library',slug='hud',version=2)
+    assert api[-1]==('GET',f'{DOCS}/hud/libraries',{'version':2},None)
+    assert 'expected_version and request_id' in ud(action='library',op='import',slug='hud',library=spec)
+    assert 'library_id must' in ud(action='library',op='preview',slug='hud',library={'library_id':'../../secret','source_version':3})
