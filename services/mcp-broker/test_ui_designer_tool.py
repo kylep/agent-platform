@@ -227,3 +227,17 @@ def test_history_visual_diff_is_image_content_not_base64_text(api):
         'from_version':1,'to_version':2,'scale':1,'tolerance':3,'node':'root'})
     assert 'requires from_version' in ud(action='history',slug='hud',op='visual_diff')
     assert 'integer from 0 to 255' in ud(action='history',slug='hud',op='visual_diff',from_version=1,to_version=2,tolerance=True)
+
+
+def test_lint_read_only_pinned_page_and_cursor(api):
+    payload={'slug':'hud','version':2,'rules_version':'lint-1','findings':[
+        {'code':'UD-LINT-CONTRAST','severity':'warning','node_id':'text','mode':None,
+         'message':'Low contrast','suggestion':'Increase contrast','approximate':True}],
+        'total':2,'by_severity':{'warning':2},'next_cursor':'opaque-next','truncated':False}
+    api.replies[f'{DOCS}/hud/lint']=(200,json.dumps(payload))
+    out=ud(action='lint',slug='hud',version=2,node='root',all_modes=True,severity='warning',limit=20,after='opaque-prev')
+    assert json.loads(out)==payload
+    assert api[-1]==('GET',f'{DOCS}/hud/lint',{'version':2,'node':'root','all_modes':'true',
+        'severity':'warning','limit':20,'cursor':'opaque-prev'},None)
+    assert 'explicit retained version' in ud(action='lint',slug='hud')
+    assert 'choose mode' in ud(action='lint',slug='hud',version=2,all_modes=True,mode='dark')

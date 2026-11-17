@@ -963,6 +963,82 @@ async def visual_diff_ui_document(slug: str, body: S.UiVisualDiffIn, request: Re
                              to_version=body.to_version, **result)
 
 
+@router.get(PREFIX + "/docs/{slug}/lint", response_model=S.UiLintOut)
+async def lint_ui_document(slug: str, request: Request,
+                           version: int = Query(..., ge=1),
+                           node: str | None = Query(None, max_length=512),
+                           mode: str | None = Query(None, max_length=16),
+                           all_modes: bool = False,
+                           severity: Literal["error", "warning", "info"] | None = None,
+                           limit: int = Query(100, ge=1, le=100),
+                           cursor: str | None = Query(None, max_length=512),
+                           caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """Deterministic findings for a retained version; pagination never follows latest."""
+    import hashlib
+    import json
+    from agentplatform.ui_designer.lint import RULES_VERSION
+    if mode is not None and all_modes:
+        raise HTTPException(422, "choose mode or all_modes")
+    view, sha, _ = await _doc_at(request, caller, slug, version)
+    scope = hashlib.sha256(json.dumps([slug, version, sha, RULES_VERSION, node, mode,
+                                      all_modes, severity], separators=(",", ":")).encode()).hexdigest()
+    offset = 0
+    if cursor:
+        try:
+            raw = base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True)
+            decoded = json.loads(raw)
+            if (not isinstance(decoded, dict) or set(decoded) != {"scope", "offset"}
+                    or decoded["scope"] != scope or not isinstance(decoded["offset"], int)
+                    or isinstance(decoded["offset"], bool) or not 0 <= decoded["offset"] <= 16000):
+                raise ValueError()
+            offset = decoded["offset"]
+        except (ValueError, TypeError):
+            raise HTTPException(422, "lint cursor does not match this version, rules or options")
+    modes = (view["doc"].get("modes") or [None]) if all_modes else [mode]
+    gate = asyncio.Semaphore(2)
+    async def evaluate(selected_mode):
+        async with gate:
+            return await _renderer(request).lint(doc=view["doc"], node=node, mode=selected_mode)
+    tasks = [asyncio.create_task(evaluate(value)) for value in modes]
+    try:
+        results = await asyncio.gather(*tasks)
+    except BaseException as error:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        if isinstance(error, UiDesignerError):
+            raise ud_http(error)
+        raise
+    # Global findings can occur in several mode evaluations; collapse exact duplicates.
+    unique = {json.dumps(finding, sort_keys=True, separators=(",", ":")): finding
+              for result in results for finding in result["findings"]}
+    findings = sorted(unique.values(), key=lambda f: (f["mode"] or "", f["node_id"] or "", f["code"], f["message"]))
+    counts = {level: sum(f["severity"] == level for f in findings) for level in ("error", "warning", "info")}
+    if severity is not None:
+        findings = [f for f in findings if f["severity"] == severity]
+    if offset > len(findings):
+        raise HTTPException(422, "lint cursor is beyond the available findings")
+    truncated = any(result["truncated"] for result in results)
+    out = {"slug": slug, "version": version, "rules_version": RULES_VERSION,
+           "findings": [], "total": len(findings), "by_severity": counts,
+           "next_cursor": None, "truncated": truncated}
+    budget = min(32 << 10, _text_cap(request))
+    def next_cursor(index):
+        return base64.urlsafe_b64encode(json.dumps({"scope": scope, "offset": index}, separators=(",", ":")).encode()).decode().rstrip("=")
+    for finding in findings[offset:offset + limit]:
+        out["findings"].append(finding)
+        index = offset + len(out["findings"])
+        out["next_cursor"] = next_cursor(index) if index < len(findings) else None
+        if len(json.dumps(out, ensure_ascii=False, separators=(",", ":")).encode()) > budget:
+            out["findings"].pop()
+            if not out["findings"]:
+                raise HTTPException(413, "lint finding cannot fit the configured text budget")
+            break
+    index = offset + len(out["findings"])
+    out["next_cursor"] = next_cursor(index) if index < len(findings) else None
+    return S.UiLintOut(**out)
+
+
 # --- delete and reclaim (Kyle's session) ------------------------------------------
 
 @router.delete(PREFIX + "/docs/{slug}", response_model=S.UiDocDeleteOut)

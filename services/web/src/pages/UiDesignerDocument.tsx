@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage } from "../api";
 import { prototypeFrames } from "../lib/prototype";
+import FindingsPanel from "../components/ui-designer/FindingsPanel";
 import CompareVersions from "../components/ui-designer/CompareVersions";
 import ExportControls from "../components/ui-designer/ExportControls";
 import Inspector from "../components/ui-designer/Inspector";
@@ -63,6 +64,7 @@ export default function UiDesignerDocument() {
   const [hl, setHl] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [comparing, setComparing] = useState(false);
+  const [showFindings, setShowFindings] = useState(false);
   const base = `${UD}/${encodeURIComponent(slug)}`;
 
   const [canWrite, setCanWrite] = useState(false);
@@ -82,7 +84,7 @@ export default function UiDesignerDocument() {
   useEffect(() => {
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
-    setDraft(""); setComparing(false); setHl(null); setErr("");
+    setDraft(""); setComparing(false); setShowFindings(false); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -208,6 +210,7 @@ export default function UiDesignerDocument() {
         <div className="ud-actions">
           {(version ?? pinned) && <Link to={`/ui-designer/${encodeURIComponent(slug)}/play?${new URLSearchParams({ version: String(version ?? pinned), mode, ...(page && page.children?.find((n)=>n.type === "frame" && !n.of) ? { frame: page.children.find((n)=>n.type === "frame" && !n.of)!.id } : {}) })}`}>Play prototype</Link>}
           {canWrite && !version && <><Button onClick={editing.undo} disabled={stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
+          <Button onClick={() => setShowFindings((open) => !open)}>{showFindings ? "Close findings" : "Findings"}</Button>
           <button type="button" onClick={labelVersion}>Label this version</button>
           <button type="button" onClick={() => setComparing((open) => !open)}>
             {comparing ? "Close compare" : "Compare"}</button>
@@ -216,6 +219,9 @@ export default function UiDesignerDocument() {
       </div>
       {(version ?? pinned) && <ExportControls key={`${base}:${version ?? pinned}:${mode}`} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canExport={canWrite} />}
       {comparing && page && (version ?? pinned) && <CompareVersions key={base} base={base} versions={versions} initialVersion={(version ?? pinned)!} pageId={page.id} selectedId={picked?.id ?? null} mode={mode} onSelectNode={(id) => { const node = known.find((n) => n.id === id); if (node) setSel(node); }} />}
+      {showFindings && (version ?? pinned) && <FindingsPanel key={base} base={base} version={(version ?? pinned)!} mode={mode} pageId={page?.id ?? null} selectedId={picked?.id ?? null} canvasNodeIds={pages.flatMap((p) => flatten(p.children ?? []).map((n) => n.id))} onSelectNode={(id) => {
+        for (const candidatePage of pages) { const node = flatten(candidatePage.children ?? []).find((n) => n.id === id); if (node) { setPageId(candidatePage.id); setSel(node); return; } }
+      }} />}
       {editing.message && <p role="status">{editing.message}</p>}
       {editing.uncertain && <Button onClick={editing.retry} disabled={editing.busy}>Retry save</Button>}
       {stale && <p role="status">The document changed. Your inspector draft is preserved. <Button onClick={() => { setStale(false); setInspection(null); }}>Discard draft and reload inspector</Button></p>}

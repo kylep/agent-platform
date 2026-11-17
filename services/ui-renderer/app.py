@@ -322,6 +322,27 @@ def job_diff(cfg: Config, req: dict) -> dict:
     return result
 
 
+_LINT_CACHE: OrderedDict[str, tuple[dict, int]] = OrderedDict()
+
+
+def job_lint(cfg: Config, req: dict) -> dict:
+    from agentplatform.ui_designer.lint import RULES_VERSION, findings
+    from agentplatform.ui_designer.svg import renderer_version
+    key = hashlib.sha256((RULES_VERSION + renderer_version()).encode() +
+        json.dumps(req,sort_keys=True,separators=(',',':'),ensure_ascii=False,allow_nan=False).encode()).hexdigest()
+    cached = _LINT_CACHE.get(key)
+    if cached is not None:
+        _LINT_CACHE.move_to_end(key)
+        return copy.deepcopy(cached[0])
+    result = {'renderer_version':renderer_version(), **findings(req['doc'],req['mode'],req['node'])}
+    size = len(json.dumps(result,ensure_ascii=False).encode())
+    if result.get('ok') and size <= 32 << 20:
+        while _LINT_CACHE and (len(_LINT_CACHE) >= 8 or sum(item[1] for item in _LINT_CACHE.values()) + size > 32 << 20):
+            _LINT_CACHE.popitem(last=False)
+        _LINT_CACHE[key] = (copy.deepcopy(result),size)
+    return result
+
+
 def _slim(n: dict) -> dict:
     out = {k: v for k, v in n.items() if k not in ("children", "text")}
     if isinstance(n.get("text"), dict):
@@ -340,7 +361,7 @@ def job_resolved(cfg: Config, req: dict) -> dict:
                                            for pg in r["pages"]]}}
 
 
-JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff}
+JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff, "lint": job_lint}
 
 
 def _run_job(cfg: Config, kind: str, req: dict) -> dict:
@@ -532,6 +553,17 @@ def _render_req(body: Any) -> dict:
     return req
 
 
+def _lint_req(body: Any) -> dict:
+    req = _common(body)
+    if set(body) - {'doc','node','mode'}:
+        raise BadRequest('unknown lint field')
+    node = body.get('node')
+    if node is not None and (not isinstance(node,str) or not node or len(node)>512):
+        raise BadRequest('lint node must be an id')
+    req.pop('annotate')
+    return {**req, 'node':node}
+
+
 def _diff_req(body: Any) -> dict:
     if not isinstance(body, dict) or set(body) - {'before_doc','after_doc','node','mode','scale','tolerance','max_bytes'}:
         raise BadRequest('unknown visual diff field')
@@ -650,6 +682,9 @@ def create_app(cfg: Config | None = None) -> web.Application:
     async def diff(r: web.Request) -> web.Response:
         return await _post(r, "diff", _diff_req)
     app.router.add_post("/diff", diff)
+    async def lint_(r: web.Request) -> web.Response:
+        return await _post(r, "lint", _lint_req)
+    app.router.add_post("/lint", lint_)
     return app
 
 

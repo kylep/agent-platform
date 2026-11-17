@@ -2162,3 +2162,24 @@ class UiVisualDiffOut(BaseModel):
     node_ids: list[str]
     truncated: bool
     warnings: list[str] = Field(default_factory=list)
+
+
+class UiLintFinding(BaseModel):
+    code: str
+    severity: Literal["error", "warning", "info"]
+    node_id: str | None = None
+    mode: str | None = None
+    message: str
+    suggestion: str
+    approximate: bool
+
+
+class UiLintOut(BaseModel):
+    slug: str
+    version: int
+    rules_version: str
+    findings: list[UiLintFinding]
+    total: int
+    by_severity: dict[str, int]
+    next_cursor: str | None = None
+    truncated: bool = False

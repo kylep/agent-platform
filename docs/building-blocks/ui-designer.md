@@ -184,3 +184,16 @@ opacity slider works locally over the aligned result. Comparisons are read-only
 and pinned; existing render access and aggregate pixel budgets apply to both
 versions. With the default 10-megapixel aggregate budget, the shared comparison
 canvas is at most 5 megapixels; use a smaller selection or scale for larger work.
+
+### Design lint
+
+Use **Findings** to run advisory checks against the displayed version, or call
+`lint` with an explicit `version` and optional `node`, `mode`, `all_modes` and
+`severity`. Results identify nodes, explain the issue and suggest a change.
+Follow `next_cursor` using the tool's `after` argument to read additional pages.
+
+Checks cover text contrast, overflow/clipping, four-pixel spacing, raw colours
+matching tokens and unused tokens. Approximation labels explain where geometry
+or complex paint prevents a definite conclusion. Normal text needs 4.5:1 contrast;
+large text needs 3:1. An empty result is not an accessibility certification.
+Lint never edits the document; applying a suggestion uses ordinary versioned edits.

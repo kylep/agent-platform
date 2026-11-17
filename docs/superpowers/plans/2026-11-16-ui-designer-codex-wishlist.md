@@ -264,4 +264,14 @@ Fresh starting Codex weekly usage: 26% (74% left).
   Checks: backend 3,782 passed / 20 skipped; browser 409, renderer 54, broker
   467, facade 40; builds, Storybook, tokens, SDK drift and Helm lint pass.
   The raw image-bearing route is excluded from the text-only facade.
-  Deployment acceptance pending. P2.7–P2.12 implementation remains unopened.
+  Pushed `4b4f268`, deployed `ud-diff-20261116` in Helm revision 154.
+  Live API and browser verified 2,400 changed pixels after a move, zero for
+  identical versions and local-only opacity adjustments; smoke document removed.
+  Fresh weekly quota: 29% used. P2.7 implementation is underway.
+
+- **P2.7 Status:** implemented advisory lint in the isolated renderer, pinned
+  API/tool pages and Findings panel. Contrast thresholds/alpha/uncertainty,
+  overflow/clipping, spacing and token hygiene are covered. Backend 3,790 passed /
+  20 skipped; browser 415, renderer 77, broker 468, facade 40 pass, plus web
+  build, Storybook, tokens, SDK drift and Helm lint. Deployment acceptance
+  pending. P2.8 has a prepared design; implementation remains unopened.

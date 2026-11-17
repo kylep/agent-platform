@@ -213,7 +213,8 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update cannot set id/type/children; a page only takes title.
-Other actions: inspect {node, mode?} (resolved box, colours, tokens, component of one node);
+Other actions: lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
+  (read-only findings; bounded pages; approximate contrast is advisory, not a compliance audit); inspect {node, mode?} (resolved box, colours, tokens, component of one node);
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
   {op: diff, from_version, to_version} (the writes between two versions), or
   {op: visual_diff, from_version, to_version, node?, mode?, scale?, tolerance?:0..255} (aligned heatmap + changed regions/node ids; explicit retained versions); export {node?, scale?, name?, format?: png|svg|pdf|html}

@@ -177,3 +177,9 @@ def test_tool_view_actions_stay_off_typed_v1_pages(monkeypatch):
     assert operation_catalog.view_action("x", "counts") == op
     assert operation_catalog.view_action("x", "other") is None
     assert operation_catalog.view_action("judgment", "recall") is None   # declared nowhere
+
+
+def test_ui_designer_lint_is_read_only_and_has_no_live_page_adapter():
+    entry = operation_catalog.OPERATIONS["core.ui_designer.lint@1"]
+    assert entry["effects"] == ["reads_sensitive"]
+    assert entry["view_eligible"] is False

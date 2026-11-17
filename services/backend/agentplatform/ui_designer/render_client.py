@@ -212,6 +212,42 @@ class RenderClient:
                                            max_bytes=self.cache_max_bytes)
         return [r for r in out if r is not None]
 
+    async def lint(self, *, doc: dict, node: str | None, mode: str | None) -> dict:
+        """Read normalized findings only; the renderer owns all layout/rule work."""
+        from .lint import RULES_VERSION
+        status, body = await self._call("POST", "/lint", json={"doc": doc, "node": node, "mode": mode})
+        if status != 200 or not isinstance(body, dict):
+            _raise(status, body)
+        def fail():
+            raise UiDesignerError(UD_RENDER_FAILED, "renderer returned invalid or over-budget lint findings")
+        if (body.get("renderer_version") != renderer_version() or body.get("rules_version") != RULES_VERSION
+                or len(json_module.dumps(body, separators=(",", ":")).encode()) > 2 << 20):
+            fail()
+        findings, total = body.get("findings"), body.get("total")
+        counts, truncated = body.get("by_severity"), body.get("truncated")
+        if not (isinstance(findings, list) and len(findings) <= 2000 and isinstance(truncated, bool)
+                and isinstance(total, int) and not isinstance(total, bool) and total >= len(findings)
+                and isinstance(counts, dict) and set(counts) <= {"error", "warning", "info"}
+                and all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in counts.values())
+                and sum(counts.values()) == total):
+            fail()
+        for finding in findings:
+            if not isinstance(finding, dict) or set(finding) != {"code", "severity", "node_id", "mode", "message", "suggestion", "approximate"}:
+                fail()
+            if not (isinstance(finding["code"], str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,99}", finding["code"])
+                    and finding["severity"] in ("error", "warning", "info")
+                    and isinstance(finding["approximate"], bool)
+                    and all(isinstance(finding[k], str) and len(finding[k].encode()) <= 500 for k in ("message", "suggestion"))
+                    and (finding["node_id"] is None or isinstance(finding["node_id"], str)
+                         and re.fullmatch(r"[a-z0-9][a-z0-9/-]{0,511}", finding["node_id"]))
+                    and (finding["mode"] is None or isinstance(finding["mode"], str) and len(finding["mode"]) <= 16)):
+                fail()
+        actual = {severity: sum(f["severity"] == severity for f in findings) for severity in ("error", "warning", "info")}
+        if not truncated and (total != len(findings) or any(actual[k] != counts.get(k, 0) for k in actual)):
+            fail()
+        return {"rules_version": RULES_VERSION, "findings": findings, "total": total,
+                "by_severity": counts, "truncated": truncated}
+
     async def visual_diff(self, s, *, before_doc: dict, after_doc: dict,
                           node: str | None, mode: str | None, scale: float = 1,
                           tolerance: int = 0, max_bytes: int = 8 << 20) -> dict:

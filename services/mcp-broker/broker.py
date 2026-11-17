@@ -2426,7 +2426,7 @@ async def image_gen(action: str, prompt: str | None = None, model: str | None = 
 # for the artifacts reason: the author of every write is the forwarded bearer,
 # and the answer to `edit`/`snapshot` is PICTURES (`_with_pictures`).
 UI_DESIGNER_ACTIONS = ("list", "create", "get", "outline", "edit", "snapshot",
-                       "history", "restore", "place", "inspect", "comments", "export")
+                       "history", "restore", "place", "inspect", "comments", "export", "lint")
 _UI_DESIGNER = "/api/ui-designer"
 # Inside it the API commits first and renders under its own 15 s deadline.
 _UI_DESIGNER_TIMEOUT = 45
@@ -2512,7 +2512,8 @@ async def ui_designer(action: str, slug: str | None = None, title: str | None = 
                       comment_id: str | None = None, x: float | None = None,
                       y: float | None = None, parent_id: str | None = None,
                       from_version: int | None = None, to_version: int | None = None,
-                      name: str | None = None, format: str = "png", tolerance: int = 0):
+                      name: str | None = None, format: str = "png", tolerance: int = 0,
+                      severity: str | None = None, all_modes: bool = False):
     """Design documents: UI frames you edit as ops and look at as pictures.
     Actions: list · create · get · outline · edit · snapshot · history ·
     restore · place · inspect · comments · export. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
@@ -2571,7 +2572,8 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update cannot set id/type/children; a page only takes title.
-Other actions: inspect {node, mode?} (resolved box, colours, tokens, component of one node);
+Other actions: lint {version, node?, mode? OR all_modes:true, severity?:error|warning|info, limit<=100, after?:next_cursor}
+  (read-only findings; bounded pages; approximate contrast is advisory, not a compliance audit); inspect {node, mode?} (resolved box, colours, tokens, component of one node);
   comments {op: list|add|resolve, body, node?, x?, y?, parent_id?, comment_id?}; history
   {op: diff, from_version, to_version} (the writes between two versions), or
   {op: visual_diff, from_version, to_version, node?, mode?, scale?, tolerance?:0..255} (aligned heatmap + changed regions/node ids; explicit retained versions); export {node?, scale?, name?, format?: png|svg|pdf|html}
@@ -2639,6 +2641,22 @@ Example edit ops (new page: a frame, a text and a row of two cards):
                      annotate=annotate if snapshot else None)},
             timeout=_UI_DESIGNER_TIMEOUT)
         return _ud_write(out, "edited")
+    if action == "lint":
+        if version is None:
+            return "error: action='lint' requires an explicit retained version"
+        if severity is not None and severity not in ("error", "warning", "info"):
+            return "error: severity must be error|warning|info"
+        if all_modes and mode is not None:
+            return "error: choose mode or all_modes"
+        out = await _artifact_call("GET", f"{base}/lint", _given(
+            version=version, node=node, mode=mode, all_modes="true" if all_modes else "false",
+            severity=severity, limit=_clamp(limit, 100, 50), cursor=after), timeout=_UI_DESIGNER_TIMEOUT)
+        r = _artifact_rows(out)
+        if not isinstance(r, dict) or "findings" not in r:
+            return out
+        # The API already caps the complete page at 32KiB. Keep its structured
+        # cursor and caveats, rather than dropping precision from findings.
+        return _json.dumps(r, ensure_ascii=False, separators=(",", ":"))
     if action == "history" and op == "visual_diff":
         if from_version is None or to_version is None:
             return "error: history op='visual_diff' requires from_version and to_version"

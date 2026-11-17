@@ -1273,3 +1273,29 @@ visual layer with a client-only opacity control and explicit pinned versions.
 Scope changes cancel stale loads. No document mutation, new grants or database
 migration. Tests cover unchanged/moved/resized/text/transparent content, missing
 nodes, byte/pixel limits, asset scope, permissions and browser request races.
+
+## 22. Advisory design lint (P2.7 addendum)
+
+A read-only lint operation checks an explicit retained document version, with
+optional node, mode/all-modes and severity filters. Findings have stable codes,
+severity, node IDs, mode, message, suggested change and an approximation flag.
+The API validates renderer output, applies scoped pagination and returns compact
+pages; the broker exposes `lint` with the existing read/render grants. No new
+document properties, mutations, automatic fixes or database tables.
+
+The isolated renderer checks text overflow, ancestor clipping, four-pixel spacing,
+raw colours that match tokens and unused tokens. Contrast uses composited solid
+colours and the WCAG text thresholds: 4.5:1 for normal text and 3:1 at 24 CSS px,
+or at 18.667 CSS px with weight at least 700. Unknown backgrounds, gradients,
+images and complex overlap receive uncertainty notes rather than invented
+precision. Lint is advisory and cannot establish accessibility compliance.
+
+Cache successful analyses by canonical document/options and rules version in a
+32 MiB, eight-entry worker cache. Bound expanded nodes, modes and findings before pagination;
+opaque cursors bind to the version and filters. A caller cannot use a cursor to
+change scope. Existing document validation, access checks and work budgets remain.
+The Findings panel explicitly runs checks against the displayed version, lets
+users filter and page results, and selects reported nodes. Navigation/filter
+changes cancel obsolete results. Tests cover known positive and negative fixtures,
+contrast boundaries and alpha, uncertainty, budgets, cursor scope, permission
+fences, immutable versions and browser races. Legacy render goldens stay intact.
