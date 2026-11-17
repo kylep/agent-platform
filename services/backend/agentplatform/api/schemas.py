@@ -2279,3 +2279,17 @@ class UiTemplateSummary(BaseModel):
 
 class UiTemplatesOut(BaseModel):
     templates: list[UiTemplateSummary]
+
+
+class UiPlacedAsset(BaseModel):
+    sha256: str
+    mime: str
+    width: int | None = None
+    height: int | None = None
+
+
+class UiPlacedAssetsOut(BaseModel):
+    slug: str
+    version: int
+    assets: list[UiPlacedAsset]
+    next_cursor: str | None = None

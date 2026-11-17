@@ -46,7 +46,7 @@ from .schema import (BLEND_MODES, COLOR_RE, MAX_BACKDROPS, MAX_BLUR, MAX_BLURS, 
 from .text import layout_text, make_style
 
 # Bump with any change to what the painter emits; part of `renderer_version`.
-PAINTER_VERSION = 10
+PAINTER_VERSION = 11
 
 ANNOTATE_COLOR = "#ff2bd6"
 ANNOTATE_HALO = "#000000"
@@ -356,7 +356,7 @@ class _Painter:
         return head, "".join(parts), "</pattern>"
 
     def fill_layers(self, fill: Any, box: tuple[float, float, float, float], white: bool,
-                    geom: Callable[[str], str], shape_d: str | None, o: list[str]) -> None:
+                    geom: Callable[[str], str], shape_d: str | None, o: list[str], *, image_clip: str | None = None) -> None:
         """One element per paint (bottom to top). `geom(attrs)` builds the shape;
         an image paint is clipped to `shape_d` (None: the shape cannot hold one)."""
         paints = paints_of(fill)
@@ -366,8 +366,8 @@ class _Painter:
             return
         for p in paints:
             if isinstance(p, dict) and "image" in p:
-                if shape_d:
-                    self.image_fill(p, box, shape_d, o)
+                if shape_d or image_clip is not None:
+                    self.image_fill(p, box, shape_d or "", o, image_clip=image_clip)
             else:
                 o.append(geom(self.paint_attr("fill", p, box, False)))
 
@@ -579,7 +579,8 @@ class _Painter:
                              f'{self.paint_attr("fill", paints[0], box, white) if paints else " fill=\"none\""}'
                              f'{sattr}/>')
                 else:  # stacked paints: one path each, the stroke on its own path on top
-                    self.fill_layers(fill, box, white, lambda a: f'<path {tr}{a} stroke="none"/>', None, o)
+                    self.fill_layers(fill, box, white, lambda a: f'<path {tr}{a} stroke="none"/>', None, o,
+                                     image_clip=f'<path {tr} fill="#ffffff"/>')
                     if sattr:
                         o.append(f'<path {tr} fill="none"{sattr}/>')
         elif t == "image":
@@ -732,12 +733,13 @@ class _Painter:
         o.append(f'<g{clip}>{self.image_markup(x, y, w, h, info, fit)}</g>')
 
     def image_fill(self, p: dict, box: tuple[float, float, float, float], shape_d: str,
-                   o: list[str]) -> None:
+                   o: list[str], *, image_clip: str | None = None) -> None:
         """An image paint: the picture (cover by default) clipped to the shape."""
         x, y, w, h = box
         info = self.asset_info(p.get("image"))
         cid = self.uid("ic")
-        self.defs.append(f'<clipPath id="{cid}"><path d="{shape_d}"/></clipPath>')
+        clip_markup = image_clip if image_clip is not None else f'<path d="{shape_d}"/>'
+        self.defs.append(f'<clipPath id="{cid}">{clip_markup}</clipPath>')
         op = _num_prop(p["opacity"]) if "opacity" in p else 1.0
         fit = p.get("fit") if p.get("fit") in ("cover", "contain", "fill") else "cover"
         inner = (self.image_markup(x, y, w, h, info, fit) if info else

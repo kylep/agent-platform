@@ -391,6 +391,8 @@ from .ui_lint_finding import UiLintFinding
 from .ui_lint_finding_severity import UiLintFindingSeverity
 from .ui_lint_out import UiLintOut
 from .ui_lint_out_by_severity import UiLintOutBySeverity
+from .ui_placed_asset import UiPlacedAsset
+from .ui_placed_assets_out import UiPlacedAssetsOut
 from .ui_template_summary import UiTemplateSummary
 from .ui_templates_out import UiTemplatesOut
 from .ui_version_list import UiVersionList
@@ -816,6 +818,8 @@ __all__ = (
     "UiLintFindingSeverity",
     "UiLintOut",
     "UiLintOutBySeverity",
+    "UiPlacedAsset",
+    "UiPlacedAssetsOut",
     "UiTemplatesOut",
     "UiTemplateSummary",
     "UiVersionList",

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, apiErrorMessage } from "../api";
 import { prototypeFrames } from "../lib/prototype";
+import VectorTools from "../components/ui-designer/VectorTools";
 import LibrariesPanel from "../components/ui-designer/LibrariesPanel";
 import FindingsPanel from "../components/ui-designer/FindingsPanel";
 import CompareVersions from "../components/ui-designer/CompareVersions";
@@ -68,6 +69,7 @@ export default function UiDesignerDocument() {
   const [showFindings, setShowFindings] = useState(false);
   const [showLibraries, setShowLibraries] = useState(false);
   const [libraryLocked, setLibraryLocked] = useState(false);
+  const [vectorEpoch, setVectorEpoch] = useState(0);
   const base = `${UD}/${encodeURIComponent(slug)}`;
 
   const [canWrite, setCanWrite] = useState(false);
@@ -87,7 +89,7 @@ export default function UiDesignerDocument() {
   useEffect(() => {
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null); setComments([]);
-    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false); setHl(null); setErr("");
+    setDraft(""); setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false); setVectorEpoch(0); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -232,7 +234,7 @@ export default function UiDesignerDocument() {
       }} />}
       {editing.message && <p role="status">{editing.message}</p>}
       {editing.uncertain && <Button onClick={editing.retry} disabled={editing.busy}>Retry save</Button>}
-      {stale && <p role="status">The document changed. Your inspector draft is preserved. <Button onClick={() => { setStale(false); setInspection(null); }}>Discard draft and reload inspector</Button></p>}
+      {stale && <p role="status">The document changed. Your inspector draft is preserved. <Button onClick={() => { setStale(false); setInspection(null); setVectorEpoch((n) => n + 1); }}>Discard draft and reload inspector</Button></p>}
       {version && <p className="muted">Viewing a historical version. Return to Latest to edit.</p>}
       {err && <p role="alert" className="muted">Could not load: {err}</p>}
       <div className="ud-cols">
@@ -262,6 +264,9 @@ export default function UiDesignerDocument() {
         <aside className="ud-inspector" aria-label="Inspector">
           <h2>Inspector</h2>
           {picked && inspection?.id === picked.id ? <Inspector inspection={inspection} disabled={!editable} freePosition={freePosition} frames={resolved ? prototypeFrames(resolved) : []} onSave={(changes) => saveNode(inspection.id, changes)} /> : <p className="muted">{picked ? "Loading node…" : "Click a node."}</p>}
+          {page && (version ?? pinned) && <VectorTools key={`${base}:${vectorEpoch}`} base={base} version={(version ?? pinned)!} page={page} selected={picked} inspection={inspection} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || libraryLocked} onCommit={(ops, inverse) => {
+            if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !libraryLocked) editing.commit(ops, inverse);
+          }} onSelect={setSel} onUpdate={saveNode} />}
           <section className="ud-comments" aria-label="Comments">
             <h2>Comments</h2>
             <ul>

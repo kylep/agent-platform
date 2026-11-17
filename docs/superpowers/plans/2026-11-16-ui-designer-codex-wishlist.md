@@ -318,4 +318,17 @@ Fresh starting Codex weekly usage: 26% (74% left).
   unchanged. Backend 3,933 passed / 21 skipped; browser 438, renderer 81, broker
   470, facade 40 pass. Focused resize/schema/store checks also pass, including
   folded-history replay without rerunning resize math. Builds, Storybook, tokens,
+  SDK drift and Helm lint pass. Pushed `96764de`, deployed
+  `ud-layout-20261116` in Helm revision 159. Live browser resize/undo/redo, grid
+  placement and receipt replay passed at versions 2–6; smoke documents removed.
+  Fresh weekly quota: 40%. P2.11 vector editing is next.
+
+- **P2.11 Status:** implemented native union/subtract/intersect/exclude in the
+  isolated renderer, a pen/point/cubic editor with raw SVG fallback, and image
+  fills clipped to paths. Exact undo, original-input receipts, concurrent CAS,
+  strict new path edits and legacy restore compatibility are covered. Visual
+  sample reviewed; old SVG/PNG goldens unchanged. Backend full run: 3,955 passed /
+  21 skipped, plus the former image-path rejection test updated for this feature;
+  final effects/API checks: 42 passed. Browser 446, renderer 105 plus 26 final
+  focused geometry checks, broker 470, facade 40 pass. Builds, Storybook, tokens,
   SDK drift and Helm lint pass. Live deployment acceptance pending.

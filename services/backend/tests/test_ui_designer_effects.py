@@ -265,6 +265,10 @@ def test_stepped_gradient_budget_and_cache_in_painter():
         svg.paint(layout_document(d, "dark"), "root")
 
 
-def test_image_fill_on_path_is_rejected():
+def test_image_fill_on_path_requires_a_placed_asset():
     n = {"id": "pa", "type": "path", "d": "M0 0L5 5", "fill": {"image": "c" * 64}}
-    assert "UD-VALUE" in issues_at(n)
+    assert not issues_at(n)
+    validate_document(doc_of([n]), known_assets={"c" * 64})
+    with pytest.raises(UiDesignerError) as caught:
+        validate_document(doc_of([n]), known_assets=set())
+    assert caught.value.code == "UD-ASSET-UNKNOWN"

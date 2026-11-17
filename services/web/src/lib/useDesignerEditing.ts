@@ -10,6 +10,14 @@ function requestId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function writeFailure(error: unknown) {
+  if (error instanceof Error) {
+    const body = /^\d+: ([\s\S]*)$/.exec(error.message);
+    if (body) try { const detail = JSON.parse(body[1]).detail; if (detail && typeof detail === "object" && typeof detail.message === "string") return detail.message; } catch { /* plain error */ }
+  }
+  return apiErrorMessage(error, "Could not save changes.");
+}
+
 /** Single-writer local history. Every transition is still guarded by server CAS. */
 export function useDesignerEditing(base: string, onRefresh: (version?: number, external?: boolean) => void, scope = base) {
   const generation = useRef(0);
@@ -44,8 +52,9 @@ export function useDesignerEditing(base: string, onRefresh: (version?: number, e
       }) });
       if (session !== generation.current) return;
       head.current = result.version;
-      if (payload.kind !== "undo" && payload.ops.some((op) => op.op === "resize") && result.undo_ops) payload.entry.inverse = result.undo_ops;
-      if (payload.kind === "edit") { history.current.undo.push(payload.entry); history.current.redo = []; }
+      if (payload.kind !== "undo" && result.undo_ops) payload.entry.inverse = result.undo_ops;
+      if (payload.kind === "edit" && !payload.entry.inverse.length) { history.current = { undo: [], redo: [] }; setMessage("Saved, but undo data was not returned. History was cleared."); }
+      else if (payload.kind === "edit") { history.current.undo.push(payload.entry); history.current.redo = []; }
       else if (payload.kind === "undo") { history.current.undo.pop(); history.current.redo.push(payload.entry); }
       else { history.current.redo.pop(); history.current.undo.push(payload.entry); }
       pending.current = null; setUncertain(false);
@@ -63,7 +72,7 @@ export function useDesignerEditing(base: string, onRefresh: (version?: number, e
         pending.current = null; const newer = events.current.filter((v) => v > (head.current ?? 0)); events.current = []; setUncertain(false);
         if (e instanceof Error && e.message.startsWith("409:")) { head.current = null; reset("Another edit arrived first. Reloaded the latest version; undo history was cleared."); onRefresh(undefined, true); }
         else if (newer.length) { reset(); head.current = Math.max(...newer); onRefresh(head.current, true); }
-        else setMessage(apiErrorMessage(e, "Could not save changes."));
+        else setMessage(writeFailure(e));
       }
     } finally { if (session === generation.current) setBusy(false); }
   }

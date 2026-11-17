@@ -16,12 +16,14 @@ COPY services/backend/agentplatform/ui_designer/__init__.py \
      services/backend/agentplatform/ui_designer/visual_diff.py \
      services/backend/agentplatform/ui_designer/lint.py \
      services/backend/agentplatform/ui_designer/libraries.py \
+     services/backend/agentplatform/ui_designer/vector_geometry.py \
      services/backend/agentplatform/ui_designer/layout.py \
      services/backend/agentplatform/ui_designer/text.py \
      services/backend/agentplatform/ui_designer/fonts.py \
      services/backend/agentplatform/ui_designer/svg.py \
      agentplatform/ui_designer/
 COPY services/backend/agentplatform/ui_designer/fonts agentplatform/ui_designer/fonts
+COPY services/backend/agentplatform/ui_designer/licenses agentplatform/ui_designer/licenses
 COPY services/ui-renderer/app.py .
 # resvg reads only the asset cache; the cache dir is a pod emptyDir.
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UI_RENDERER_ASSET_DIR=/var/cache/ui-renderer/assets

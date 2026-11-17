@@ -717,10 +717,10 @@ def _node(c: _Ctx, n: Any, path: str, depth: int, scope: str, root_key: str | No
         if k in PROP_CHECKS and k in allowed:
             PROP_CHECKS[k](c, v, join_path(path, k))
     _check_bounds(c, n, path)
-    if t not in ("frame", "rect", "ellipse") and any(
+    if t not in ("frame", "rect", "ellipse", "path") and any(
             isinstance(x, dict) and "image" in x for x in paints_of(n.get("fill"))):
         c.add("UD-VALUE", join_path(path, "fill"),
-              f"image fills go on frame, rect or ellipse nodes, not {t}",
+              f"image fills go on frame, rect, ellipse or path nodes, not {t}",
               fix="Use an `image` node for a picture inside a path or text.")
     if t == "instance":
         if "of" not in n:

@@ -11,7 +11,7 @@ from typing import Any, Callable, Sequence
 
 from agentplatform.ui_designer.errors import (UD_VERSION_CONFLICT, Issue,
                                               UiDesignerError, invalid, issue, join_path)
-from agentplatform.ui_designer.schema import (NodeRef, assign_ids, index_nodes, iter_token_refs, lint,
+from agentplatform.ui_designer.schema import (ID_RE, NodeRef, assign_ids, index_nodes, iter_token_refs, lint,
                                               normalize_document, subtree_ids, validate_document)
 
 MAX_OPS = 500
@@ -22,6 +22,7 @@ OP_FIELDS: dict[str, tuple[set[str], set[str]]] = {  # op -> (required, optional
     "insert": ({"parent", "node"}, {"index"}),
     "update": ({"id", "set"}, set()),
     "resize": ({"id", "set"}, set()),
+    "boolean": ({"kind", "ids"}, set()),
     "remove": ({"ids"}, set()),
     "move": ({"id", "parent"}, {"index"}),
     "replace": ({"id", "node"}, set()),
@@ -79,6 +80,7 @@ def apply_ops(doc: dict, ops: Any, *, version: int, expected_version: int | None
     work = copy.deepcopy(doc)
     captured = {}
     for i, op in enumerate(ops):
+        _validate_explicit_paths(op)
         work = _apply_one(
             work, op, join_path("$.ops", i), captured if resizing else None
         )
@@ -90,6 +92,34 @@ def apply_ops(doc: dict, ops: Any, *, version: int, expected_version: int | None
         warnings=lint(work),
         undo_ops=captured.get("undo"),
     )
+
+
+def _validate_explicit_paths(op: Any) -> None:
+    """Strictly check newly authored path data without revalidating legacy restores."""
+    if not isinstance(op, dict):
+        return
+    from .vector_geometry import validate_path
+
+    def fields(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        if "d" in node and node["d"] is not None:
+            validate_path(node["d"])
+        overrides = node.get("overrides")
+        if isinstance(overrides, dict):
+            for key, value in overrides.items():
+                if value is not None and isinstance(key, str) and (key == "d" or key.endswith(".d")):
+                    validate_path(value)
+
+    if op.get("op") in ("insert", "replace"):
+        def subtree(node: Any) -> None:
+            fields(node)
+            if isinstance(node, dict) and isinstance(node.get("children"), list):
+                for child in node["children"]:
+                    subtree(child)
+        subtree(op.get("node"))
+    elif op.get("op") == "update":
+        fields(op.get("set"))
 
 
 def _fail(code: str, path: str, message: str, value: Any = None) -> UiDesignerError:
@@ -114,6 +144,8 @@ def _apply_one(doc: dict, op: Any, path: str, resize_capture: dict | None = None
         raise invalid(problems)
     if name == "resize":
         return _resize(doc, op, path, resize_capture)
+    if name == "boolean":
+        raise _fail("UD-OP-FIELD", path, "boolean geometry must be prepared by the edit API renderer worker")
     return _OPS[name](doc, op, path)
 
 
@@ -266,6 +298,70 @@ def _resize(doc: dict, op: dict, path: str, captured: dict | None) -> dict:
     if captured is not None:
         captured.update(forward=forward, undo=inverse)
     return doc
+
+
+def prepare_boolean(doc: dict, op: dict) -> dict:
+    """Validate an ordered authored selection and exact inverse before native work."""
+    from .constraints import effective_size
+    path = "$.ops[0]"
+    if not isinstance(op, dict) or set(op) != {"op", "kind", "ids"} or op.get("op") != "boolean":
+        raise _fail("UD-OP-FIELD", path, "boolean is {op, kind, ids}")
+    if op["kind"] not in ("union", "subtract", "intersect", "exclude"):
+        raise _fail("UD-VALUE", path + ".kind", "kind must be union, subtract, intersect or exclude")
+    ids = op["ids"]
+    if not (isinstance(ids, list) and 2 <= len(ids) <= 8 and all(isinstance(value, str) and ID_RE.fullmatch(value) for value in ids)
+            and len(set(ids)) == len(ids)):
+        raise _fail("UD-LIMIT", path + ".ids", "choose 2 to 8 distinct authored siblings in operation order")
+    refs = [_target(doc, value, path + ".ids", ("node",)) for value in ids]
+    first = refs[0]
+    if any(ref.parent != first.parent or ref.siblings is not first.siblings for ref in refs):
+        raise _fail("UD-OP-TARGET", path, "boolean operands must share one authored sibling list")
+    container = _target(doc, first.parent, path, ("page", "node", "component")).node
+    if container.get("layout") and not all(ref.node.get("absolute") is True for ref in refs):
+        raise _fail("UD-VALUE", path, "auto-layout operands must all be absolute; otherwise use free-positioned siblings")
+    if container.get("mask") and container.get("children") and container["children"][0]["id"] in ids:
+        raise _fail("UD-VALUE", path, "the first mask child cannot be a boolean operand")
+    if isinstance(first.node.get("stroke"), dict) and "sides" in first.node["stroke"]:
+        raise _fail("UD-VALUE", path, "convert the first operand's per-side stroke to a uniform width before boolean editing")
+    operands = []
+    for ref in refs:
+        node = ref.node
+        if node.get("type") not in ("path", "rect", "ellipse"):
+            raise _fail("UD-VALUE", path, "boolean operands must be paths, rectangles or ellipses")
+        for key in ("x", "y", "w", "h", "rotate", "radius", "min_w", "max_w", "min_h", "max_h"):
+            values = node.get(key)
+            values = values if isinstance(values, list) else [values]
+            if any(isinstance(value, str) for value in values if value is not None):
+                raise _fail("UD-VALUE", path, "boolean geometry must use fixed numeric values, not token or intrinsic geometry")
+        width, height = effective_size(node)
+        empty_path = node["type"] == "path" and not node.get("d")
+        if width is None or height is None or width < 0 or height < 0 or (not empty_path and (width == 0 or height == 0)):
+            raise _fail("UD-VALUE", path, "boolean operands need fixed positive dimensions (empty paths may be zero-sized)")
+        operand = {"type": node["type"], "x": node.get("x", 0), "y": node.get("y", 0),
+                   "w": width, "h": height}
+        for key in ("rotate", "radius", "d"):
+            if key in node:
+                operand[key] = copy.deepcopy(node[key])
+        operands.append(operand)
+    indices = {node["id"]: index for index, node in enumerate(first.siblings)}
+    undo = [{"op": "replace", "id": ids[0], "node": copy.deepcopy(first.node)}]
+    undo.extend({"op": "insert", "parent": first.parent, "node": copy.deepcopy(ref.node), "index": indices[ref.node["id"]]}
+                for ref in sorted(refs[1:], key=lambda ref: indices[ref.node["id"]]))
+    if len(json.dumps(undo, ensure_ascii=False, separators=(",", ":")).encode()) > MAX_RESIZE_UNDO_BYTES:
+        raise _fail("UD-LIMIT", path, "boolean exact undo exceeds the 8192-byte budget; simplify the selection")
+    if len(json.dumps(operands, separators=(",", ":")).encode()) > 64 << 10:
+        raise _fail("UD-LIMIT", path, "boolean geometry input exceeds 65536 bytes")
+    return {"operands": operands, "undo_ops": undo, "first": copy.deepcopy(first.node), "ids": ids}
+
+
+def boolean_literal_ops(prepared: dict, geometry: dict) -> list[dict]:
+    """Geometry is worker output; history always contains ordinary literal ops."""
+    first = copy.deepcopy(prepared["first"])
+    for key in ("rotate", "radius", "min_w", "max_w", "min_h", "max_h"):
+        first.pop(key, None)
+    first.update(type="path", x=geometry["x"], y=geometry["y"], w=geometry["w"], h=geometry["h"], d=geometry["d"])
+    return [{"op": "replace", "id": first["id"], "node": first},
+            {"op": "remove", "ids": prepared["ids"][1:]}]
 
 
 def _remove(doc: dict, op: dict, path: str) -> dict:

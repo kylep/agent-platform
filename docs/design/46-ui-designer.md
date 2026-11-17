@@ -1423,3 +1423,44 @@ original resize request, while undo uses the returned inverse. Existing uncertai
 save retry and CAS conflict behavior remain in force. No new grants or external
 references are introduced. Verification covers grid flow, fill/hug limits,
 instance isolation, exact undo/replay and unchanged legacy render goldens.
+
+## 27. Vector editing and path image fills (P2.11)
+
+A sole edit operation `{op:"boolean", kind:"union"|"subtract"|"intersect"|"exclude",
+ids:[...]}` combines 2–8 ordered authored path/rect/ellipse siblings. The first
+operand supplies the retained ID, style and sibling position; subtraction uses
+that operand as the minuend. Operations use filled contours, not expanded stroke
+outlines. Inputs must have unambiguous numeric geometry in one parent coordinate
+system, outside auto-layout flow (or all absolute), and cannot include a mask
+node or expanded instance descendants. Authored siblings inside a component are
+allowed; final validation still protects component bindings and other references.
+Own rotations are baked into geometry; common ancestor transforms remain intact.
+The resulting path replaces geometry and removes obsolete rotate/radius/min/max
+fields. An empty result is a valid empty path.
+
+The renderer's existing isolated worker runs pinned `skia-pathops 0.9.2`, with
+strict SVG lexical coverage before the existing FontTools path parser. Geometry
+work is bounded to 64 KiB input, 2,048 segments and 32 KiB result data, in addition
+to worker CPU/memory/deadline controls. The API retains authorization, source
+selection, style and mutation policy. Original request inputs identify the receipt
+before geometry work; committing the planned literal edits still uses CAS.
+Forward history is literal, and exact undo operations fit the existing 128-op /
+8 KiB inverse and 16 KiB receipt budgets before any write. A retry never recomputes
+an already committed Boolean operation.
+
+The inspector adds a bounded M/L/C/Z pen and point/control-handle editor with
+keyboard coordinate fields and raw SVG data fallback. Unsupported imported path
+syntax remains unchanged until an explicit edit/reset. Local SVG coordinates
+preserve node placement/transforms. New paths use the ordinary insert workflow;
+Boolean edits use the server inverse, while redo keeps the original request.
+Historical views and uncertain saves retain the same write guards.
+
+Path image fills reuse existing paint/fit/opacity, asset placement authorization,
+and document asset budgets. The painter clips the image to the translated path.
+A bounded document-scoped placed-asset metadata list supplies the image selector;
+it does not add an upload or arbitrary URL input. Export and mask behavior must
+match the normal painter. Tests cover holes, transforms, malformed/oversized
+paths, exact replay/undo, sibling order, safe image clipping and legacy goldens.
+
+Geometry sources: [Skia PathOps bindings](https://github.com/fonttools/skia-pathops)
+(BSD-3-Clause) and [FontTools path parser](https://fonttools.readthedocs.io/en/latest/svgLib/path/).

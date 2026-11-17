@@ -52,7 +52,11 @@ export type UiEvent = { type: string; slug: string; version?: number; author?: s
 export const opSummary = (o: Record<string, unknown>) =>
   [o.op, o.id ?? o.node ?? o.parent].filter(Boolean).join(" ");
 
-export type UiEditOp = { op: "update" | "resize"; id: string; set: Record<string, unknown> };
+export type UiEditOp = { op: "update" | "resize"; id: string; set: Record<string, unknown> }
+  | { op: "insert"; parent: string; node: Record<string, unknown>; index?: number }
+  | { op: "remove"; ids: string[] }
+  | { op: "replace"; id: string; node: Record<string, unknown> }
+  | { op: "boolean"; kind: "union" | "subtract" | "intersect" | "exclude"; ids: string[] };
 export type UiWriteResult = { version: number; replayed?: boolean; undo_ops?: UiEditOp[]; warnings?: Record<string, unknown>[] };
 export type UiInspection = { version: number; id: string; type?: string; authored: Record<string, unknown> | null; text?: string; warnings?: Record<string, unknown>[] };
 

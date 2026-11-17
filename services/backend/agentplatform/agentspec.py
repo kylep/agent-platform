@@ -179,7 +179,7 @@ UI_DESIGNER_CHEATSHEET = r"""Document schema (closed: unknown keys are rejected;
     fill = paint or a LIST of paints stacked bottom to top (max 8). paint = "#rrggbb"|"$color.name"
     |{color, opacity?}|{gradient: linear|radial|angular|diamond, stops: [[0-1,color],..], angle?,
     opacity?}|{image: sha256 from `place`, fit?, opacity?}. angular/diamond are stepped
-    approximations (angle 0 = up, clockwise). Image paints: frame/rect/ellipse only.
+    approximations (angle 0 = up, clockwise). Image paints: frame/rect/ellipse/path only.
     stroke = {color, width?, align?: inside|center|outside, dash?: [n,..], cap?: butt|round|square,
     join?: miter|round|bevel, sides?: n|[t,r,b,l] per-side widths (frame/rect, inside)};
     radius = n or [tl,tr,br,bl].
@@ -208,12 +208,12 @@ Ops (one batch applies atomically; each op is an object with "op"):
   insert {parent: page|frame id,node,index?}  update {id,set:{prop:value|null}}  resize {id,set} (sole op; dimension/bound edits apply pins).
   remove {ids: [id]}                               move {id, parent, index?}
   replace {id, node}                               set_text {id, text}
-  tokens {set: {color: {name: value|null}}}  (merges; null deletes)
-  define_component {id: new component id, from: node id}
+  tokens {set:{color:{name:value|null}}} (merges; null deletes); define_component {id:new component id,from:node id}.
+  boolean {kind:union|subtract|intersect|exclude,ids:[2..8 ordered siblings]} (sole op; filled contours, not stroke outlines; first ID/style retained).
   component_sets {set:{id:whole-definition|null}} (replaces each definition; null removes)
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
-  update is literal and cannot set id/type/children; a page only takes title. resize returns exact literal undo_ops (128 ops/8KiB max); redo the original resize.
+  update is literal and cannot set id/type/children; a page only takes title. resize/boolean return exact literal undo_ops (128 ops/8KiB max); redo the original request.
 Other actions: templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes need expected_version+request_id and exact-input retries. Pins render offline; preview catches conflicts; UUID updates never follow reused slugs; node="$libraries" pages provenance.

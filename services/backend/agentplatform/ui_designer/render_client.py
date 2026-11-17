@@ -319,6 +319,34 @@ class RenderClient:
             return Exported(data, format, EXPORT_MIMES[format], width, height, box, warnings)
         raise UiDesignerError(UD_RENDER_FAILED, "renderer still lacks export assets after upload")
 
+    async def boolean_geometry(self, kind: str, operands: list[dict]) -> dict:
+        """Native Skia runs only in the renderer's resource-bounded worker."""
+        from .vector_geometry import validate_operands, validate_path
+        validate_operands(operands,kind)
+        status,body=await self._call('POST','/boolean',json={'kind':kind,'operands':operands})
+        if status!=200 or not isinstance(body,dict): _raise(status,body)
+        geometry=body.get('geometry')
+        if body.get('ok') is not True or body.get('renderer_version')!=renderer_version() or not isinstance(geometry,dict) or set(geometry)!={'x','y','w','h','d','empty'}:
+            raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean capability mismatch')
+        if not all(isinstance(geometry.get(key),(int,float)) and not isinstance(geometry[key],bool) and
+                   math.isfinite(geometry[key]) and abs(geometry[key])<=100_000 for key in ('x','y','w','h')):
+            raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean returned invalid bounds')
+        empty=geometry.get('empty');d=geometry.get('d')
+        try: encoded=d.encode() if isinstance(d,str) else b''
+        except UnicodeError as error:
+            raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean returned invalid UTF-8') from error
+        if not isinstance(empty,bool) or not isinstance(d,str) or len(encoded)>32<<10 or (
+                empty and (d!='' or geometry['w']!=0 or geometry['h']!=0)) or (
+                not empty and (not d or geometry['w']<=0 or geometry['h']<=0)):
+            raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean returned invalid geometry')
+        try: validate_path(d,max_segments=4096)
+        except UiDesignerError as error:
+            raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean returned malformed path') from error
+        warnings=body.get('warnings',[])
+        if not isinstance(warnings,list) or len(warnings)>32 or any(not isinstance(w,str) or len(w.encode())>500 for w in warnings):
+            raise UiDesignerError(UD_RENDER_FAILED,'renderer boolean warnings exceed bounds')
+        return body
+
     async def svg(self, *, doc: dict, mode: str | None, node: str | None = None, annotate: bool = False,
                   asset_prefix: str = "/api/ui-designer/assets/", assets: dict | None = None) -> dict:
         """The server's own SVG for the web: {svg, box, warnings, renderer_version}. `assets`

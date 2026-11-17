@@ -651,25 +651,67 @@ async def edit_ui_document(slug: str, body: S.UiDocEditIn, request: Request,
     await refuse_runless_snapshot(request, caller, body.snapshot)
     nodes = _snapshot_nodes(request, body.snapshot, body.scale)
     run_id = await caller_run_id(request, caller)
-    await _check_write_budget(request, caller)
-    if nodes:
-        _check_pixel_budget(request, caller)
-    async with request.app.state.session_factory() as s:
-        try:
-            res = await store.edit_document(
-                s, slug, ops=body.ops, expected_version=body.expected_version,
-                author=caller.participant, run_id=run_id, reason=body.reason,
-                request_id=body.request_id, scope=_scope(caller, run_id),
-                wants_snapshot=bool(nodes), caps=caps(request))
-        except UiDesignerError as e:
-            raise ud_http(e)
-        await s.commit()
+    if any(op.get("op") == "boolean" for op in body.ops):
+        if len(body.ops) != 1:
+            raise ud_http(invalid([issue("UD-LIMIT", "$.ops", "boolean must be the only op in its edit batch")]))
+        res = await _edit_boolean(slug, body, request, caller, run_id, bool(nodes))
+    else:
+        await _check_write_budget(request, caller)
+        if nodes:
+            _check_pixel_budget(request, caller)
+        async with request.app.state.session_factory() as s:
+            try:
+                res = await store.edit_document(
+                    s, slug, ops=body.ops, expected_version=body.expected_version,
+                    author=caller.participant, run_id=run_id, reason=body.reason,
+                    request_id=body.request_id, scope=_scope(caller, run_id),
+                    wants_snapshot=bool(nodes), caps=caps(request))
+            except UiDesignerError as e:
+                raise ud_http(e)
+            await s.commit()
     out = _write_out(res, slug)
     if not res.get("replayed"):
         await _emit(request, caller, "version", slug, res["version"], run_id)
     if nodes and not res.get("replayed"):
         await _attach_snapshots(request, caller, out, slug, res["doc"], nodes, body)
     return out
+
+
+async def _edit_boolean(slug: str, body: S.UiDocEditIn, request: Request, caller: Caller,
+                         run_id: str | None, wants_snapshot: bool) -> dict:
+    from agentplatform.ui_designer.ops import apply_ops, prepare_boolean, boolean_literal_ops
+    op = "edit-boolean"
+    stable_args = {"ops": body.ops}
+    scope = _scope(caller, run_id)
+    fingerprint = store.edit_fingerprint(op=op, slug=slug, ops=None,
+        expected_version=body.expected_version, reason=body.reason, stable_args=stable_args)
+    async with request.app.state.session_factory() as s:
+        try:
+            # Original recipe receipts are resolved before loading operands or native work.
+            if body.request_id:
+                prior = await store._receipt_lookup(s, scope, body.request_id, op, fingerprint)
+                if prior is not None:
+                    await store.get_document(s, slug)  # still require a live authorized destination
+                    return prior
+            await _check_write_budget(request, caller)
+            if wants_snapshot:
+                _check_pixel_budget(request, caller)
+            view = await store.get_document(s, slug)
+            if view["version"] != body.expected_version:
+                apply_ops(view["doc"], [], version=view["version"], expected_version=body.expected_version,
+                          ops_since=await store.chunks_after(s, view["id"], body.expected_version))
+            prepared = prepare_boolean(view["doc"], body.ops[0])
+            result = await _renderer(request).boolean_geometry(body.ops[0]["kind"], prepared["operands"])
+            literal = boolean_literal_ops(prepared, result["geometry"])
+            res = await store.edit_document(s, slug, ops=literal, expected_version=body.expected_version,
+                author=caller.participant, run_id=run_id, reason=body.reason, request_id=body.request_id,
+                scope=scope, wants_snapshot=wants_snapshot, caps=caps(request), op=op,
+                _stable_args=stable_args, _undo_ops=prepared["undo_ops"],
+                _extra_warnings=[{"code": "UD-WARN-BOOLEAN", "message": warning} for warning in result.get("warnings", [])])
+            await s.commit()
+            return res
+        except UiDesignerError as error:
+            raise ud_http(error)
 
 
 async def _attach_snapshots(request: Request, caller: Caller, out: S.UiDocWriteOut, slug: str,
@@ -1370,6 +1412,29 @@ async def ui_document_resolved(slug: str, request: Request, mode: str | None = N
     except UiDesignerError as e:
         raise ud_http(e)
     return JSONResponse(tree, headers=headers)
+
+
+@router.get(PREFIX + "/docs/{slug}/assets", response_model=S.UiPlacedAssetsOut)
+async def list_ui_placed_assets(slug: str, request: Request,
+                                version: int | None = Query(None, ge=1),
+                                limit: int = Query(50, ge=1, le=100),
+                                cursor: str | None = Query(None, pattern=r"^[0-9a-f]{64}$"),
+                                caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """Document placements, including unused ones, never another upload/authorization door."""
+    from agentplatform.db import UiDesignerDocumentAsset
+    view, _, _ = await _doc_at(request, caller, slug, version)
+    async with request.app.state.session_factory() as s:
+        query = select(UiDesignerAsset.sha256, UiDesignerAsset.mime, UiDesignerAsset.width, UiDesignerAsset.height).join(
+            UiDesignerDocumentAsset, UiDesignerDocumentAsset.sha256 == UiDesignerAsset.sha256).where(
+            UiDesignerDocumentAsset.document_id == view["id"])
+        if cursor is not None:
+            query = query.where(UiDesignerAsset.sha256 > cursor)
+        rows = (await s.execute(query.order_by(UiDesignerAsset.sha256).limit(limit + 1))).all()
+    more = len(rows) > limit
+    rows = rows[:limit]
+    assets = [{"sha256": row.sha256, "mime": row.mime, "width": row.width, "height": row.height} for row in rows]
+    return S.UiPlacedAssetsOut(slug=slug, version=view["at_version"], assets=assets,
+                              next_cursor=rows[-1].sha256 if more else None)
 
 
 @router.get(PREFIX + "/assets/{sha256}", response_class=Response)

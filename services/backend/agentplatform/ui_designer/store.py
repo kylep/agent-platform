@@ -415,8 +415,8 @@ def edit_fingerprint(*, op: str, slug: str, ops: Any, expected_version: Any,
                      reason: str, stable_args: dict | None = None) -> str:
     """Library receipts bind caller inputs, before any source lookup or planning."""
     if stable_args is not None:
-        if op not in ("library-import", "library-apply"):
-            raise ValueError("stable input fingerprints are only for library mutations")
+        if op not in ("library-import", "library-apply", "edit-boolean"):
+            raise ValueError("stable input fingerprints are only for library mutations or edit-boolean")
         return args_hash(op=op, slug=slug, expected_version=expected_version,
                          reason=reason, stable_args=stable_args)
     return args_hash(op=op, slug=slug, ops=ops, expected_version=expected_version, reason=reason)
@@ -426,7 +426,8 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
                         run_id: str | None = None, reason: str = "", request_id: str | None = None,
                         scope: str | None = None, wants_snapshot: bool = False, op: str = "edit",
                         fold: bool = True, caps: Caps = Caps(), now: datetime | None = None,
-                        _stable_args: dict | None = None) -> dict:
+                        _stable_args: dict | None = None, _undo_ops: list[dict] | None = None,
+                        _extra_warnings: list[dict] | None = None) -> dict:
     """One accepted write = one version number. Returns `{version, warnings,
     doc, replayed}`; a repeat of `(scope, request_id)` with the same args
     answers from the receipt (text only) and writes nothing."""
@@ -439,11 +440,27 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
         if prior is not None:
             return prior
     row = await _live(s, slug, lock=True)
+    if scope:
+        # Another identical request may have committed while this one waited
+        # for the document lock. Re-read before deciding that its CAS is stale.
+        prior = await _receipt_lookup(s, scope, request_id, op, h)
+        if prior is not None:
+            return prior
     since = await chunks_after(s, row.id, expected_version) if (
         isinstance(expected_version, int) and not isinstance(expected_version, bool)
         and expected_version != row.version and 0 <= expected_version < row.version) else []
     res = apply_ops(row.doc, ops, version=row.version, expected_version=expected_version,
                     ops_since=since, known_assets=await placed_assets(s, row.id))
+    if _extra_warnings is not None:
+        if op != "edit-boolean":
+            raise ValueError("external warnings are only for prepared boolean edits")
+        res.warnings.extend(copy.deepcopy(_extra_warnings))
+    if _undo_ops is not None:
+        if op != "edit-boolean" or not isinstance(_undo_ops, list):
+            raise ValueError("external inverse ops are only for prepared boolean edits")
+        if len(_undo_ops) > 128 or len(_canon(_undo_ops)) > 8 << 10:
+            raise invalid([issue("UD-LIMIT", "$.ops", "boolean exact undo exceeds 128 ops or 8192 bytes")])
+        res.undo_ops = copy.deepcopy(_undo_ops)
     new = res.doc
     shas = {a for _, a in image_assets(new)}
     if shas:
@@ -461,7 +478,7 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
         try:
             _check_receipt_response(receipt)
         except ValueError as error:
-            raise invalid([issue("UD-LIMIT", "$.ops", "resize undo and warnings exceed the 16384-byte receipt budget")]) from error
+            raise invalid([issue("UD-LIMIT", "$.ops", "edit undo and warnings exceed the 16384-byte receipt budget")]) from error
     chunk = {"version": n, "ops": res.ops, "reason": reason, "at": _iso(now)}
     latest = (await s.execute(select(UiDesignerVersion).where(
         UiDesignerVersion.document_id == row.id, UiDesignerVersion.version == row.version))).scalars().first()

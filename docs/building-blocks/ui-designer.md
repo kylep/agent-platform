@@ -267,3 +267,28 @@ Agents can use `{op:"resize", id:"frame", set:{w:480}}` as the only operation in
 an edit batch. It returns exact `undo_ops`, including dependent child geometry;
 apply those literal operations to undo. A normal `update` changes only the named
 fields. The same request ID replays the saved result, including its undo data.
+
+### Paths and Boolean operations
+
+Use **New path** to draw in the selected frame or current page. Click to add line
+or cubic segments, drag anchors/control handles, or edit their coordinates. Arrow
+keys move a focused handle by one unit; Shift moves it by ten. **Save path** makes
+one undoable edit. Existing path placement and rotation stay intact when editing
+its points. The visual editor supports M/L/C/Z; other SVG commands remain in the
+raw data editor until you explicitly reset the draft.
+
+Select 2–8 sibling rectangles, ellipses or paths in order, then apply Union,
+Subtract, Intersect or Exclude. The first shape keeps its ID and style. Subtract
+cuts the later shapes out of the first. These operations combine filled contours;
+they do not expand strokes. Shapes must have fixed numeric geometry and be outside
+auto-layout flow (or all absolute). Geometry is baked into one native path.
+
+Agents use one edit operation, `{op:"boolean",kind:"subtract",ids:["base","cut"]}`,
+with an expected version and request ID. Apply the returned literal `undo_ops` to
+restore the original shapes; redo the original request with a new version and ID.
+Saved request IDs replay their original result without recomputing geometry.
+
+Paths can use images already placed in the document. **Load placed images** shows
+the available choices; **Apply image fill** replaces the path's fill paints while
+preserving other properties. The image is clipped to the path. Image placement
+permissions and the existing asset budgets still apply.

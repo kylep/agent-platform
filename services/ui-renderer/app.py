@@ -343,6 +343,12 @@ def job_lint(cfg: Config, req: dict) -> dict:
     return result
 
 
+def job_boolean(cfg: Config, req: dict) -> dict:
+    from agentplatform.ui_designer.vector_geometry import boolean_geometry
+    from agentplatform.ui_designer.svg import renderer_version
+    return {'ok':True, 'renderer_version':renderer_version(), **boolean_geometry(req['operands'],req['kind'])}
+
+
 def _slim(n: dict) -> dict:
     out = {k: v for k, v in n.items() if k not in ("children", "text")}
     if isinstance(n.get("text"), dict):
@@ -364,7 +370,7 @@ def job_resolved(cfg: Config, req: dict) -> dict:
                                            for pg in r["pages"]]}}
 
 
-JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff, "lint": job_lint}
+JOBS = {"asset": job_asset, "render": job_render, "svg": job_svg, "resolved": job_resolved, "export": job_export, "diff": job_diff, "lint": job_lint, "boolean": job_boolean}
 
 
 def _run_job(cfg: Config, kind: str, req: dict) -> dict:
@@ -556,6 +562,18 @@ def _render_req(body: Any) -> dict:
     return req
 
 
+def _boolean_req(body: Any) -> dict:
+    if not isinstance(body,dict) or set(body) != {'kind','operands'}:
+        raise BadRequest('boolean accepts only kind and operands')
+    from agentplatform.ui_designer.vector_geometry import validate_operands
+    from agentplatform.ui_designer.errors import UiDesignerError
+    try:
+        validate_operands(body['operands'],body['kind'])
+    except UiDesignerError as error:
+        raise BadRequest(str(error)) from None
+    return body
+
+
 def _lint_req(body: Any) -> dict:
     req = _common(body)
     if set(body) - {'doc','node','mode'}:
@@ -688,6 +706,9 @@ def create_app(cfg: Config | None = None) -> web.Application:
     async def lint_(r: web.Request) -> web.Response:
         return await _post(r, "lint", _lint_req)
     app.router.add_post("/lint", lint_)
+    async def boolean(r: web.Request) -> web.Response:
+        return await _post(r, "boolean", _boolean_req)
+    app.router.add_post("/boolean", boolean)
     return app
 
 
