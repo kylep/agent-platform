@@ -24,6 +24,8 @@ class UiDocCreateIn:
         doc (None | UiDocCreateInDocType0 | Unset):
         reason (str | Unset):  Default: ''.
         request_id (None | str | Unset):
+        template_id (None | str | Unset):
+        template_revision (int | None | Unset):
         title (str | Unset):  Default: ''.
     """
 
@@ -32,6 +34,8 @@ class UiDocCreateIn:
     doc: None | UiDocCreateInDocType0 | Unset = UNSET
     reason: str | Unset = ""
     request_id: None | str | Unset = UNSET
+    template_id: None | str | Unset = UNSET
+    template_revision: int | None | Unset = UNSET
     title: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -58,6 +62,18 @@ class UiDocCreateIn:
         else:
             request_id = self.request_id
 
+        template_id: None | str | Unset
+        if isinstance(self.template_id, Unset):
+            template_id = UNSET
+        else:
+            template_id = self.template_id
+
+        template_revision: int | None | Unset
+        if isinstance(self.template_revision, Unset):
+            template_revision = UNSET
+        else:
+            template_revision = self.template_revision
+
         title = self.title
 
         field_dict: dict[str, Any] = {}
@@ -75,6 +91,10 @@ class UiDocCreateIn:
             field_dict["reason"] = reason
         if request_id is not UNSET:
             field_dict["request_id"] = request_id
+        if template_id is not UNSET:
+            field_dict["template_id"] = template_id
+        if template_revision is not UNSET:
+            field_dict["template_revision"] = template_revision
         if title is not UNSET:
             field_dict["title"] = title
 
@@ -117,6 +137,24 @@ class UiDocCreateIn:
 
         request_id = _parse_request_id(d.pop("request_id", UNSET))
 
+        def _parse_template_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        template_id = _parse_template_id(d.pop("template_id", UNSET))
+
+        def _parse_template_revision(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        template_revision = _parse_template_revision(d.pop("template_revision", UNSET))
+
         title = d.pop("title", UNSET)
 
         ui_doc_create_in = cls(
@@ -125,6 +163,8 @@ class UiDocCreateIn:
             doc=doc,
             reason=reason,
             request_id=request_id,
+            template_id=template_id,
+            template_revision=template_revision,
             title=title,
         )
 

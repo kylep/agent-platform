@@ -1065,6 +1065,7 @@ function wikiWrite(path: string, method: string, body: Record<string, unknown>):
 }
 
 const FIXTURES: Record<string, unknown> = {
+  "/api/ui-designer/templates": { templates: [] },
   "/api/setup-state": { needs_admin: false, secrets },
   // Every page now passes through Gate's /api/me; the default caller is the
   // admin. accounts.spec.ts layers `mockAccounts` over this for the rest.

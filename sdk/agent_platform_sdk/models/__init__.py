@@ -389,6 +389,8 @@ from .ui_lint_finding import UiLintFinding
 from .ui_lint_finding_severity import UiLintFindingSeverity
 from .ui_lint_out import UiLintOut
 from .ui_lint_out_by_severity import UiLintOutBySeverity
+from .ui_template_summary import UiTemplateSummary
+from .ui_templates_out import UiTemplatesOut
 from .ui_version_list import UiVersionList
 from .ui_version_row import UiVersionRow
 from .ui_visual_diff_in import UiVisualDiffIn
@@ -810,6 +812,8 @@ __all__ = (
     "UiLintFindingSeverity",
     "UiLintOut",
     "UiLintOutBySeverity",
+    "UiTemplatesOut",
+    "UiTemplateSummary",
     "UiVersionList",
     "UiVersionRow",
     "UiVisualDiffIn",

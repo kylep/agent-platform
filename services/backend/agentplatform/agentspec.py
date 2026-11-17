@@ -213,7 +213,7 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update cannot set id/type/children; a page only takes title.
-Other actions: library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+Other actions: templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes require expected_version+request_id, retry exact same inputs after uncertain saves.
   Pins copy dependencies/assets and render offline; preview detects local conflicts; updates never follow reused slugs. Read provenance with node="$libraries" and after cursor.

@@ -256,3 +256,13 @@ def test_library_actions_use_small_specs_and_receipt_inputs(api):
     assert api[-1]==('GET',f'{DOCS}/hud/libraries',{'version':2},None)
     assert 'expected_version and request_id' in ud(action='library',op='import',slug='hud',library=spec)
     assert 'library_id must' in ud(action='library',op='preview',slug='hud',library={'library_id':'../../secret','source_version':3})
+
+
+def test_templates_catalogue_and_explicit_create_receipt(api):
+    ud(action='templates')
+    assert api[-1]==('GET','/api/ui-designer/templates',None,None)
+    ud(action='create',slug='starter',template={'id':'desk-buddy','revision':1},request_id='template-one')
+    assert api[-1]==('POST',DOCS,None,{'slug':'starter','title':'','request_id':'template-one',
+        'template_id':'desk-buddy','template_revision':1})
+    assert 'request_id' in ud(action='create',slug='starter',template={'id':'desk-buddy','revision':1})
+    assert 'choose doc or template' in ud(action='create',slug='starter',template={'id':'desk-buddy'})

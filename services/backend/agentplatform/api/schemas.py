@@ -1905,6 +1905,20 @@ class UiDocCreateIn(BaseModel):
     reason: str = ""
     request_id: str | None = Field(default=None, max_length=128)
 
+    template_id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    template_revision: int | None = Field(default=None, ge=1, strict=True)
+
+    @model_validator(mode="after")
+    def _template_selection(self):
+        if self.template_id is not None:
+            if self.doc is not None:
+                raise ValueError("choose a template or an explicit document")
+            if self.template_revision is None or not self.request_id:
+                raise ValueError("template creates require an explicit template_revision and request_id")
+        elif self.template_revision is not None:
+            raise ValueError("template_revision requires template_id")
+        return self
+
 
 class UiDocPlaceIn(BaseModel):
     artifact_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -2248,3 +2262,18 @@ class UiLibraryPreviewOut(BaseModel):
 
 class UiLibraryWriteOut(UiDocWriteOut):
     library_id: str
+
+
+class UiTemplateSummary(BaseModel):
+    id: str
+    revision: int
+    title: str
+    description: str
+    width: int
+    height: int
+    tags: list[str]
+    preview_node: str
+
+
+class UiTemplatesOut(BaseModel):
+    templates: list[UiTemplateSummary]

@@ -2426,7 +2426,7 @@ async def image_gen(action: str, prompt: str | None = None, model: str | None = 
 # for the artifacts reason: the author of every write is the forwarded bearer,
 # and the answer to `edit`/`snapshot` is PICTURES (`_with_pictures`).
 UI_DESIGNER_ACTIONS = ("list", "create", "get", "outline", "edit", "snapshot",
-                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library")
+                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library", "templates")
 _UI_DESIGNER = "/api/ui-designer"
 # Inside it the API commits first and renders under its own 15 s deadline.
 _UI_DESIGNER_TIMEOUT = 45
@@ -2513,7 +2513,7 @@ async def ui_designer(action: str, slug: str | None = None, title: str | None = 
                       y: float | None = None, parent_id: str | None = None,
                       from_version: int | None = None, to_version: int | None = None,
                       name: str | None = None, format: str = "png", tolerance: int = 0,
-                      severity: str | None = None, all_modes: bool = False, library: dict | None = None):
+                      severity: str | None = None, all_modes: bool = False, library: dict | None = None, template: dict | None = None):
     """Design documents: UI frames you edit as ops and look at as pictures.
     Actions: list · create · get · outline · edit · snapshot · history ·
     restore · place · inspect · comments · export. Loop: `outline` (cheap map, ids and sizes) -> `edit` with a
@@ -2572,7 +2572,7 @@ Ops (one batch applies atomically; each op is an object with "op"):
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update cannot set id/type/children; a page only takes title.
-Other actions: library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
+Other actions: templates lists immutable starters; create accepts template:{id,revision} instead of doc (request_id required). library {op:list|import|preview|apply, library?:spec, expected_version?, request_id?}.
   import spec={source_id:document UUID,source_version,namespace(1-16 chars),components:[],component_sets:[],tokens:["color.name"]}; resolve UUID with get first.
   preview/apply spec={library_id:namespace,source_version}; writes require expected_version+request_id, retry exact same inputs after uncertain saves.
   Pins copy dependencies/assets and render offline; preview detects local conflicts; updates never follow reused slugs. Read provenance with node="$libraries" and after cursor.
@@ -2587,6 +2587,8 @@ Example edit ops (new page: a frame, a text and a row of two cards):
   [{"op":"set_doc","doc":{"schema":1,"title":"Demo","tokens":{"color":{"bg":"#0f172a","card":"#1e293b","ink":"#f8fafc"}},"pages":[{"id":"home","title":"Home","children":[{"id":"root","type":"frame","w":800,"h":400,"fill":"$color.bg","layout":{"dir":"column","gap":16,"pad":24},"children":[{"id":"hello","type":"text","text":"Hello","style":{"size":28,"weight":700},"color":"$color.ink"},{"id":"cards","type":"frame","w":"fill","h":"hug","layout":{"dir":"row","gap":16},"children":[{"id":"card-1","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12},{"id":"card-2","type":"frame","w":160,"h":120,"fill":"$color.card","radius":12}]}]}]}]}}]"""
     if action not in UI_DESIGNER_ACTIONS:
         return "error: action must be one of " + "|".join(UI_DESIGNER_ACTIONS)
+    if action == "templates":
+        return await _artifact_call("GET", f"{_UI_DESIGNER}/templates", timeout=_UI_DESIGNER_TIMEOUT)
     if action == "list":
         out = await _artifact_call("GET", f"{_UI_DESIGNER}/docs", {
             "q": q or None, "limit": _clamp(limit, 200, 50)}, timeout=_UI_DESIGNER_TIMEOUT)
@@ -2606,11 +2608,17 @@ Example edit ops (new page: a frame, a text and a row of two cards):
         return f"error: action='{action}' requires slug (lowercase letters, digits, - and _)"
     base = f"{_UI_DESIGNER}/docs/{slug}"
     if action == "create":
-        if not (title or "").strip():
+        if template is not None:
+            if doc is not None or not isinstance(template, dict) or set(template) != {"id", "revision"}:
+                return "error: choose doc or template={id, revision}"
+            if not request_id:
+                return "error: template creates require request_id"
+        elif not (title or "").strip():
             return "error: action='create' requires title"
         out = await _artifact_call("POST", f"{_UI_DESIGNER}/docs", json={
-            "slug": slug, "title": title.strip(),
-            **_given(doc=doc, reason=reason, request_id=request_id)},
+            "slug": slug, "title": (title or "").strip(),
+            **_given(doc=doc, reason=reason, request_id=request_id),
+            **({"template_id": template["id"], "template_revision": template["revision"]} if template is not None else {})},
             timeout=_UI_DESIGNER_TIMEOUT)
         return _ud_write(out, "created")
     if action == "get":

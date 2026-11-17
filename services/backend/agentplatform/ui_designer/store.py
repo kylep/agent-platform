@@ -218,16 +218,27 @@ async def get_receipt(s, scope: str, request_id: str) -> dict | None:
 
 # --- documents --------------------------------------------------------------
 
+def create_fingerprint(*, slug: str, title: str, description: str, doc: dict | None,
+                       template: dict | None = None) -> str:
+    if template is not None:
+        if (set(template) != {"id", "revision"} or not isinstance(template["id"], str)
+                or not isinstance(template["revision"], int) or isinstance(template["revision"], bool)
+                or template["revision"] < 1):
+            raise ValueError("template fingerprints require an explicit immutable id and revision")
+        return args_hash(op="create", slug=slug, title=title, description=description, template=template)
+    return args_hash(op="create", slug=slug, title=title, description=description, doc=doc)
+
+
 async def create_document(s, *, slug: str, title: str = "", owner: str, author: str | None = None,
                           run_id: str | None = None, doc: dict | None = None, description: str = "",
                           reason: str = "", caps: Caps = Caps(), request_id: str | None = None,
                           scope: str | None = None, now: datetime | None = None,
                           imported_assets: set[str] | None = None,
-                          import_id: str | None = None) -> dict:
+                          import_id: str | None = None, _template: dict | None = None) -> dict:
     now = now or utcnow()
     author = author or owner
     scope = _scope(scope, run_id, request_id)
-    h = args_hash(op="create", slug=slug, title=title, description=description, doc=doc)
+    h = create_fingerprint(slug=slug, title=title, description=description, doc=doc, template=_template)
     if scope:
         prior = await _receipt_lookup(s, scope, request_id, "create", h)
         if prior is not None:

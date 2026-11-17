@@ -222,3 +222,15 @@ Agents use `library` with `op: list|import|preview|apply`. Import accepts a
 Writes require `expected_version` and `request_id`; update operations identify
 the library namespace and a newer source version. Use `get node="$libraries"`
 with its returned cursor to read provenance that exceeds a normal text page.
+
+### Starter templates
+
+Create a document from a desk-buddy, phone, desktop or game HUD starter on the
+UI Designer list page. The picker shows canvas dimensions and a short description.
+Starters include editable content, tokens and reusable components; they become
+ordinary independent documents after creation.
+
+Agents can discover the catalog with `templates`, then create with a `template`
+object containing its `id` and `revision`, plus the usual slug and request ID.
+An optional title overrides the starter title. Retry uncertain creates with the
+same request ID and inputs. Templates need no external assets or font downloads.

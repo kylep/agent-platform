@@ -285,5 +285,17 @@ Fresh starting Codex weekly usage: 26% (74% left).
   broker/catalog checks pass. Browser 422 passed, followed by 8 final focused
   library checks; renderer 77, broker 469, facade 40 pass. PostgreSQL CI checks
   20 passed; the final deterministic GC/copy regression also passed separately.
-  Builds, Storybook, tokens, SDK drift and Helm lint pass. Deployment acceptance
-  pending. P2.9 is designed; implementation remains unopened.
+  Builds, Storybook, tokens, SDK drift and Helm lint pass. Pushed `a0d89d4`,
+  deployed `ud-library-20261116` in Helm revision 156. Live import v2 and browser
+  preview/apply v4 passed; receipt replay and consumer rendering still worked
+  after source deletion. Smoke documents were removed. Fresh weekly quota: 34%.
+  P2.9 implementation is underway.
+
+- **P2.9 Status:** implemented four editable starter scenes, catalog discovery,
+  version-pinned template creation and the browser creation form. Backend 3,842
+  passed / 21 skipped, plus 10 focused API checks including real catalog creation;
+  browser 432, broker 470, facade 40 pass. All four scenes validate and render in
+  light/dark with no overflow/contrast warnings; 15 focused scene checks pass.
+  Previews reviewed. Web/Storybook/token checks, SDK drift and Helm lint pass.
+  Deployment acceptance pending. P2.10 is planned as two complete deployments:
+  typography first, then grid/min-max/resize constraints and wrap controls.

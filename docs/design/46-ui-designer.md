@@ -1347,3 +1347,26 @@ recheck/delete statement. This matters under PostgreSQL READ COMMITTED: a delete
 that starts before a copy commits can otherwise retain an older placement snapshot
 while waiting for the asset lock. A real PostgreSQL concurrency regression covers
 the cleanup/copy interleaving in addition to ordinary library asset tests.
+
+## 24. Starter templates (P2.9 addendum)
+
+Bundle four useful starter scenes as ordinary schema-1 documents: 480×320 desk
+buddy, 390×844 phone, 1440×900 desktop and 1920×1080 persona-game HUD. Each
+uses existing nodes, reusable components, light/dark tokens and bundled fonts.
+No external assets, new node properties, database seeds or renderer changes.
+A bounded catalog exposes IDs, revision, title, description and canvas dimensions.
+
+Creation extends the existing document route with an explicit template ID and
+revision, mutually exclusive with an authored `doc`. Clone the immutable template
+into the new document, use its title unless one is supplied, and validate through
+normal document/storage rules. Writes retain create grants, run fences and quotas.
+Template creates require a request ID; receipt fingerprints bind original caller
+inputs before catalog lookup so retries remain stable across template releases.
+Existing blank and explicit-document creation semantics remain unchanged.
+
+The list page offers a compact picker and normal slug/title fields, with template
+dimensions visible before creation. Retain the exact request on uncertain saves
+and offer retry. The broker exposes catalog discovery and template creation.
+Tests cover all generated documents in both modes, layout/render quality, catalog
+bounds, invalid ID/revision combinations, permissions, receipt replay and browser
+creation. Existing rendering goldens remain unchanged.

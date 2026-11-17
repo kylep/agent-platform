@@ -256,7 +256,7 @@ export default function UiDesignerDocument() {
                           highlight={hl} rev={rev} editable={editable} busy={editing.busy || editing.uncertain}
                           selectedAuthored={inspection?.id === picked?.id ? inspection?.authored : null} freePosition={freePosition}
                           ancestorsRotated={parents.some((p) => !!p.rotate)} onCommit={saveNode} />
-            : !err && <p className="muted">Loading...</p>}
+            : !err && <p className="muted">{resolved ? "This document has no pages yet." : "Loading..."}</p>}
         </div>
         <aside className="ud-inspector" aria-label="Inspector">
           <h2>Inspector</h2>

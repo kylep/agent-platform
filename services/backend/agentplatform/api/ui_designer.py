@@ -529,17 +529,44 @@ async def list_ui_documents(request: Request, q: str | None = Query(None, max_le
     return S.UiDocList(docs=rows, next_before=rows[-1]["slug"] if more and rows else None)
 
 
+@router.get(PREFIX + "/templates", response_model=S.UiTemplatesOut)
+async def list_ui_templates(request: Request,
+                             caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """Immutable, asset-free starter documents; creating one is an ordinary write."""
+    from agentplatform.ui_designer.templates import list_templates
+    return S.UiTemplatesOut(templates=list_templates())
+
+
 @router.post(PREFIX + "/docs", response_model=S.UiDocWriteOut)
 async def create_ui_document(body: S.UiDocCreateIn, request: Request,
                              caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
     run_id = await caller_run_id(request, caller)
-    await _check_write_budget(request, caller)
+    template = ({"id": body.template_id, "revision": body.template_revision}
+                if body.template_id is not None else None)
+    if template is None:
+        await _check_write_budget(request, caller)
     async with request.app.state.session_factory() as s:
         try:
+            doc = body.doc
+            if template is not None:
+                # Bind original inputs before asking today's catalogue for bytes.
+                # A successful retry remains valid after a template is retired.
+                fingerprint = store.create_fingerprint(slug=body.slug, title=body.title,
+                    description=body.description, doc=None, template=template)
+                prior = await store._receipt_lookup(s, _scope(caller, run_id), body.request_id,
+                                                     "create", fingerprint)
+                if prior is not None:
+                    return _write_out(prior, body.slug)
+                await _check_write_budget(request, caller)
+                from agentplatform.ui_designer.templates import get_template
+                doc = get_template(body.template_id, body.template_revision)
+                if body.title:
+                    doc["title"] = body.title
             out = await store.create_document(
                 s, slug=body.slug, title=body.title, owner=caller.participant, author=caller.participant,
-                run_id=run_id, doc=body.doc, description=body.description, reason=body.reason,
-                caps=caps(request), request_id=body.request_id, scope=_scope(caller, run_id))
+                run_id=run_id, doc=doc, description=body.description, reason=body.reason,
+                caps=caps(request), request_id=body.request_id, scope=_scope(caller, run_id),
+                _template=template)
         except UiDesignerError as e:
             raise ud_http(e)
         await s.commit()

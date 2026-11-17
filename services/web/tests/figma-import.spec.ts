@@ -13,10 +13,11 @@ test("admin starts import, sees progress and resumes after reload", async ({ pag
   });
   await page.route("**/api/ui-designer/imports/import-1", (r) => r.fulfill({ json: { ...job, state, pages: { "1:1": { state: state === "done" ? "done" : "pending" } }, report: state === "done" ? { pages_imported: 1, failed_pages: [], options: { title: "PRIVATE OPTIONS" }, notification_pending: true, next_attempt_at: "PRIVATE RETRY", references: [{ node_id: "1:2", artifact_id: "ref-artifact" }] } : null } }));
   await page.goto("/ui-designer");
-  await page.getByLabel("Figma file URL or key").fill("https://www.figma.com/design/ABC123/Desk?node-id=1-1");
-  await page.getByLabel("Document slug").fill("desk-buddy");
-  await page.getByLabel("Title (optional)").fill("Desk Buddy");
-  await page.getByLabel("Page IDs").fill("1:1, 2:1");
+  const form = page.getByRole("region", { name: "Import from Figma", exact: true });
+  await form.getByLabel("Figma file URL or key").fill("https://www.figma.com/design/ABC123/Desk?node-id=1-1");
+  await form.getByLabel("Document slug").fill("desk-buddy");
+  await form.getByLabel("Title (optional)").fill("Desk Buddy");
+  await form.getByLabel("Page IDs").fill("1:1, 2:1");
   await page.getByRole("button", { name: "Import from Figma", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Import in progress" })).toBeVisible();
   await page.reload();

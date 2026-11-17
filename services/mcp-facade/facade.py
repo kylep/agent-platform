@@ -21,7 +21,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   agent run), and memory's history and restore, persona commitments and
   dreams (design 44), memory guards (ENG-13), rapid-chats (design 45) and the UI
   Designer's text routes (design 46: list, create, get, outline, edit, history,
-  restore). Always tools. 184 of them.
+  restore). Always tools. 185 of them.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
@@ -36,7 +36,7 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
 - **EXCLUDE** — UI form-feeders, private-key import inspection, reviewer digests the client can compute,
   git-edit conveniences redundant with having the repo, and system-agent
   endpoints. Never tools. 21 curated-out, plus 104 session/internal/streaming/
-  byte-serving/connector/run-only operations below — 367 graded operations in all.
+  byte-serving/connector/run-only operations below — 368 graded operations in all.
 
 It is deliberately NOT the mcp-broker. The broker authenticates in-cluster run
 identities and scopes tools to an agent's grants (design/13, design/15). This
