@@ -71,8 +71,12 @@ read-only. Text never leaves the document as `<text>`.
 from __future__ import annotations
 
 import math
+from copy import copy, deepcopy
+from functools import lru_cache
 from typing import Any
 
+from .components import resolve_instance
+from .constraints import has_pins, prepare_instance_resize
 from .errors import UD_EXPANSION, UiDesignerError, join_path
 from .fonts import face_by_key
 from .schema import (MAX_EXPANDED_NODES, MAX_INSTANCE_DEPTH, REF_RE, SCHEMA_VERSION, lint,
@@ -93,12 +97,13 @@ _LEAF = ("rect", "ellipse", "line", "path", "image")
 
 _NOSTYLE: dict = {}
 _STYLE_SET = frozenset(_STYLE_KEYS)
+_SIZE_LIMITS = frozenset(("min_w", "max_w", "min_h", "max_h"))
 _RESOLVABLE = (str, dict, list)
 
 
 class Item:
     __slots__ = ("id", "type", "w", "h", "x", "y", "absolute", "rotate", "visible", "title", "of",
-                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to", "typography", "grid", "limits", "motion_key")
+                 "kids", "layout", "style", "text", "parent", "idx", "base", "cache", "link_to", "typography", "grid", "limits", "motion_key", "template_id", "mutable_style")
     # class-level defaults would clash with __slots__, so they are set in __init__
     def __init__(self):
         self.w = self.h = self.x = self.y = self.title = self.of = self.layout = self.text = None
@@ -115,6 +120,8 @@ class Item:
         self.typography = {}
         self.grid = self.limits = None
         self.motion_key = None
+        self.template_id = None
+        self.mutable_style = False
 
 
 class _Plan:
@@ -138,6 +145,10 @@ class _Builder:
         self.styles: dict[str, Style] = {}
         self.count = 0
         self.text_cache: dict[int, tuple] = {}
+        self.component_paths: dict[str, str] = {}
+        self.component_pins: dict[str, bool] = {}
+        # One prototype and its descendant count per plain authored component.
+        self.templates: dict[str, tuple[Item, int]] = {}
 
     # tokens
     def ref(self, v: str) -> Any:
@@ -179,9 +190,32 @@ class _Builder:
         t = node.get("type")
         of = None
         child_prefix = prefix
+        template_key = None
         if t == "instance":
             of = node.get("of")
-            from .components import resolve_instance
+            # Only authored placements can share a prototype. Nested instances
+            # expand normally, so emission only rebases one prefix per branch.
+            if (
+                not prefix and depth == 0 and node.keys() == {"id", "type", "of"}
+                and self.comps.get(of, {}).get("type") == "frame"
+            ):
+                template_key = of
+                cached = self.templates.get(template_key)
+                if cached is not None:
+                    template, descendants = cached
+                    self.count += descendants
+                    if self.count > MAX_EXPANDED_NODES:
+                        raise UiDesignerError(UD_EXPANSION, f"more than {MAX_EXPANDED_NODES} expanded nodes",
+                                              detail={"reason": "nodes", "limit": MAX_EXPANDED_NODES})
+                    # Descendants and constraint-keyed plans are already independent
+                    # of the placement. Keep a distinct root for IDs and ownership.
+                    root = copy(template)
+                    root.template_id = template.id
+                    root.id = prefix + local
+                    root.parent = parent
+                    root.idx = idx
+                    return root
+                start_count = self.count
             effective_of, comp = resolve_instance(self.doc, node)
             if depth + 1 > MAX_INSTANCE_DEPTH:
                 raise UiDesignerError(UD_EXPANSION, f"instance nesting deeper than {MAX_INSTANCE_DEPTH} "
@@ -203,15 +237,23 @@ class _Builder:
                     merged[prop] = val
             # Pins adapt a copy, never the shared component definition. Geometry
             # overrides on descendants are reapplied by build() afterwards.
-            from .constraints import prepare_instance_resize
-            adapted = prepare_instance_resize(comp, merged, self.rv)
-            if adapted is not comp and "children" in adapted:
-                merged["children"] = adapted["children"]
+            # Bound component-set properties can change the expanded tree, so
+            # only an unchanged authored definition can share a pin scan.
+            pinned = True
+            if self.comps.get(effective_of) is comp:
+                pinned = self._component_has_pins(effective_of, comp)
+            if effective_of in self.comps:
+                base = self.component_paths.get(effective_of)
+                if base is None:
+                    base = self.component_paths[effective_of] = join_path("$.components", effective_of)
+            if pinned:
+                adapted = prepare_instance_resize(comp, merged, self.rv)
+                if adapted is not comp and "children" in adapted:
+                    merged["children"] = adapted["children"]
             merged["id"] = local
             if "title" in node:
                 merged["title"] = node["title"]
             child_prefix = prefix + local + "/"
-            base = join_path("$.components", effective_of) if effective_of in self.comps else base
             node = merged
             shared = False
             t = node.get("type")
@@ -231,11 +273,15 @@ class _Builder:
         rv = self.rv
         lay = kids = None
         style = _NOSTYLE
+        has_limits = False
         for k, v in node.items():
             if k in _STYLE_SET:
                 if style is _NOSTYLE:
                     style = {}
-                style[k] = rv(v) if v.__class__ in _RESOLVABLE else v
+                resolved = rv(v) if v.__class__ in _RESOLVABLE else v
+                style[k] = resolved
+                if type(resolved) in (dict, list):
+                    it.mutable_style = True
             elif k == "w":
                 it.w = _spec(rv(v))
             elif k == "h":
@@ -264,8 +310,10 @@ class _Builder:
                 lay = v
             elif k == "children":
                 kids = v
+            elif k in _SIZE_LIMITS:
+                has_limits = True
         it.style = style
-        if any(key in node for key in ("min_w", "max_w", "min_h", "max_h")):
+        if has_limits:
             it.limits = (float(node.get("min_w", 0)), float(node.get("max_w", INF)),
                          float(node.get("min_h", 0)), float(node.get("max_h", INF)))
             if isinstance(it.w, float): it.w = min(it.limits[1], max(it.limits[0], it.w))
@@ -303,7 +351,24 @@ class _Builder:
                 it.text = hit[1]
             else:
                 it.text = self._text(node)
+        if template_key is not None:
+            self.templates[template_key] = it, self.count - start_count
         return it
+
+    def _component_has_pins(self, component_id: str, root: dict) -> bool:
+        """Scan each unchanged component definition once per layout."""
+        cached = self.component_pins.get(component_id)
+        if cached is not None:
+            return cached
+        pending = [root]
+        while pending:
+            container = pending.pop()
+            if has_pins(container):
+                self.component_pins[component_id] = True
+                return True
+            pending.extend(container.get("children", ()))
+        self.component_pins[component_id] = False
+        return False
 
     def _style(self, spec: Any, base: Style | None) -> Style:
         if spec.__class__ is str and spec[:1] == "$" and base is None:
@@ -360,6 +425,12 @@ def _known(spec: Any, mn: float, mx: float) -> float | None:
 _EMPTY = _Plan(0.0, 0.0)
 
 
+@lru_cache(maxsize=4096)
+def _fixed_leaf_plan(w: float, h: float) -> _Plan:
+    # Callers with size limits must get a fresh plan because they adjust it.
+    return _Plan(w, h)
+
+
 def _measure(it: Item, cons: tuple) -> _Plan:
     cache = it.cache
     if cache is not None:
@@ -397,6 +468,8 @@ def _measure_raw(it: Item, cons: tuple) -> _Plan:
     if it.type == "frame":
         if it.grid is not None: return _measure_grid(it, cons)
         return _measure_flow(it, cons) if it.layout is not None else _measure_free(it, cons)
+    if it.limits is None and type(it.w) is float and type(it.h) is float:
+        return _fixed_leaf_plan(it.w, it.h)
     minw, maxw, minh, maxh = cons
     w, h = _known(it.w, minw, maxw), _known(it.h, minh, maxh)
     return _Plan(minw if w is None else w, minh if h is None else h)
@@ -526,7 +599,6 @@ def _measure_flow(it: Item, cons: tuple) -> _Plan:
             absolute.append(i)
         else:
             flow.append(i)
-    kids_main = kids_cross = None
     sizes: dict[int, _Plan] = {}
 
     def cross_cons(c: Item) -> tuple[float, float]:
@@ -537,7 +609,6 @@ def _measure_flow(it: Item, cons: tuple) -> _Plan:
 
     main_definite = main_known is not None and not wrap
     fills: list[int] = []
-    fixed_main = 0.0
     deferred_cross: list[int] = []
     for i in flow:
         c = it.kids[i]
@@ -563,11 +634,12 @@ def _measure_flow(it: Item, cons: tuple) -> _Plan:
             sizes[i] = _measure(c, mk(0.0, INF, cross_now, cross_now))
         else:
             sizes[i] = _measure(c, mk(0.0, INF, 0.0, inner_cross))
-    for i in sizes:
-        fixed_main += sizes[i].w if row else sizes[i].h
     n_flow = len(flow)
     gaps = gap * max(0, n_flow - 1)
     if fills:
+        fixed_main = 0.0
+        for p in sizes.values():
+            fixed_main += p.w if row else p.h
         share = max(0.0, (inner_main - fixed_main - gaps) / len(fills)) if inner_main != INF else 0.0
         for i in fills:
             c = it.kids[i]
@@ -607,7 +679,7 @@ def _measure_flow(it: Item, cons: tuple) -> _Plan:
     in_cross = max(0.0, outer_cross - cross_pad)
     multi = len(lines) > 1
 
-    placed: dict[int, tuple[float, float, _Plan]] = {}
+    placed: dict[int, tuple[Item, float, float, _Plan]] = {}
     cpos = 0.0
     for li, ln in enumerate(lines):
         lc = line_cross[li] if multi else in_cross
@@ -640,9 +712,9 @@ def _measure_flow(it: Item, cons: tuple) -> _Plan:
                 off = 0.0
             m = p.w if row else p.h
             if row:
-                placed[i] = (pl + pos, pt + cpos + off, p)
+                placed[i] = (c, pl + pos, pt + cpos + off, p)
             else:
-                placed[i] = (pl + cpos + off, pt + pos, p)
+                placed[i] = (c, pl + cpos + off, pt + pos, p)
             pos += m + gap + extra
         cpos += lc + gap
 
@@ -651,17 +723,15 @@ def _measure_flow(it: Item, cons: tuple) -> _Plan:
     for i in absolute:
         c = it.kids[i]
         p = _measure(c, (ow if c.w == "fill" else 0.0, ow, oh if c.h == "fill" else 0.0, oh))
-        placed[i] = (c.x or 0.0, c.y or 0.0, p)
+        placed[i] = (c, c.x or 0.0, c.y or 0.0, p)
 
-    kids = []
-    for i, c in enumerate(it.kids):
-        hit = placed.get(i)
-        kids.append((c, hit[0], hit[1], hit[2]) if hit else (c, 0.0, 0.0, _EMPTY))
+    kids = [placed.get(i) or (c, 0.0, 0.0, _EMPTY) for i, c in enumerate(it.kids)]
     return _Plan(ow, oh, kids)
 
 
 # --- emit ------------------------------------------------------------------
 
+@lru_cache(maxsize=4096)
 def _r(v: float) -> float:
     v = round(v, 3)
     return 0.0 if v == 0 else v
@@ -786,28 +856,32 @@ class _Emit:
         self.warnings: list[dict] = []
         self.used: dict[str, set[int]] = {}
         self.run_cache: dict = {}
+        self.contrast_cache: dict[tuple, float | None] = {}
         self.keep: list = []
         self.nodes = 0
 
-    def warn(self, code: str, it: Item, message: str) -> None:
-        w = {"code": code, "path": _path(it), "message": message, "id": it.id}
+    def warn(self, code: str, it: Item, expanded_id: str, message: str) -> None:
+        w = {"code": code, "path": _path(it), "message": message, "id": expanded_id}
         if self.mode is not None:
             w["mode"] = self.mode
         self.warnings.append(w)
 
-    def node(self, it: Item, plan: _Plan, x: float, y: float, m, bg) -> dict:
+    def node(self, it: Item, plan: _Plan, x: float, y: float, m, bg,
+             rebase: tuple[int, str] | None = None) -> dict:
         self.nodes += 1
         w, h = plan.w, plan.h
-        d: dict[str, Any] = {"id": it.id, "type": it.type, "x": round(x, 3) + 0.0, "y": round(y, 3) + 0.0,
-                             "w": round(w, 3) + 0.0, "h": round(h, 3) + 0.0}
+        expanded_id = it.id if rebase is None else rebase[1] + it.id[rebase[0]:]
+        d: dict[str, Any] = {"id": expanded_id, "type": it.type, "x": round(x, 3) + 0.0, "y": round(y, 3) + 0.0,
+                             "w": _r(w), "h": _r(h)}
         if it.of is not None:
             d["of"] = it.of
         if it.title:
             d["title"] = it.title
         if it.motion_key is not None:
             d["motion_key"] = it.motion_key
+        reused = rebase is not None or it.template_id is not None
         if it.link_to is not None:
-            d["link_to"] = it.link_to
+            d["link_to"] = it.link_to.copy() if reused else it.link_to
         if not it.visible:
             d["visible"] = False
             return d
@@ -817,22 +891,24 @@ class _Emit:
             m = _rotate(m, x + w / 2, y + h / 2, rot)
         if m is not None:
             d["bounds"] = _bounds(m, x, y, w, h)
-        d.update(it.style)
+        d.update(deepcopy(it.style) if reused and it.mutable_style else it.style)
         fill = it.style.get("fill")
         if fill is not None:
             nb = _fill_color(fill, bg)
             if nb is not None:
                 bg = nb
         if it.type == "text":
-            self._text(it, plan, d, x, y, bg)
+            self._text(it, plan, d, x, y, bg, expanded_id)
         elif plan.kids:
+            if it.template_id is not None:
+                rebase = (len(it.template_id) + 1, expanded_id + "/")
             kids = []
             for c, dx, dy, p in plan.kids:
-                kids.append(self.node(c, p, x + dx, y + dy, m, bg))
+                kids.append(self.node(c, p, x + dx, y + dy, m, bg, rebase))
             d["children"] = kids
         return d
 
-    def _text(self, it: Item, plan: _Plan, d: dict, x: float, y: float, bg) -> None:
+    def _text(self, it: Item, plan: _Plan, d: dict, x: float, y: float, bg, expanded_id: str) -> None:
         runs, colors, align, _ml, _c = it.text
         tl = plan.tl
         decoration = it.typography.get("decoration", "none")
@@ -868,24 +944,29 @@ class _Emit:
             if value != default:
                 d["text"][field] = value
         if tl.h > plan.h + 0.5 or tl.w > plan.w + 0.5:
-            self.warn("UD-WARN-TEXT-OVERFLOW", it,
-                      f"text {it.id!r} needs {_r(tl.w)} x {_r(tl.h)} but its box is "
+            self.warn("UD-WARN-TEXT-OVERFLOW", it, expanded_id,
+                      f"text {expanded_id!r} needs {_r(tl.w)} x {_r(tl.h)} but its box is "
                       f"{_r(plan.w)} x {_r(plan.h)}")
         if bg is not None:
             worst = None
             for ri, (txt, _st) in enumerate(runs):
                 if not txt.strip():
                     continue
-                c = _rgba(colors[ri])
-                fg = _over(c, bg) if c else None
-                if fg is None:
-                    continue
-                ratio = contrast_ratio(fg, bg)
-                if worst is None or ratio < worst:
+                color = colors[ri]
+                key = (color, bg)
+                if key in self.contrast_cache:
+                    ratio = self.contrast_cache[key]
+                else:
+                    c = _rgba(color)
+                    fg = _over(c, bg) if c else None
+                    ratio = contrast_ratio(fg, bg) if fg is not None else None
+                    if len(self.contrast_cache) < 4096:
+                        self.contrast_cache[key] = ratio
+                if ratio is not None and (worst is None or ratio < worst):
                     worst = ratio
             if worst is not None and worst < CONTRAST_MIN:
-                self.warn("UD-WARN-CONTRAST", it,
-                          f"text {it.id!r} has contrast {worst:.2f}:1 against its background; "
+                self.warn("UD-WARN-CONTRAST", it, expanded_id,
+                          f"text {expanded_id!r} has contrast {worst:.2f}:1 against its background; "
                           f"WCAG large-text minimum is {CONTRAST_MIN:g}:1")
 
 

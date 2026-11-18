@@ -109,6 +109,27 @@ def test_catalog_can_share_one_document_and_compound_snippets_include_sample_chi
     assert "onConfirm={onConfirm}" in snippets["ConfirmDialog"]
 
 
+@pytest.mark.parametrize("component", ["Button", "Chip", "SideNav", "FormDialog"])
+def test_initial_revision_definitions_remain_mapped_and_accept_new_instances(component):
+    from agentplatform.ui_designer.ops import apply_ops
+    from agentplatform.ui_designer.platform_library import inspect_instance
+    from agentplatform.ui_designer.schema import lint
+
+    doc = platform_catalog.component_document(component)
+    doc["components"] = {key: platform_catalog.legacy_component_definition(root)
+                         for key, root in doc["components"].items()}
+    instance = doc["pages"][0]["children"][0]
+    assert inspect_instance(doc, instance)["status"] == "exact"
+    updated = apply_ops(doc, [{**OP, "component": component, "id": "another",
+                              "parent": doc["pages"][0]["id"]}],
+                        version=1, expected_version=1).doc
+    assert not lint(updated)
+    assert inspect_instance(updated, updated["pages"][0]["children"][0])["status"] == "exact"
+    # Only the known, visually inert legacy shape is accepted.
+    next(iter(doc["components"].values()))["opacity"] = .6
+    assert inspect_instance(doc, instance)["status"] == "detached"
+
+
 async def test_pinned_versions_are_snapshots_even_during_agent_edit_bursts(sf, monkeypatch):
     from .test_ui_designer_store import at_version, edit as edit_in_store, make
 

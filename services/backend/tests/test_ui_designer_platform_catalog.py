@@ -8,7 +8,7 @@ import pytest
 from agentplatform.ui_designer import platform_catalog as catalog
 from agentplatform.ui_designer.components import resolve_instance
 from agentplatform.ui_designer.layout import layout_document
-from agentplatform.ui_designer.schema import validate_document
+from agentplatform.ui_designer.schema import lint, validate_document
 from agentplatform.ui_designer.svg import paint
 
 REPO = Path(__file__).resolve().parents[3]
@@ -30,6 +30,7 @@ def test_public_components_and_stories_are_represented():
 def test_every_variant_is_a_native_scene_and_matches_its_manifest(component):
     for variant in component["variants"]:
         doc = catalog.component_document(component["name"], variant["id"])
+        assert lint(doc) == []
         instance = doc["pages"][0]["children"][0]
         mapping = catalog.implementation_mapping(instance)
         assert mapping["props"] == variant["props"]
@@ -38,6 +39,7 @@ def test_every_variant_is_a_native_scene_and_matches_its_manifest(component):
         assert instance["variant"] == variant["selection"]
         for theme in ("dark", "light"):
             layout = layout_document(doc, theme)
+            assert layout["warnings"] == []
             sample = paint(layout, "sample")
             assert sample.w == pytest.approx(variant["width"], abs=.001)
             assert sample.h == pytest.approx(variant["height"], abs=.001)

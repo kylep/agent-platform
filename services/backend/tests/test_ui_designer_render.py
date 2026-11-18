@@ -267,15 +267,17 @@ async def test_job_timeout_kills_and_respawns_the_worker(service):
 async def test_memory_fence_kills_the_job_not_the_service(service):
     if sys.platform != "linux":
         pytest.skip("RLIMIT_DATA is only enforced on Linux")
-    # The 3150 × 3150 output fits the pixel cap. Nested opacity groups force
-    # native compositing buffers without exceeding any authored document limit.
+    # Each nested mask needs a separate native compositing surface. Stay
+    # below the 10 MP output cap and force the allocation even for a tiny doc.
     size = {"w": 1050, "h": 1050}
-    foreground = {"id": "foreground", "type": "rect", **size,
-                  "fill": {"gradient": "linear", "stops": [[0, "#f00"], [1, "#080"]]}}
-    layer = {"id": "layer", "type": "frame", **size, "fill": "#000",
-             "opacity": .8, "children": [foreground]}
-    scene = doc_with([{"id": "composite", "type": "frame", **size, "fill": "#000",
-                       "opacity": .8, "children": [layer]}])
+    layer = {"id": "foreground", "type": "rect", **size, "fill": "#164870"}
+    for depth in range(5):
+        mask = {"id": f"mask-{depth}", "type": "rect", **size,
+                "fill": {"gradient": "linear", "angle": depth * 25,
+                         "stops": [[0, "#fff"], [1, "#777"]]}}
+        layer = {"id": f"layer-{depth}", "type": "frame", **size,
+                 "mask": "luminance", "children": [mask, layer]}
+    scene = doc_with([{"id": "composite", "type": "frame", **size, "children": [layer]}])
     body = {"doc": scene, "mode": "dark", "nodes": ["composite"], "scale": 3}
     control = await service(job_memory_mb=512, job_timeout_s=20)
     assert (await control.post("/render", json=body)).status == 200

@@ -425,6 +425,32 @@ def test_lint_warnings():
                  "UD-WARN-COMPONENT-UNUSED"}
 
 
+def test_lint_recognizes_set_variants_and_swap_targets_as_references():
+    d = S.new_document()
+    d["components"] = {
+        "default-icon": {"id": "default-icon", "type": "rect", "w": 10, "h": 10},
+        "alternate-icon": {"id": "alternate-icon", "type": "rect", "w": 10, "h": 10},
+        "orphan": {"id": "orphan", "type": "rect", "w": 10, "h": 10},
+        "default-control": {"id": "default-control", "type": "frame", "children": [
+            {"id": "icon-slot", "type": "instance", "of": "default-icon"},
+        ]},
+    }
+    d["component_sets"] = {
+        "control": {
+            "axes": {},
+            "variants": [{"when": {}, "of": "default-control", "bindings": {"icon": ["icon-slot"]}}],
+            "properties": {"icon": {
+                "type": "instance-swap", "default": "default-icon",
+                "allowed": ["default-icon", "alternate-icon"],
+            }},
+        },
+    }
+    S.validate_document(d)
+    assert [(warning["code"], warning["path"]) for warning in S.lint(d)] == [
+        ("UD-WARN-COMPONENT-UNUSED", "$.components.orphan"),
+    ]
+
+
 def test_ids_and_shas_reject_trailing_newline():
     from agentplatform.ui_designer import schema
     assert schema.ID_RE.fullmatch("abc\n") is None

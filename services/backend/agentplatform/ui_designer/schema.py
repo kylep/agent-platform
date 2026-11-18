@@ -1172,6 +1172,11 @@ def lint(doc: dict) -> list[dict]:
             walk(n, join_path("$.pages", i, "children", j), None)
     for key, root in (doc.get("components") or {}).items():
         walk(root, join_path("$.components", key), None)
+    for definition in (doc.get("component_sets") or {}).values():
+        used_components.update(variant["of"] for variant in definition["variants"])
+        for spec in definition.get("properties", {}).values():
+            if spec["type"] == "instance-swap":
+                used_components.update(spec["allowed"])
     for key in (doc.get("components") or {}):
         if key not in used_components:
             warn("UD-WARN-COMPONENT-UNUSED", join_path("$.components", key),

@@ -57,8 +57,10 @@ def _text(id, text, x, y, w, h, *, ink="text", size=14, weight=400, line=None,
         style = f"$type.{PREFIX}body"
     elif style == {"family": "JetBrains Mono", "size": 13, "weight": 400, "line": 1.625, "letter": 0}:
         style = f"$type.{PREFIX}mono"
-    node = {"id": id, "type": "text", "text": text, "x": x, "y": y, "w": w, "h": h,
+    node = {"id": id, "type": "text", "text": text, "w": w, "h": h,
             "style": style, "color": color(ink), "align": align, "vertical_align": "center"}
+    if x is not None and y is not None:
+        node.update(x=x, y=y)
     if upper:
         node["text_case"] = "uppercase"
     return node
@@ -126,7 +128,7 @@ def _button(text, style="primary", size="md", disabled=False, *, id="button", **
         pad_y += 1
     fill = {"primary": "accent", "danger": "danger"}.get(style)
     ink = {"primary": "on-accent", "danger": "on-accent", "link": "link"}.get(style, "text")
-    label = _text("children", text, 0, 0, "hug", line_height, ink=ink, size=font_size, weight=500)
+    label = _text("children", text, None, None, "hug", line_height, ink=ink, size=font_size, weight=500)
     if disabled:
         extra["opacity"] = .5
     layout = {"dir": "row", "pad": [pad_y, pad_x], "align": "center", "justify": "center"}
@@ -177,7 +179,7 @@ _CHIP_COLORS = {"neutral": "text-muted", "ok": "success", "warn": "warning", "da
 
 def _chip(text, variant):
     ink = _CHIP_COLORS[variant]
-    label = _text("children", text, 0, 0, "hug", 16.5, ink=ink, size=11, weight=500,
+    label = _text("children", text, None, None, "hug", 16.5, ink=ink, size=11, weight=500,
                   letter=.55, upper=True)
     layout = {"dir": "row", "pad": [3, 9], "align": "center", "justify": "center"}
     return _frame("chip", "hug", 22.5, [label], border="border" if variant == "neutral" else ink,
@@ -624,6 +626,18 @@ def get_definition(name, variant="default"):
     component, _ = _lookup(name, variant)
     roots, sets = _definitions(name)
     return component.set_id, copy.deepcopy(roots), copy.deepcopy(sets)
+
+
+def legacy_component_definition(definition):
+    """The initial revision-1 shape used zero x/y on inline text labels."""
+    legacy = copy.deepcopy(definition)
+    for frame in nodes(legacy):
+        if frame.get("layout", {}).get("dir") != "row":
+            continue
+        for child in frame.get("children", []):
+            if child["type"] == "text" and not child.get("absolute") and "x" not in child and "y" not in child:
+                child.update(x=0, y=0)
+    return legacy
 
 
 def make_instance(name, variant="default", *, id, props=None, x=None, y=None):

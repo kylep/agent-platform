@@ -20,11 +20,17 @@ def _components_by_id() -> dict[str, dict]:
             for component in catalog.catalog_manifest()["components"]}
 
 
-def _merge_entries(destination: dict, entries: dict, path: str) -> None:
+def _merge_entries(destination: dict, entries: dict, path: str, *, component_roots: bool = False) -> None:
     for key, value in entries.items():
         if key not in destination:
             destination[key] = copy.deepcopy(value)
-        elif destination[key] != value:
+        elif destination[key] == value:
+            continue
+        elif component_roots and destination[key] == catalog.legacy_component_definition(value):
+            # Normalize the first release's ignored coordinates without changing
+            # its appearance or requiring users to detach pinned instances.
+            destination[key] = copy.deepcopy(value)
+        else:
             raise invalid([issue("UD-VALUE", join_path(path, key),
                                  "Conflicts with the pinned Agent Platform component library")])
 
@@ -73,13 +79,15 @@ def install_instance(doc: dict, op: dict, path: str) -> dict:
         if key in nodes:
             raise invalid([issue("UD-DUPLICATE-ID", join_path("$.component_sets", key),
                                  f"Agent Platform component set id {key!r} is already in use")])
-    _merge_entries(doc.setdefault("components", {}), roots, "$.components")
+    _merge_entries(doc.setdefault("components", {}), roots, "$.components", component_roots=True)
     _merge_entries(doc.setdefault("component_sets", {}), sets, "$.component_sets")
     return instance
 
 
-def _matches_entries(destination: dict, approved: dict) -> bool:
-    return all(destination.get(key) == value for key, value in approved.items())
+def _matches_entries(destination: dict, approved: dict, *, component_roots: bool = False) -> bool:
+    return all(destination.get(key) == value or (
+        component_roots and destination.get(key) == catalog.legacy_component_definition(value)
+    ) for key, value in approved.items())
 
 
 def inspect_instance(doc: dict, instance: dict) -> dict | None:
@@ -93,7 +101,7 @@ def inspect_instance(doc: dict, instance: dict) -> dict | None:
     _, roots, sets = catalog.get_definition(name)
     tokens = doc.get("tokens") or {}
     source_matches = (
-        _matches_entries(doc.get("components") or {}, roots)
+        _matches_entries(doc.get("components") or {}, roots, component_roots=True)
         and _matches_entries(doc.get("component_sets") or {}, sets)
         and all(_matches_entries(tokens.get(group, {}), entries)
                 for group, entries in catalog.platform_tokens().items())
