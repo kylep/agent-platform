@@ -16,9 +16,12 @@ export, events and imports are later phases. What this module owns:
   reason).
 - HOW an image gets in: `place`, the one door (§9). Copy-on-place: the bytes
   are authorized once here and from then on the document is self-contained.
-- WHERE pictures go: `snapshot` on `edit` is refused for any caller without a
-  run (`UD-NO-IMAGES-HERE`). The facade's admin bearer and API keys get text;
-  images go to agent runs, people use the web UI.
+- WHERE pictures go: to agent runs, to people in the web UI, and to people's
+  own MCP clients over the facade (a human API key: `edit` with `snapshot`, or
+  `render` without editing; the facade turns both into image content). Only a
+  run-less AGENT key is refused (`UD-NO-IMAGES-HERE`). Every picture bound for
+  a model's context, an agent's or a key holder's, is under the byte ladder and
+  the rolling pixel budget; Kyle's browser session is under neither.
 """
 from __future__ import annotations
 
@@ -204,11 +207,29 @@ async def _check_write_budget(request: Request, caller: Caller) -> None:
             detail={"retry_after": retry, "limit": limit}))
 
 
-def _pixel_window(request: Request, agent: str) -> deque:
+def _pixel_subject(request: Request, caller: Caller) -> str | None:
+    """Whose pixel window a render is charged to: the agent, or a human API
+    key's participant (its pictures go into a model's context on a laptop),
+    or None for a browser session, which is not budgeted."""
+    if caller.agent is not None:
+        return caller.agent
+    state = getattr(request, "state", None)
+    if getattr(state, "auth_kind", None) in (None, "session"):
+        return None
+    return caller.participant
+
+
+def _model_bound(request: Request, caller: Caller) -> bool:
+    """Whether a picture lands in a model's context (an agent run or a key
+    holder's MCP client) and so takes the snapshot byte ladder."""
+    return _pixel_subject(request, caller) is not None
+
+
+def _pixel_window(request: Request, subject: str) -> deque:
     st = request.app.state
     if getattr(st, "ui_designer_pixels", None) is None:
         st.ui_designer_pixels = {}
-    return st.ui_designer_pixels.setdefault(agent, deque())
+    return st.ui_designer_pixels.setdefault(subject, deque())
 
 
 def _check_card_budget(request: Request, caller: Caller) -> None:
@@ -241,12 +262,14 @@ def _card_text(text: str, limit: int) -> str:
 
 
 def _check_pixel_budget(request: Request, caller: Caller) -> None:
-    """Agents only: rendered megapixels per rolling hour. Kept in memory (one
-    API replica); a restart forgives a loop, which the write budget still caps."""
+    """Agents and API keys (`_pixel_subject`): rendered megapixels per rolling
+    hour. Kept in memory (one API replica); a restart forgives a loop, which the
+    write budget still caps."""
     budget = request.app.state.settings.ui_designer_pixels_per_hour_mp
-    if caller.agent is None or budget <= 0:
+    subject = _pixel_subject(request, caller)
+    if subject is None or budget <= 0:
         return
-    win = _pixel_window(request, caller.agent)
+    win = _pixel_window(request, subject)
     now = time.monotonic()
     while win and now - win[0][0] > 3600:
         win.popleft()
@@ -260,8 +283,9 @@ def _check_pixel_budget(request: Request, caller: Caller) -> None:
 
 def _charge_pixels(request: Request, caller: Caller, images) -> float:
     mp = sum(i.width * i.height for i in images) / 1e6
-    if caller.agent is not None:
-        _pixel_window(request, caller.agent).append((time.monotonic(), mp))
+    subject = _pixel_subject(request, caller)
+    if subject is not None:
+        _pixel_window(request, subject).append((time.monotonic(), mp))
     return mp
 
 
@@ -374,16 +398,14 @@ async def caller_run_id(request: Request, caller: Caller) -> str | None:
         return run.id if run is not None else None
 
 
-async def refuse_runless_snapshot(request: Request, caller: Caller, snapshot: Any) -> None:
-    """§6: `snapshot` cannot be excluded from the facade by path, so the API
-    refuses it for any caller without a run — Kyle's session, the facade's
-    admin bearer, any API key. The `edit` route calls this before anything
-    else touches the document."""
-    if not snapshot:
-        return
-    if await caller_run_id(request, caller) is None:
+async def refuse_runless_agent_images(request: Request, caller: Caller) -> None:
+    """§6: an agent sees pictures only from a Run (its pixels are charged and
+    its context is the run's). A run-less agent key is refused; a person —
+    Kyle's session or a human API key over the facade — is not. Document
+    access was already judged by `require_ui_designer_access`."""
+    if caller.agent is not None and await caller_run_id(request, caller) is None:
         raise ud_http(UiDesignerError(UD_NO_IMAGES_HERE,
-                                      "images go to agent runs; use the web UI"))
+                                      "an agent key without a run gets no images"))
 
 
 # --- place (copy on place, §9) -------------------------------------------------
@@ -1034,7 +1056,8 @@ async def ui_document_outline(slug: str, request: Request, page: str | None = No
 @router.post(PREFIX + "/docs/{slug}/edit", response_model=S.UiDocWriteOut)
 async def edit_ui_document(slug: str, body: S.UiDocEditIn, request: Request,
                            caller: Caller = Depends(require_ui_designer_access(*WRITE, write=True))):
-    await refuse_runless_snapshot(request, caller, body.snapshot)
+    if body.snapshot:
+        await refuse_runless_agent_images(request, caller)
     nodes = _snapshot_nodes(request, body.snapshot, body.scale)
     run_id = await caller_run_id(request, caller)
     if any(op.get("op") in ("boolean", "icon") for op in body.ops):
@@ -1507,8 +1530,9 @@ def _motion_charge(request: Request, caller: Caller, pixels: int, *, cap: int) -
             detail={"pixels": pixels, "limit_pixels": cap})
     _check_pixel_budget(request, caller)
     hourly = request.app.state.settings.ui_designer_pixels_per_hour_mp
-    if caller.agent is not None and hourly > 0:
-        used = sum(mp for _, mp in _pixel_window(request, caller.agent))
+    subject = _pixel_subject(request, caller)
+    if subject is not None and hourly > 0:
+        used = sum(mp for _, mp in _pixel_window(request, subject))
         if used + pixels / 1e6 > hourly:
             raise UiDesignerError(ud_errors.UD_BUDGET_PIXELS,
                 "motion would exceed the hourly pixel budget; lower max_edge or duration_ms",
@@ -1993,9 +2017,12 @@ async def render_ui_document(slug: str, request: Request, node: str | None = Non
                              version: int | None = Query(None, ge=1),
                              caller: Caller = Depends(require_ui_designer_access(*READ))):
     _check_scale(scale)
+    await refuse_runless_agent_images(request, caller)
     view, sha, cc = await _doc_at(request, caller, slug, version)
-    # An agent's picture goes into a model's context: the byte ladder applies.
-    max_bytes = request.app.state.settings.ui_designer_snapshot_max_bytes if caller.agent is not None else None
+    # A picture bound for a model's context (an agent run, or a key holder's
+    # MCP client over the facade) takes the byte ladder.
+    max_bytes = request.app.state.settings.ui_designer_snapshot_max_bytes \
+        if _model_bound(request, caller) else None
     etag = '"' + render_client.cache_key(sha, node, mode, scale, annotate, max_edge=max_edge, max_bytes=max_bytes) + '"'
     headers = {"Cache-Control": cc, "ETag": etag, "X-Content-Type-Options": "nosniff"}
     if _etag_hit(request, etag):

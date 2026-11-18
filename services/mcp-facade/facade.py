@@ -21,7 +21,9 @@ The surface is CURATED into three tiers (curation 2026-08-24; see
   agent run), and memory's history and restore, persona commitments and
   dreams (design 44), memory guards (ENG-13), rapid-chats (design 45) and the UI
   Designer's text routes (design 46: list, create, get, outline, edit, history,
-  restore, component library). Always tools. 194 of them.
+  restore, component library). Always tools. 194 of them, plus one hand-written
+  tool, `snapshot_ui_document` (design 46 §6: the `render` route as MCP image
+  content), for 195 in all.
 - **GATE** — authorized-but-sharp: the credential/secret plane, backup
   credential configuration, admin audit
   reads, destructive/bulk ops, the relay channel lifecycle (creating, renaming
@@ -49,15 +51,23 @@ The spec is fetched from ap-api at startup, never baked into the image, so a
 redeployed API refreshes the tool surface on this service's next restart (see
 docs/deployment.md).
 """
+import base64
+import binascii
+import json
 import logging
 import os
 import re
 import time
+from typing import Annotated
 
 import httpx
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_request
+from fastmcp.server.middleware import Middleware as McpMiddleware
 from fastmcp.server.providers.openapi import MCPType, RouteMap
+from fastmcp.tools.base import ToolResult
+from mcp.types import ImageContent, TextContent
+from pydantic import Field
 from starlette.datastructures import Headers
 from starlette.middleware import Middleware
 from starlette.responses import Response
@@ -141,10 +151,13 @@ EXCLUDED_PATHS = (
     ("*", r"^/api/runs/\{run_id\}/workbench$"),
     ("*", r"^/api/runs/\{run_id\}/publish$"),
     # The UI Designer's picture and byte routes (design/46 §6): render PNGs, the
-    # server SVG, the resolved tree and asset bytes belong to the web UI and to
-    # agent runs, never to an MCP text result. `place` copies an image artifact
-    # into a document, and an admin bearer must not become a way to show an
-    # artifact to every holder of the tool. Facade callers get text.
+    # server SVG, the resolved tree and asset bytes are never GENERATED tools,
+    # since a generated tool would hand back raw bytes or base64 as text.
+    # Pictures reach a facade caller as MCP image content instead: the
+    # hand-written `snapshot_ui_document` tool (over `render`) and the
+    # `edit_ui_document` receipt rewrite (`UiDesignerPictures`). `place` copies
+    # an image artifact into a document, and an admin bearer must not become a
+    # way to show an artifact to every holder of the tool.
     (("GET",),  r"^/api/ui-designer/docs/\{slug\}/(?:render|svg|resolved)$"),
     # Visual diff carries two PNG payloads; the broker emits ImageContent.
     (("POST",), r"^/api/ui-designer/docs/\{slug\}/visual-diff$"),
@@ -445,6 +458,70 @@ def fetch_spec(base_url: str = _API, sleep=time.sleep) -> dict:
             sleep(_SPEC_RETRY_SECONDS)
 
 
+# --- UI Designer pictures (design/46 §6) ------------------------------------------
+# A facade caller (Claude Code or Codex on a laptop, a human API key) sees a
+# rendered document as MCP image content, never as base64 in the text. The API
+# owns every rule: document access, the run-less-agent refusal, the byte ladder
+# and the pixel budget. This service only reshapes the answer.
+_UI_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
+_UI_IMAGES_MAX = 4
+_UI_RENDER_TIMEOUT = 45.0
+_UI_EDIT_TOOL = "edit_ui_document"
+
+
+def _ui_error_text(response: httpx.Response) -> str:
+    """An API refusal as one line: the stable code and message when present."""
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    if isinstance(detail, dict) and detail.get("code"):
+        return f"{response.status_code} {detail['code']} {detail.get('message', '')}".rstrip()
+    return f"{response.status_code} {detail if detail is not None else response.text[:200]}"
+
+
+def edit_receipt_with_pictures(result: ToolResult) -> ToolResult:
+    """`edit_ui_document`'s receipt with each snapshot's base64 lifted out of
+    the JSON into an `ImageContent` block. The structured receipt keeps its
+    schema shape (`data` becomes a pointer at the image block). A receipt
+    without snapshots is returned untouched."""
+    receipt = result.structured_content
+    snaps = receipt.get("snapshots") if isinstance(receipt, dict) else None
+    if not snaps:
+        return result
+    rows, pictures = [], []
+    for row in snaps:
+        row = dict(row)
+        try:
+            data = base64.b64decode(row.get("data") or "", validate=True)
+        except (binascii.Error, ValueError, TypeError):
+            data = b""
+        if data:
+            n = len(pictures) // 2 + 1
+            row["data"] = f"(image {n}, attached as image content)"
+            pictures.append(TextContent(type="text", text=(
+                f"image {n}: snapshot {row.get('node') or 'page'} "
+                f"{row.get('width')}x{row.get('height')}")))
+            pictures.append(ImageContent(type="image", data=base64.b64encode(data).decode(),
+                                         mimeType=row.get("mime") or "image/png"))
+        else:
+            row["data"] = ""
+        rows.append(row)
+    receipt = {**receipt, "snapshots": rows}
+    text = TextContent(type="text", text=json.dumps(receipt, separators=(",", ":")))
+    return ToolResult(content=[text, *pictures], structured_content=receipt, meta=result.meta)
+
+
+class UiDesignerPictures(McpMiddleware):
+    """Rewrites `edit_ui_document`'s receipt so its snapshots arrive as images."""
+
+    async def on_call_tool(self, context, call_next):
+        result = await call_next(context)
+        if getattr(context.message, "name", None) != _UI_EDIT_TOOL:
+            return result
+        return edit_receipt_with_pictures(result)
+
+
 def build(spec: dict, client: httpx.AsyncClient | None = None,
           admin_tools: bool | None = None) -> FastMCP:
     """The MCP server for one spec: the KEEP surface, plus the GATE tier when
@@ -458,6 +535,50 @@ def build(spec: dict, client: httpx.AsyncClient | None = None,
                                name="agent-platform",
                                route_maps=route_maps(admin_tools),
                                mcp_names=MCP_NAMES)
+    mcp.add_middleware(UiDesignerPictures())
+
+    @mcp.tool(name="snapshot_ui_document")
+    async def snapshot_ui_document(
+        slug: Annotated[str, Field(description="The document's slug.")],
+        nodes: Annotated[list[str] | None, Field(
+            description="Up to 4 node ids to picture (a page id renders the page); "
+                        "omit for the first page.", max_length=_UI_IMAGES_MAX)] = None,
+        mode: Annotated[str | None, Field(description="A theme mode, e.g. dark.")] = None,
+        scale: Annotated[float, Field(description="0.5, 1, 2 or 3.")] = 1,
+        annotate: Annotated[bool, Field(description="Draw node ids on the picture.")] = False,
+        version: Annotated[int | None, Field(ge=1, description="A past version; omit for current.")] = None,
+    ) -> ToolResult:
+        """Render a UI Designer document (or up to 4 of its nodes) WITHOUT editing
+        it, and return the pictures as image content. Needs read access to the
+        document; the API's pixel budget and byte ladder apply. To picture the
+        result of a change, pass `snapshot=[...]` to `edit_ui_document` instead."""
+        if not _UI_SLUG_RE.fullmatch(slug):
+            raise ValueError("invalid slug")
+        targets: list[str | None] = list(nodes) if nodes else [None]
+        if len(targets) > _UI_IMAGES_MAX:
+            raise ValueError(f"nodes is at most {_UI_IMAGES_MAX} ids")
+        lines = [f"snapshot {slug}" + (f" v{version}" if version else "")]
+        pictures: list = []
+        for target in targets:
+            params = {k: v for k, v in (("node", target), ("mode", mode), ("scale", scale),
+                                        ("annotate", "true" if annotate else None),
+                                        ("version", version)) if v is not None}
+            response = await api_client.get(
+                f"/api/ui-designer/docs/{slug}/render", params=params,
+                headers=caller_auth_headers(current_request()),
+                timeout=httpx.Timeout(_UI_RENDER_TIMEOUT))
+            mime = (response.headers.get("content-type") or "").split(";")[0].strip()
+            label = target or "page"
+            if response.status_code >= 400 or not mime.startswith("image/"):
+                lines.append(f"{label}: error {_ui_error_text(response)}")
+                continue
+            pictures.append(TextContent(type="text", text=f"snapshot {label}" + (f" {mode}" if mode else "")))
+            pictures.append(ImageContent(type="image", data=base64.b64encode(response.content).decode(),
+                                         mimeType=mime))
+        text = TextContent(type="text", text="\n".join(lines))
+        if not pictures:
+            return ToolResult(content=[text], is_error=True)
+        return ToolResult(content=[text, *pictures])
 
     @mcp.resource("ap://snapshot/{snapshot_id}", mime_type="text/markdown")
     async def live_snapshot(snapshot_id: str) -> str:

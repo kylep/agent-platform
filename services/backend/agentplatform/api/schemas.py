@@ -1945,7 +1945,7 @@ class UiDocEditIn(BaseModel):
     reason: str = ""
     request_id: str | None = Field(default=None, max_length=128)
     # Node ids (a page id renders the page) to picture after the write, at most
-    # 4; `true` is the first page. Refused for a caller without a run.
+    # 4; `true` is the first page. Refused for an agent key without a run.
     snapshot: list[str | None] | bool | None = None
     mode: str | None = None
     scale: float = 1
