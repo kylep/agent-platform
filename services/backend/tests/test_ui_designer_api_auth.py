@@ -1,8 +1,9 @@
 """The UI Designer API's authorization seam (docs/design/46 §6, §9, T5).
 
 Who reaches a document (the grant, not the role; a run to write from), the one
-door an image comes in by (`place` and its refusals), and the rule that images
-go only to agent runs (`snapshot` refused for a run-less caller).
+door an image comes in by (`place` and its refusals), and who sees pictures
+(agent runs, people's sessions and human keys by document access; a run-less
+agent key is refused).
 """
 from agentplatform.db import Artifact, Conversation, Run, RunState, UiDesignerDocumentAsset
 from agentplatform.ui_designer import store
@@ -237,18 +238,88 @@ async def test_successful_place(sf, seed_agent, agent_store, admin_client, token
 
 
 # --- snapshot ---------------------------------------------------------------------
+# design/46 §6 (revised 2026-11-18): people's own MCP clients see pictures too.
+# Only a run-less AGENT key is refused; document access still decides who.
 
-async def test_runless_snapshot_is_refused(sf, seed_agent, agent_store, admin_client,
-                                           token_client):
-    await _doc(sf)
-    body = {"ops": [], "expected_version": 1, "snapshot": True}
-    r = await admin_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body)
+def _fake_renderer(client):
+    from .test_ui_designer_api import FakeRenderer
+    fake = FakeRenderer(size=(40, 20))
+    client._transport.app.state.ui_designer_renderer = fake.client()
+    return fake
+
+
+async def _real_doc(client, headers=None, slug=SLUG):
+    from .test_ui_designer_access import DOC
+    r = await client.post("/api/ui-designer/docs", headers=headers or {}, json={"slug": slug, "doc": DOC})
+    assert r.status_code == 200, r.text
+
+
+async def test_human_key_gets_snapshot_pictures_on_edit_and_render(sf, token_client):
+    fake = _fake_renderer(token_client)
+    key = await _human_token(sf, "facade", "admin")
+    await _real_doc(token_client, key)
+    body = {"ops": [{"op": "update", "id": "root", "set": {"w": 120}}], "expected_version": 1,
+            "snapshot": ["root"], "scale": 2, "annotate": True}
+    r = await token_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body, headers=key)
+    assert r.status_code == 200, r.text
+    snap = r.json()["snapshots"]
+    assert len(snap) == 1 and snap[0]["node"] == "root" and snap[0]["data"], r.text
+    sent = [b for path, b in fake.calls if path == "/render"][-1]
+    assert sent["scale"] == 2 and sent["annotate"] is True and sent["max_bytes"] == 1 << 20
+    # A re-render without editing: the PNG, under the byte ladder (a model reads it).
+    r = await token_client.get(f"/api/ui-designer/docs/{SLUG}/render?node=root&scale=2&annotate=true",
+                               headers=key)
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png", r.text
+    assert [b for path, b in fake.calls if path == "/render"][-1]["max_bytes"] == 1 << 20
+    # The key's pictures count against the rolling pixel budget.
+    window = token_client._transport.app.state.ui_designer_pixels["user:facade"]
+    assert sum(mp for _t, mp in window) > 0
+
+
+async def test_human_key_pixel_budget_is_enforced(sf, token_client):
+    _fake_renderer(token_client)
+    key = await _human_token(sf, "facade", "admin")
+    await _real_doc(token_client, key)
+    token_client._transport.app.state.settings.ui_designer_pixels_per_hour_mp = 0.0001
+    url = f"/api/ui-designer/docs/{SLUG}/render?node=root"
+    assert (await token_client.get(url, headers=key)).status_code == 200
+    r = await token_client.get(url, headers=key)
+    assert r.status_code == 429 and r.json()["detail"]["code"] == "UD-BUDGET-PIXELS", r.text
+
+
+async def test_private_document_pictures_follow_document_access(sf, token_client):
+    from .test_ui_designer_access import share
+    _fake_renderer(token_client)
+    owner = await _human_token(sf, "owner", "operator")
+    reader = await _human_token(sf, "viewer", "operator")
+    stranger = await _human_token(sf, "stranger", "operator")
+    await _real_doc(token_client, owner, slug="private")
+    assert (await share(token_client, owner, readers=["user:viewer"])).status_code == 200
+    url = "/api/ui-designer/docs/private/render?node=root"
+    assert (await token_client.get(url, headers=owner)).status_code == 200
+    assert (await token_client.get(url, headers=reader)).status_code == 200
+    assert (await token_client.get(url, headers=stranger)).status_code == 404
+    body = {"ops": [{"op": "update", "id": "root", "set": {"w": 90}}], "expected_version": 1,
+            "snapshot": ["root"]}
+    for who in (reader, stranger):     # a reader may look but not edit; a stranger sees nothing
+        r = await token_client.post("/api/ui-designer/docs/private/edit", json=body, headers=who)
+        assert r.status_code == 404, r.text
+
+
+async def test_runless_agent_key_gets_no_pictures(sf, seed_agent, agent_store, admin_client,
+                                                  token_client):
+    _fake_renderer(token_client)
+    await _real_doc(admin_client)
+    h = await _agent(sf, seed_agent, agent_store, "norun", run=False)
+    r = await token_client.get(f"/api/ui-designer/docs/{SLUG}/render?node=root", headers=h)
     assert r.status_code == 403 and r.json()["detail"]["code"] == "UD-NO-IMAGES-HERE", r.text
-    admin_key = await _human_token(sf, "facade", "admin")
-    r = await token_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body,
-                                headers=admin_key)
-    assert r.status_code == 403 and r.json()["detail"]["code"] == "UD-NO-IMAGES-HERE"
-    # An agent run gets past the refusal (empty ops are then refused as invalid).
+    body = {"ops": [], "expected_version": 1, "snapshot": True}
+    r = await token_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body, headers=h)
+    assert r.status_code == 403 and "no run" in r.text, r.text
+    # The admin session and an agent run get past the image fence (empty ops
+    # are then refused as invalid).
+    r = await admin_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "UD-INVALID", r.text
     h = await _agent(sf, seed_agent, agent_store, "pai")
     r = await token_client.post(f"/api/ui-designer/docs/{SLUG}/edit", json=body, headers=h)
     assert r.status_code == 422 and r.json()["detail"]["code"] == "UD-INVALID", r.text

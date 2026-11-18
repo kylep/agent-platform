@@ -88,7 +88,7 @@ tool `tools/figma_import/`, and two web pages
 
 ```
 agent ──MCP──▶ broker `ui_designer` ──▶ /api/ui-designer/*  ──▶ store (Postgres)
-Kyle / Codex ──MCP──▶ facade (OpenAPI, text only)   │
+Kyle / Codex ──MCP──▶ facade (OpenAPI + images, §6) │
                                                     ▼  HTTP {doc, mode, nodes, scale}
                                  ui-renderer: expand → layout → SVG → resvg → PNG / SVG / resolved tree
                                                     │
@@ -395,7 +395,8 @@ Server-side, per agent per rolling hour: 120 writes (`UD-BUDGET-WRITES`,
 (`UD-BUDGET-PIXELS`), so a run that snapshots on every edit never trips
 the second meter before the first, and only `snapshot`-only loops do; per
 request at most 4 images and 10 megapixels of output; scale ∈ {0.5, 1, 2,
-3}. Humans are not metered. All of these, the cache size and the renderer
+3}. Humans in the browser are not metered; a human API key's pictures
+over the facade take the pixel budget (§6). All of these, the cache size and the renderer
 limits (§5) are chart values with these defaults.
 
 ### 3.3 Warnings (lint, not errors)
@@ -564,18 +565,39 @@ and an unlisted route would appear as a tool by default: `render`, `svg`,
 `resolved`, `assets/{sha256}` and `events` join `EXCLUDED_PATHS` beside
 the artifact byte routes and the SSE feeds (`facade.py:130-147`); the
 pinned tool count in `test_facade.py:176` and the tier docstrings are
-bumped in the same change. `edit`'s `snapshot` argument cannot be
-excluded by path, so the **API** refuses it for any caller without a run
-(the facade's admin bearer, any API key): `UD-NO-IMAGES-HERE`, "images go
-to agent runs; use the web UI" — a T5 test. The text routes become
+bumped in the same change. The text routes become
 `list_ui_documents`, `create_ui_document`, `get_ui_document`,
 `edit_ui_document`, `ui_document_outline`, `ui_document_versions`,
 `restore_ui_document`, and from Phase 1 `inspect_ui_document`,
 `export_ui_document`, `start_figma_import` and `get_figma_import`
-(`GATED_ADMIN`, `facade.py:236`). Plainly: **Kyle and Codex over the
-facade get text — `outline`, `get`, `inspect`, `edit` without snapshots —
-plus the web UI**; there is no snapshot tool on the facade, `/resolved`
-is excluded, and an export is an artifact Kyle opens at `/artifacts/<id>`.
+(`GATED_ADMIN`, `facade.py:236`).
+
+**Pictures over the facade (revised 2026-11-18, Kyle).** The original
+rule — facade callers get text only, `snapshot` refused for any caller
+without a run — is reversed: Claude Code and Codex sessions on a laptop
+need to see what they design. A run-less caller holding a **human** API
+key now gets pictures as real MCP image content, never base64 in the
+text:
+
+- `edit_ui_document` with `snapshot=[<node ids>]` (plus `scale`,
+  `annotate`, `mode`) — needs write access to the document. The API
+  returns the receipt with base64 snapshots as before; the facade's
+  `UiDesignerPictures` middleware lifts each one into an `ImageContent`
+  block and leaves a pointer string in the receipt's `data` field.
+- `snapshot_ui_document(slug, nodes?, mode?, scale?, annotate?, version?)`
+  — a hand-written facade tool (the generated `render` route stays in
+  `EXCLUDED_PATHS`) that calls `GET …/render` once per node, at most 4,
+  and returns the PNGs as `ImageContent`. Needs read access.
+
+The API keeps every rule: document access (`require_ui_designer_access`
+and the document ACL, so a restricted document's pictures reach only its
+readers/editors), the snapshot byte ladder and the rolling pixel budget —
+which now meter a human API key (by participant) as well as an agent,
+because both pictures land in a model's context; Kyle's browser session
+stays unmetered. A run-less **agent** key is still refused:
+`UD-NO-IMAGES-HERE` on `render`, and `edit` already requires a run.
+`svg`, `/resolved`, asset bytes and `place` remain excluded, and an
+export is still an artifact Kyle opens at `/artifacts/<id>`.
 
 Every write publishes `{type: version|comment|deleted|exported, slug,
 version, author, run_id}` on `ui_designer.events` (`TOPIC_UI_DESIGNER_
