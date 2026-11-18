@@ -426,6 +426,17 @@ from .ui_motion_preview_out_easing import UiMotionPreviewOutEasing
 from .ui_motion_preview_out_fps import UiMotionPreviewOutFps
 from .ui_placed_asset import UiPlacedAsset
 from .ui_placed_assets_out import UiPlacedAssetsOut
+from .ui_platform_component import UiPlatformComponent
+from .ui_platform_component_library_out import UiPlatformComponentLibraryOut
+from .ui_platform_component_property import UiPlatformComponentProperty
+from .ui_platform_component_variant import UiPlatformComponentVariant
+from .ui_platform_component_variant_fixture import UiPlatformComponentVariantFixture
+from .ui_platform_component_variant_props import UiPlatformComponentVariantProps
+from .ui_platform_component_variant_selection import UiPlatformComponentVariantSelection
+from .ui_platform_implementation import UiPlatformImplementation
+from .ui_platform_implementation_fixture import UiPlatformImplementationFixture
+from .ui_platform_implementation_props import UiPlatformImplementationProps
+from .ui_platform_implementation_status import UiPlatformImplementationStatus
 from .ui_presence_cursor import UiPresenceCursor
 from .ui_presence_in import UiPresenceIn
 from .ui_presence_in_state import UiPresenceInState
@@ -896,6 +907,17 @@ __all__ = (
     "UiMotionPreviewOutFps",
     "UiPlacedAsset",
     "UiPlacedAssetsOut",
+    "UiPlatformComponent",
+    "UiPlatformComponentLibraryOut",
+    "UiPlatformComponentProperty",
+    "UiPlatformComponentVariant",
+    "UiPlatformComponentVariantFixture",
+    "UiPlatformComponentVariantProps",
+    "UiPlatformComponentVariantSelection",
+    "UiPlatformImplementation",
+    "UiPlatformImplementationFixture",
+    "UiPlatformImplementationProps",
+    "UiPlatformImplementationStatus",
     "UiPresenceCursor",
     "UiPresenceIn",
     "UiPresenceInState",

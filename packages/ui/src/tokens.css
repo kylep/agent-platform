@@ -14,6 +14,7 @@
  * by bin/check-no-raw-hex.mjs.
  */
 @import "tailwindcss";
+@import "./fonts.css";
 
 /* The css entry lives in this package, so Tailwind's automatic source
  * detection would scan ONLY packages/ui — utilities used by consumers

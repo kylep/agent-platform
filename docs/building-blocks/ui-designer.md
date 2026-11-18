@@ -363,3 +363,62 @@ Use the returned `undo_ops` for exact undo. The catalog is bundled from Lucide;
 its source revision and license notices ship with the application.
 
 **Live references and design sprints.** Relay `[[ui:my-design#node-id]]` references show a live thumbnail and open the selected node. Omit `#node-id` for the document. Previews load near the viewport, share one event stream and show an unavailable state when access or rendering fails. Rapid-chats can create a new UI Designer document from validated native frame proposals; only the controller writes it, and a concurrent human edit stops those writes. See [Rapid-chat](rapid-chat.md).
+
+### Agent Platform component library
+
+Open **Components** in a design document to use the platform's own UI building
+blocks. The **Agent Platform** library covers every public visual export from
+`@ap/ui`, with named visual variants, supported text properties, and links to
+its Storybook examples. Search by name or filter by category, select a component,
+configure its appearance, then **Insert component**. The destination is the
+selected editable frame, or the current page. Historical versions and readers
+can browse; only writers of the latest version can insert or edit.
+
+These are editable native Designer definitions and instances. Colors, spacing,
+radii and typography come from the platform design system; both dark and light
+modes are included. The browser and native renderer use the same bundled Inter
+and JetBrains Mono font files. Insertion copies the selected component family
+and revisioned, namespaced tokens into the document, preserving existing content.
+Conflicting definitions are refused. Existing documents keep their copied
+appearance when the platform library later changes; they never fetch a moving
+catalog while rendering history.
+
+Select a mapped instance to change its variant or supported text properties in
+**Agent Platform component**. The inspector shows the React import, Storybook
+link and **Copy JSX**. The example includes the supported props and required
+composition or callback parameters. When local changes to the copied definition,
+tokens or instance styling invalidate that mapping, the inspector marks it
+**detached** and suppresses the code example. Native design components do not
+execute application event handlers. Complex components such as tables,
+navigation, markdown and usage meters include explicit sample-composition
+limitations; their complete runtime behavior still belongs to React.
+
+Agents discover names through `ui_designer` action `component_library`; supply
+`name: "Button"` for its variants, native selections and supported properties.
+Insert using the normal versioned `edit` action, for example:
+
+```json
+{
+  "ops": [{
+    "op": "platform_component", "component": "Button", "variant": "default",
+    "revision": 1, "parent": "canvas", "id": "save-action",
+    "props": {"children": "Save changes"}, "x": 24, "y": 24
+  }],
+  "expected_version": 3,
+  "request_id": "insert-save-action"
+}
+```
+
+Use the actual current version, parent ID, and a fresh request ID; retry an
+uncertain request with identical inputs. `inspect` returns the implementation
+mapping and JSX when it remains valid. REST clients use
+`GET /api/ui-designer/component-library` (optionally `?name=Button`) and the
+existing document edit/inspect endpoints. Updating `variant` uses the native
+axis values returned in the catalog, not the display label. HTML export remains
+a static flattened design export; **Copy JSX** is the component-aware handoff.
+
+The design-system coverage report includes Designer coverage. Missing public
+components, stale generated catalog data, token/font drift, mismatched primitive
+geometry/styles and changes to reviewed React/Designer comparison images fail
+the local/CI gates. This checks the declared design representations, not every
+possible runtime prop combination or application interaction.

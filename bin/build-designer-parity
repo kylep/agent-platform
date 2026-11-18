@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Generate/check the Designer catalog and render local parity-test fixtures."""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'services/backend'))
+from agentplatform.ui_designer.platform_catalog import (
+    PREFIX, catalog_manifest, component_document, platform_tokens,
+)
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--write', action='store_true', help='update the checked-in React fixture manifest')
+parser.add_argument('--fixtures', action='store_true', help='render the native SVGs used by browser comparisons')
+args = parser.parse_args()
+catalog = catalog_manifest()
+manifest = ROOT / 'packages/ui/designer-library.json'
+encoded = json.dumps(catalog, indent=2, ensure_ascii=False) + '\n'
+if args.write:
+    manifest.write_text(encoded)
+elif not manifest.exists() or manifest.read_text() != encoded:
+    raise SystemExit('Designer manifest drift: run bin/build-designer-parity --write with the backend Python environment.')
+
+if args.fixtures:
+    from agentplatform.ui_designer.layout import layout_document
+    from agentplatform.ui_designer.svg import paint
+    output = ROOT / '.ap/designer-parity'
+    output.mkdir(parents=True, exist_ok=True)
+    samples = []
+    canvas = platform_tokens()["color"][PREFIX + "canvas"]
+    # These samples are one simple text primitive. Composite fixtures remain
+    # paired screenshots, since HTML layout and behaviors are not native props.
+    simple = {
+        "Banner", "Button", "Chip", "ChipButton", "StatusChip",
+        "Input", "CodeEditor", "Textarea", "Select", "TD", "TH",
+    }
+    for component in catalog['components']:
+        for variant in component['variants']:
+            doc = component_document(component['name'], variant['id'])
+            for mode in ['dark', 'light']:
+                resolved = layout_document(doc, mode)
+                rendered = paint(resolved, 'sample')
+                key = f"{component['name']}-{variant['id']}-{mode}"
+                (output / f'{key}.svg').write_text(rendered.svg)
+                sample = {
+                    'key': key, 'component': component['name'], 'variant': variant['id'],
+                    'mode': mode, 'width': rendered.w, 'height': rendered.h, 'background': canvas[mode],
+                }
+                if component['name'] in simple:
+                    node = rendered.node
+                    outline = next((child for child in node['children'] if child.get('title') == 'Outline'), node)
+                    text = next(child for child in node['children'] if child['type'] == 'text')['text']
+                    native_line = text['lines'][0]
+                    run = native_line['runs'][0]
+                    family, weight = run['face'].split(':')
+                    sample['style'] = {
+                        'fill': node.get('fill'), 'ink': run['color'],
+                        'border': outline.get('stroke', {}).get('color'),
+                        'border_opacity': outline.get('opacity', 1) if outline is not node else 1,
+                        'radius': node.get('radius', 0), 'opacity': node.get('opacity', 1),
+                        'font_family': family, 'font_size': run['size'], 'font_weight': int(weight),
+                        'line_height': native_line['h'], 'text_case': text.get('text_case', 'none'),
+                    }
+                samples.append(sample)
+    (output / 'samples.json').write_text(json.dumps(samples, indent=2) + '\n')
+    print(f'Rendered {len(samples)} native Designer samples for paired visual comparisons.')
+print(f"Designer catalog: {len(catalog['components'])} public components, "
+      f"{sum(len(c['variants']) for c in catalog['components'])} visual variants.")

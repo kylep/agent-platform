@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { checkAdoption } from './ui-adoption.mjs';
+import { checkDesignerCoverage } from './ui-designer-coverage.mjs';
 import { checkStoryCoverage } from './ui-story-coverage.mjs';
 
 export function baselineGrowth(previous, current) {
@@ -31,8 +32,8 @@ function checkBaselineHistory(root, ref) {
 }
 
 export function run(root, { baseRef = process.env.UI_BASE_REF } = {}) {
-  const report = { adoption: null, stories: null, errors: [] };
-  for (const [name, check] of [['adoption', checkAdoption], ['stories', checkStoryCoverage]]) {
+  const report = { adoption: null, stories: null, designer: null, errors: [] };
+  for (const [name, check] of [['adoption', checkAdoption], ['stories', checkStoryCoverage], ['designer', checkDesignerCoverage]]) {
     try {
       report[name] = check(root);
       report.errors.push(...report[name].errors);
@@ -44,13 +45,15 @@ export function run(root, { baseRef = process.env.UI_BASE_REF } = {}) {
 }
 
 export function markdown(report) {
-  const { adoption: a, stories: s } = report;
+  const { adoption: a, stories: s, designer: d } = report;
   return [
     '## Design system coverage', '', '| Measure | Result |', '| --- | --- |',
     `| Direct control adoption | ${a ? `${a.compliantSites}/${a.compliantSites + a.rawSites} (${a.adoptionPercent === null ? "n/a" : a.adoptionPercent.toFixed(1)}%)` : 'Check failed'} |`,
     `| Grandfathered violation sites | ${a?.baselineSites ?? 'Check failed'} |`,
     `| Public visual components with registered stories | ${s ? `${s.coveredComponents}/${s.totalComponents}` : 'Check failed'} |`,
     `| Registered states resolving to stories | ${s ? `${s.coveredStates}/${s.totalStates}` : 'Check failed'} |`,
+    `| Public components mapped in UI Designer | ${d ? `${d.coveredComponents}/${d.totalComponents}` : 'Check failed'} |`,
+    `| Designer visual variants | ${d?.variants ?? 'Check failed'} |`,
     `| Gate errors | ${report.errors.length} |`, '',
     'Adoption counts direct JSX control sites in console and app source, not runtime usage. Registered state coverage is a declared contract, not exhaustive prop or code coverage. Story render, accessibility, interaction, and screenshot tests run separately.', '',
     ...report.errors.map(e => `- ${e.replaceAll('\n', ' ')}`), '',

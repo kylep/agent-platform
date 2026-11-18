@@ -18,6 +18,8 @@ import FontsPanel from "../components/ui-designer/FontsPanel";
 import type { UiFont, UiFonts } from "../lib/uiFonts";
 import ExportControls from "../components/ui-designer/ExportControls";
 import Inspector from "../components/ui-designer/Inspector";
+import PlatformComponents, { PlatformComponentInspector } from "../components/ui-designer/PlatformComponents";
+import { usePlatformLibrary } from "../lib/uiPlatformComponents";
 import { Button } from "@ap/ui/button";
 import { useDesignerEditing } from "../lib/useDesignerEditing";
 import type { UiInspection } from "../lib/uiDesigner";
@@ -70,6 +72,7 @@ export default function UiDesignerDocument() {
 
   const [resolved, setResolved] = useState<Resolved | null>(null);
   const resolvedOwner = useRef("");
+  const resolvedScope = useRef("");
   const [versions, setVersions] = useState<UiVersionRow[]>([]);
   const [current, setCurrent] = useState<number | null>(null);
   const [pageId, setPageId] = useState<string | null>(null);
@@ -89,6 +92,7 @@ export default function UiDesignerDocument() {
   const [fontSnapshot,setFontSnapshot]=useState<{base:string;version:number;fonts:UiFont[]}|null>(null),[fontsLoading,setFontsLoading]=useState(false),[fontsError,setFontsError]=useState("");
   const [vectorEpoch, setVectorEpoch] = useState(0);
   const [showIcons, setShowIcons] = useState(false);
+  const [showComponents, setShowComponents] = useState(false);
   const base = `${UD}/${encodeURIComponent(slug)}`;
 
   const accessState=useDesignerAccess(base);
@@ -97,6 +101,7 @@ export default function UiDesignerDocument() {
   const [globalWrite, setGlobalWrite] = useState(false);
   const canWrite=globalWrite && canRead && !!access?.can_write;
   const [pinned, setPinned] = useState<number | null>(null);
+  const viewScope = `${base}:${access?.document_id ?? "checking"}:${version ?? pinned}:${mode}`;
   const [inspection, setInspection] = useState<UiInspection | null>(null);
   const [parents, setParents] = useState<Record<string, unknown>[]>([]);
   const [stale, setStale] = useState(false);
@@ -110,10 +115,10 @@ export default function UiDesignerDocument() {
   const eventHandler = useRef(editing.external); eventHandler.current = editing.external;
   useEffect(() => { api<{ role: string }>("/api/whoami").then((me) => setGlobalWrite(["admin", "operator"].includes(me.role))).catch(() => setGlobalWrite(false)); }, []);
   useEffect(() => {
-    resolvedOwner.current = "";failedRenders.current.clear();
+    resolvedOwner.current = "";resolvedScope.current = "";failedRenders.current.clear();
     setPinned(null); setInspection(null); setParents([]); setStale(false); setCurrent(null);
     setVersions([]); setResolved(null); setPageId(null); setSel(null);
-    setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false);setShowFonts(false);setFontLocked(false);setFontSnapshot(null);setShowSharing(false);setSharingPending(false); setVectorEpoch(0); setShowIcons(false); setHl(null); setErr("");
+    setComparing(false); setShowFindings(false); setShowLibraries(false); setLibraryLocked(false);setShowFonts(false);setFontLocked(false);setFontSnapshot(null);setShowSharing(false);setSharingPending(false); setVectorEpoch(0); setShowIcons(false); setShowComponents(false); setHl(null); setErr("");
   }, [slug]);
 
   // Live refresh: the events stream carries every document; only the open one reloads.
@@ -152,10 +157,10 @@ export default function UiDesignerDocument() {
     let cancelled = false;
     const q = new URLSearchParams({ mode, version: String(version ?? pinned) });
     api<Resolved>(`${UD}/${encodeURIComponent(slug)}/resolved?${q}`)
-      .then((r) => { if (!cancelled) { resolvedOwner.current = base; setResolved(r); } })
+      .then((r) => { if (!cancelled) { resolvedOwner.current = base; resolvedScope.current = viewScope; setResolved(r); } })
       .catch((e) => { if (!cancelled) if(e instanceof Error && /^(403|404):/.test(e.message))accessDenied();else setErr(String(e.message ?? e)); });
     return () => { cancelled = true; };
-  }, [base, slug, version, pinned, mode, rev,canRead,accessDenied]);
+  }, [base, slug, version, pinned, mode, rev,canRead,accessDenied,viewScope]);
 
   useEffect(()=>{
     if(!canRead || !(version ?? pinned))return;
@@ -208,6 +213,14 @@ export default function UiDesignerDocument() {
   const parent = parents.at(-1);
   const freePosition = !parent?.layout || !!inspection?.authored?.absolute;
   const editable = canWrite && !version && !stale && !!inspection?.authored && inspection.version === pinned && inspection.id === picked?.id && !editing.busy && !editing.uncertain && !writeLocked;
+  const implementation = inspection?.id === picked?.id &&
+    (inspection?.version === (version ?? pinned) || (stale && !version)) ? inspection?.implementation : null;
+  const { library, error: componentsError, reload: reloadComponents } = usePlatformLibrary(canRead && (showComponents || !!implementation));
+  const selectedComponent = library?.revision === implementation?.revision
+    ? library?.components.find((component) => component.name === implementation?.component)
+    : undefined;
+  const canInsertComponent = canWrite && !version && !!pinned && resolvedScope.current === viewScope &&
+    !stale && !editing.busy && !editing.uncertain && !writeLocked;
   const presence=useDesignerPresence({base,documentId:access?.document_id ?? null,version:version ?? pinned,pageId:page?.id ?? null,nodeId:picked?.id.includes("/") ? known.find((node)=>node.id===picked.id.split("/")[0] && node.of)?.id ?? null : picked?.id ?? null,editing:editable,accessVersion:access?.access_version ?? 0,enabled:canRead,onAccessCheck:reloadAccess});
   function saveNode(id: string, changes: Record<string, unknown>) {
     if (!editable || inspection?.id !== id || picked?.id !== id || !inspection.authored) return;
@@ -256,6 +269,7 @@ export default function UiDesignerDocument() {
           <Button disabled={sharingPending} onClick={()=>setShowSharing((open)=>!open)}>{showSharing ? "Close sharing":"Sharing"}</Button>
           {(version ?? pinned) && <Link to={`/ui-designer/${encodeURIComponent(slug)}/play?${new URLSearchParams({ version: String(version ?? pinned), mode, ...(page && page.children?.find((n)=>n.type === "frame" && !n.of) ? { frame: page.children.find((n)=>n.type === "frame" && !n.of)!.id } : {}) })}`}>Play prototype</Link>}
           {canWrite && !version && <><Button onClick={editing.undo} disabled={writeLocked || stale || editing.busy || editing.uncertain || !editing.canUndo}>Undo</Button><Button onClick={editing.redo} disabled={writeLocked || stale || editing.busy || editing.uncertain || !editing.canRedo}>Redo</Button></>}
+          <Button aria-expanded={showComponents} onClick={() => setShowComponents((open) => !open)}>Components</Button>
           <Button onClick={() => setShowIcons((open) => !open)}>{showIcons ? "Close icons" : "Icons"}</Button>
           <Button disabled={fontLocked} onClick={()=>setShowFonts((open)=>!open)}>{showFonts ? "Close fonts":"Fonts"}</Button>
           <Button disabled={writeLocked} onClick={() => setShowLibraries((open) => !open)}>{showLibraries ? "Close libraries" : "Libraries"}</Button>
@@ -287,21 +301,28 @@ export default function UiDesignerDocument() {
       {version && <p className="muted">Viewing a historical version. Return to Latest to edit.</p>}
       {err && <p role="alert" className="muted">Could not load: {err}</p>}
       <div className="ud-cols">
-        <aside className="ud-outline" aria-label="Outline">
-          {pages.map((p) => (
-            <div key={p.id}>
-              <button type="button" className="ud-node ud-page"
-                      data-selected={page?.id === p.id ? "" : undefined}
-                      onClick={() => { setPageId(p.id); setSel(null); }}>
-                {nodeLabel(p)}
-              </button>
-              {page?.id === p.id && (
-                <Outline nodes={p.children ?? []} depth={1} selected={picked?.id ?? null}
-                         onSelect={setSel} />
-              )}
-            </div>
-          ))}
-        </aside>
+        <div className="ud-designer-sidebar">
+          <aside className="ud-outline" aria-label="Outline">
+            {pages.map((p) => (
+              <div key={p.id}>
+                <button type="button" className="ud-node ud-page"
+                        data-selected={page?.id === p.id ? "" : undefined}
+                        onClick={() => { setPageId(p.id); setSel(null); }}>
+                  {nodeLabel(p)}
+                </button>
+                {page?.id === p.id && (
+                  <Outline nodes={p.children ?? []} depth={1} selected={picked?.id ?? null}
+                           onSelect={setSel} />
+                )}
+              </div>
+            ))}
+          </aside>
+          {showComponents && page && <PlatformComponents key={`${base}:${access?.document_id}:${version ?? "latest"}`}
+            library={library} error={componentsError} reload={reloadComponents} page={page} selected={picked} disabled={!canInsertComponent}
+            onInsert={(op) => {
+              if (canInsertComponent) editing.commit([op], [{ op: "remove", ids: [op.id] }]);
+            }} />}
+        </div>
         <div className="ud-canvas">
           {page ? <Canvas slug={slug} page={page} version={version ?? pinned} mode={mode}
                           selected={picked?.id ?? null} onSelect={setSel} onCursor={presence.onCursor} remotePresence={presence.sessions.filter((peer)=>peer.version===(version ?? pinned) && peer.page_id===page.id)}
@@ -312,6 +333,8 @@ export default function UiDesignerDocument() {
         </div>
         <aside className="ud-inspector" aria-label="Inspector">
           <h2>Inspector</h2>
+          {inspection && implementation && <PlatformComponentInspector key={`${base}:${access?.document_id}:${version ?? "latest"}:${inspection.id}:${inspection.version}`}
+            inspection={inspection} component={selectedComponent} disabled={!editable} onSave={(changes) => saveNode(inspection.id, changes)} />}
           {picked && inspection?.id === picked.id ? <Inspector fonts={installedFonts} inspection={inspection} disabled={!editable} freePosition={freePosition} frames={resolved ? prototypeFrames(resolved) : []} onSave={(changes) => saveNode(inspection.id, changes)} /> : <p className="muted">{picked ? "Loading node…" : "Click a node."}</p>}
           {page && (version ?? pinned) && <VectorTools key={`${base}:${vectorEpoch}`} base={base} version={(version ?? pinned)!} page={page} selected={picked} inspection={inspection} disabled={!canWrite || !!version || stale || editing.busy || editing.uncertain || writeLocked} onCommit={(ops, inverse) => {
             if (canWrite && !version && !stale && !editing.busy && !editing.uncertain && !writeLocked) editing.commit(ops, inverse);

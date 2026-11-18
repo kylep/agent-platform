@@ -71,7 +71,7 @@ CODES: dict[str, str] = {
     "UD-FONT": "Use Inter, JetBrains Mono or Noto Sans.",
     "UD-MODE": "Key mode-dependent tokens by the names listed in `modes`.",
     # Op problems.
-    "UD-OP-UNKNOWN": "Use one of: insert, update, resize, boolean, icon, remove, move, replace, set_text, "
+    "UD-OP-UNKNOWN": "Use one of: insert, update, resize, boolean, icon, platform_component, remove, move, replace, set_text, "
                      "tokens, define_component, set_doc.",
     "UD-OP-TARGET": "Name an id that exists and is allowed for this op.",
     "UD-OP-INDEX": "Use an index between 0 and the parent's child count.",

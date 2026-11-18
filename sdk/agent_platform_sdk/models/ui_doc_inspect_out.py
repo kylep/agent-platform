@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     )
     from ..models.ui_doc_inspect_out_modes import UiDocInspectOutModes
     from ..models.ui_doc_inspect_out_warnings_item import UiDocInspectOutWarningsItem
+    from ..models.ui_platform_implementation import UiPlatformImplementation
 
 
 T = TypeVar("T", bound="UiDocInspectOut")
@@ -30,6 +31,7 @@ class UiDocInspectOut:
         component (None | str | Unset):
         component_set (None | UiDocInspectOutComponentSetType0 | Unset):
         geometry (Any | Unset):
+        implementation (None | UiPlatformImplementation | Unset):
         modes (UiDocInspectOutModes | Unset):
         text (None | str | Unset):
         title (None | str | Unset):
@@ -45,6 +47,7 @@ class UiDocInspectOut:
     component: None | str | Unset = UNSET
     component_set: None | UiDocInspectOutComponentSetType0 | Unset = UNSET
     geometry: Any | Unset = UNSET
+    implementation: None | UiPlatformImplementation | Unset = UNSET
     modes: UiDocInspectOutModes | Unset = UNSET
     text: None | str | Unset = UNSET
     title: None | str | Unset = UNSET
@@ -57,6 +60,7 @@ class UiDocInspectOut:
         from ..models.ui_doc_inspect_out_component_set_type_0 import (
             UiDocInspectOutComponentSetType0,
         )
+        from ..models.ui_platform_implementation import UiPlatformImplementation
 
         id = self.id
 
@@ -81,6 +85,14 @@ class UiDocInspectOut:
             component_set = self.component_set
 
         geometry = self.geometry
+
+        implementation: dict[str, Any] | None | Unset
+        if isinstance(self.implementation, Unset):
+            implementation = UNSET
+        elif isinstance(self.implementation, UiPlatformImplementation):
+            implementation = self.implementation.to_dict()
+        else:
+            implementation = self.implementation
 
         modes: dict[str, Any] | Unset = UNSET
         if not isinstance(self.modes, Unset):
@@ -132,6 +144,8 @@ class UiDocInspectOut:
             field_dict["component_set"] = component_set
         if geometry is not UNSET:
             field_dict["geometry"] = geometry
+        if implementation is not UNSET:
+            field_dict["implementation"] = implementation
         if modes is not UNSET:
             field_dict["modes"] = modes
         if text is not UNSET:
@@ -156,6 +170,7 @@ class UiDocInspectOut:
         from ..models.ui_doc_inspect_out_warnings_item import (
             UiDocInspectOutWarningsItem,
         )
+        from ..models.ui_platform_implementation import UiPlatformImplementation
 
         d = dict(src_dict)
         id = d.pop("id")
@@ -195,6 +210,25 @@ class UiDocInspectOut:
         component_set = _parse_component_set(d.pop("component_set", UNSET))
 
         geometry = d.pop("geometry", UNSET)
+
+        def _parse_implementation(
+            data: object,
+        ) -> None | UiPlatformImplementation | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                implementation_type_0 = UiPlatformImplementation.from_dict(data)
+
+                return implementation_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | UiPlatformImplementation | Unset, data)
+
+        implementation = _parse_implementation(d.pop("implementation", UNSET))
 
         _modes = d.pop("modes", UNSET)
         modes: UiDocInspectOutModes | Unset
@@ -251,6 +285,7 @@ class UiDocInspectOut:
             component=component,
             component_set=component_set,
             geometry=geometry,
+            implementation=implementation,
             modes=modes,
             text=text,
             title=title,

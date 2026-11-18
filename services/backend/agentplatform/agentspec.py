@@ -206,11 +206,11 @@ UI_DESIGNER_CHEATSHEET = r"""Document schema (closed: unknown keys are rejected;
     type: {name: style}}; reference as "$color.name", "$space.name", "$radius.name", "$type.name".
 Ops (one batch applies atomically; each op is an object with "op"):
   insert {parent: page|frame id,node,index?}  update {id,set:{prop:value|null}}  resize {id,set} (sole op; dimension/bound edits apply pins).
-  remove {ids: [id]}                               move {id, parent, index?}
-  replace {id, node}                               set_text {id, text}
+  remove {ids:[id]}  move {id,parent,index?}  replace {id,node}  set_text {id,text}
   tokens {set:{color:{name:value|null}}} (merges; null deletes); define_component {id:new component id,from:node id}.
   boolean {kind:union|subtract|intersect|exclude,ids:[2..8 ordered siblings]} (sole op; filled contours, not stroke outlines; first ID/style retained).
   icon {icon,revision:1,parent,id,size?:16..128,color?:hex,stroke_width?:0.5..4,x?,y?,index?} (sole op; request_id required). component_sets {set:{id:whole-definition|null}} replaces/removes definitions.
+  platform_component {component,variant,revision:1,parent,id,props?,x?,y?,index?} inserts a native Agent Platform component with pinned definitions and theme tokens. Discover names and props with component_library {name?}; inspect generates React usage.
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update is literal and cannot set id/type/children; a page only takes title. resize/boolean/icon return exact literal undo_ops (128 ops/8KiB max); redo the original request.

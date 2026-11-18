@@ -60,6 +60,8 @@ jobs:
             web:
               - 'services/web/**'
               - 'packages/ui/**'
+              - 'services/backend/agentplatform/ui_designer/**'
+              - 'bin/build-designer-parity'
               - 'apps/*/frontend/**'
               - 'package.json'
               - 'package-lock.json'
@@ -135,6 +137,11 @@ jobs:
           fi
       - name: Install backend
         run: pip install -e 'services/backend[dev]'
+      - uses: azure/setup-helm@v4
+        if: matrix.shard != 'extras'
+      - name: Fetch chart dependencies for backend render tests
+        if: matrix.shard != 'extras'
+        run: helm dependency update charts/agent-platform
       - name: Run backend tests (shard ${{ matrix.shard }} of 3)
         if: matrix.shard != 'extras'
         # Includes the end-to-end SDK exercise (tests/test_sdk_integration.py):
@@ -144,7 +151,10 @@ jobs:
         # Shards are balanced by recorded durations (.test_durations; refresh with
         # `pytest -n auto --store-durations` when the suite changes a lot — stale
         # data only unbalances the shards, it never drops a test).
-        run: pytest -n auto --splits 3 --group ${{ matrix.shard }} --durations-path .test_durations services/backend/tests
+        run: pytest -m 'not performance' -n auto --splits 3 --group ${{ matrix.shard }} --durations-path .test_durations services/backend/tests
+      - name: Designer layout performance gate without competing test workers
+        if: matrix.shard == 1
+        run: pytest -m performance services/backend/tests/test_ui_designer_layout.py
       - name: Broker tool tests
         if: matrix.shard == 'extras'
         # The broker's own tools (services/mcp-broker): the modules that reach
@@ -333,6 +343,19 @@ jobs:
       - name: Design-system token gate
         # No raw hex outside packages/ui/src/tokens.css — see packages/ui/README.md
         run: cd services/web && npm run check:tokens
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the native Designer font renderer
+        # Pure layout/SVG fixtures only: no server, DB, or rasterizer dependencies.
+        run: |
+          python - <<'PYTHON'
+          import pathlib, subprocess, sys, tomllib
+          deps = tomllib.loads(pathlib.Path('services/backend/pyproject.toml').read_text())['project']['dependencies']
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', *[d for d in deps if d.startswith(('fonttools==', 'uharfbuzz=='))]])
+          PYTHON
+      - name: Shared Designer tokens and font integrity
+        run: npm run check:designer-tokens -w web
       - name: Design-system checker regression tests
         run: npm run test:design-system -w web
       - name: Storybook builds

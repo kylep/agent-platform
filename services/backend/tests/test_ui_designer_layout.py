@@ -387,6 +387,7 @@ def test_gallery_golden_facts_not_just_a_snapshot():
 
 # --- benchmark gate ----------------------------------------------------------
 
+@pytest.mark.performance
 def test_benchmark_20k_expanded_nodes_under_250ms():
     doc = big_doc()
     S.validate_document(doc)

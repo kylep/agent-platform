@@ -417,6 +417,12 @@ def inspect_node(doc: dict, node_id: str, trees: dict[str | None, dict], *, budg
                        "variant": details.get("variant", {}),
                        "_cut": True, "get": {"node": COMPONENT_SETS_NODE}}
         answer["component_set"] = details
+        from .platform_library import inspect_instance
+        implementation = inspect_instance(doc, authored)
+        if implementation is not None:
+            if size(implementation) > max(0, budget - size(answer)):
+                implementation = {**implementation, "props": {}, "fixture": {}, "snippet": None}
+            answer["implementation"] = implementation
     return answer
 
 

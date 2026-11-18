@@ -152,3 +152,43 @@ uses the installed Playwright version's Linux arm64 Docker image (matching CI's 
 and CI runs, with fixed time, fonts loaded, and reduced animation. An upgrade to
 Playwright requires a deliberate baseline review. The first image pull needs
 network access; the test container itself runs without external networking.
+
+## UI Designer representations
+
+The built-in **Agent Platform** library in UI Designer maps these React exports
+to native editable components, with named variants and supported text bindings.
+`services/backend/agentplatform/ui_designer/platform_catalog.py` owns the native
+recipes and implementation mappings. `designer-library.json` is its generated
+manifest consumed by the React comparison story. The native library is revisioned:
+changing a released definition or token snapshot requires a deliberate library
+revision and a review of how existing pinned instances are handled.
+
+Keep all three surfaces together when changing a public component: its React
+implementation/stories, its native recipe and supported prop mapping, and its
+visual comparison. The coverage gate rejects exports missing from Designer.
+Represent complex behavior with an honest static example and documented limits;
+never label a drawing as implementing focus handling, data loading, or callbacks.
+
+```sh
+npm run sync:designer-tokens -w web  # after a canonical token change
+npm run check:designer-tokens -w web
+services/backend/.venv/bin/python bin/build-designer-parity --write
+npm run build:storybook -w web
+npm run test:storybook:visual -w web
+```
+
+The token generator reads `src/tokens.css` and the installed Tailwind theme.
+`platform_tokens.json` is generated backend package data. Browser fonts under
+`src/fonts` are byte-identical copies of the native renderer's bundled fonts,
+including their licenses; integrity checks reject drift.
+
+Browser test commands generate native SVG fixtures before running. They need a
+Python 3.12+ interpreter with the backend's pinned `fonttools` and `uharfbuzz`;
+`AP_VERIFY_PYTHON` overrides automatic selection of the local backend environment.
+CI installs only those two packages for this step. Generated fixtures live in
+ignored `.ap/designer-parity`; they are neither user data nor committed assets.
+The **UI Designer / Agent Platform library** story renders the actual React
+components from the catalog's mappings. Browser checks compare primitive bounds,
+colors, radii and typography, then capture React and native Designer images
+side-by-side for reviewed regression snapshots. Text rasterization and complex
+static examples are not a claim of pixel-identical runtime behavior.

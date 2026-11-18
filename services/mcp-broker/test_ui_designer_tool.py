@@ -347,3 +347,15 @@ def test_comment_notification_status_is_honest_on_replay(api):
     assert '(replayed)' in out and '@pai: skipped' in out
     assert 'Private documents' in out
     assert 'delivered' not in out
+
+
+def test_component_library_discovery_is_compact_and_can_expand_a_component(api):
+    route = "/api/ui-designer/component-library"
+    component = {"name": "Button", "description": "An action", "variants": [{"id": "default", "props": {}}]}
+    manifest = {"id": "agent-platform", "revision": 1, "components": [component]}
+    api.replies[route] = (200, json.dumps(manifest))
+    assert json.loads(ud(action="component_library"))["components"] == [
+        {"name": "Button", "variants": ["default"]}
+    ]
+    assert json.loads(ud(action="component_library", name="Button")) == manifest
+    assert api[-1][:3] == ("GET", route, {"name": "Button"})

@@ -2047,6 +2047,19 @@ class UiAssetGcOut(BaseModel):
     bytes_freed: int
 
 
+class UiPlatformImplementation(BaseModel):
+    status: Literal["exact", "detached"]
+    component: str
+    import_path: str
+    revision: int
+    variant: str | None = None
+    props: dict[str, Any]
+    snippet: str | None = None
+    fixture: dict[str, Any]
+    limitations: list[str]
+    story_id: str | None = None
+
+
 class UiDocInspectOut(BaseModel):
     slug: str
     version: int
@@ -2061,6 +2074,7 @@ class UiDocInspectOut(BaseModel):
     text: str | None = None
     component: str | None = None
     component_set: dict[str, Any] | None = None
+    implementation: UiPlatformImplementation | None = None
     authored: Any = None
     warnings: list[dict[str, Any]] = []
 
@@ -2285,6 +2299,40 @@ class UiLibraryPreviewOut(BaseModel):
 
 class UiLibraryWriteOut(UiDocWriteOut):
     library_id: str
+
+
+class UiPlatformComponentVariant(BaseModel):
+    id: str
+    label: str
+    props: dict[str, Any]
+    width: float
+    height: float
+    selection: dict[str, str]
+    fixture: dict[str, Any]
+
+
+class UiPlatformComponentProperty(BaseModel):
+    name: str
+    type: str
+    default: Any
+    prop: str
+
+
+class UiPlatformComponent(BaseModel):
+    name: str
+    description: str
+    import_path: str
+    variants: list[UiPlatformComponentVariant]
+    properties: list[UiPlatformComponentProperty]
+    limitations: list[str]
+    story_id: str | None = None
+    category: str | None = None
+
+
+class UiPlatformComponentLibraryOut(BaseModel):
+    id: Literal["agent-platform"]
+    revision: int
+    components: list[UiPlatformComponent]
 
 
 class UiTemplateSummary(BaseModel):

@@ -391,12 +391,18 @@ async def resolve_version(s, row: UiDesignerDocument, n: int) -> dict | None:
     return cur
 
 
+def _installs_platform_component(ops: list[dict]) -> bool:
+    return any(op.get("op") == "platform_component" for op in ops)
+
+
 def row_is_open(v: UiDesignerVersion, doc: UiDesignerDocument, now: datetime) -> bool:
     """Can this row still fold? Only the current row can; the window runs from
     its first write; a label, a run-less write, the creation row, or another
-    principal's read or write closes it."""
+    principal's read or write closes it. Library insertions keep a snapshot
+    boundary so version reads need only the persisted native definitions."""
     return (v.version == doc.version and v.label is None and v.run_id is not None and v.first_version > 1
-            and now - _aware(v.created_at) <= FOLD_WINDOW and doc.last_reader in (None, v.author))
+            and now - _aware(v.created_at) <= FOLD_WINDOW and doc.last_reader in (None, v.author)
+            and not _installs_platform_component(v.chunks[0]["ops"]))
 
 
 async def version_state(s, slug: str, n: int, now: datetime | None = None) -> str | None:
@@ -496,7 +502,8 @@ async def edit_document(s, slug: str, *, ops: Any, expected_version: Any, author
     chunk = {"version": n, "ops": res.ops, "reason": reason, "at": _iso(now)}
     latest = (await s.execute(select(UiDesignerVersion).where(
         UiDesignerVersion.document_id == row.id, UiDesignerVersion.version == row.version))).scalars().first()
-    fold_into = (latest if fold and run_id is not None and latest is not None and latest.run_id == run_id
+    fold_into = (latest if fold and not _installs_platform_component(res.ops)
+                 and run_id is not None and latest is not None and latest.run_id == run_id
                  and latest.author == author and row_is_open(latest, row, now) else None)
     doc_size = stored_size(new, row.description)
     if fold_into is not None:

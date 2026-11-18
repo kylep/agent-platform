@@ -1,3 +1,5 @@
+import type { PlatformImplementation } from "./uiPlatformComponents";
+
 // Read-only types and helpers for the UI Designer web view (docs/design/46 §7).
 export type UiDocSummary = {
   slug: string; title: string; owner: string; version: number;
@@ -58,8 +60,9 @@ export type UiEditOp = { op: "update" | "resize"; id: string; set: Record<string
   | { op: "remove"; ids: string[] }
   | { op: "replace"; id: string; node: Record<string, unknown> }
   | { op: "icon"; icon: string; revision: number; parent: string; id: string; size?: number; color?: string; stroke_width?: number; x?: number; y?: number; index?: number }
+  | { op: "platform_component"; component: string; variant: string; revision: number; parent: string; id: string; props: Record<string, string> }
   | { op: "boolean"; kind: "union" | "subtract" | "intersect" | "exclude"; ids: string[] };
 export type UiWriteResult = { version: number; replayed?: boolean; undo_ops?: UiEditOp[]; warnings?: Record<string, unknown>[] };
-export type UiInspection = { version: number; id: string; type?: string; authored: Record<string, unknown> | null; text?: string; warnings?: Record<string, unknown>[] };
+export type UiInspection = { version: number; id: string; type?: string; authored: Record<string, unknown> | null; implementation?: PlatformImplementation | null; text?: string; warnings?: Record<string, unknown>[] };
 
 export type UiPrototypeLink = { target: string; trigger?: "tap" | "hover" | "after-delay"; transition?: "instant" | "dissolve" | "slide" | "smart-animate"; easing?: "linear" | "ease-in" | "ease-out" | "ease-in-out"; duration_ms?: number; delay_ms?: number };

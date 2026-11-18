@@ -80,7 +80,7 @@ def test_tool_change_also_runs_executor(apv):
 def test_web_change_runs_the_web_steps_in_ci_order(apv):
     table = apv.suite_table(REPO_ROOT)
     names = _names(apv.select(table, ["services/web/src/api.ts"]))
-    assert names == ["web-lint", "web-tokens", "web-design-system-tests", "web-build",
+    assert names == ["web-lint", "web-tokens", "designer-token-parity", "web-design-system-tests", "web-build",
                      "web-storybook", "web-design-system", "web-playwright", "web-storybook-tests"]
 
 
@@ -117,7 +117,7 @@ def test_docs_map_to_nothing(apv):
 def test_mixed_change_picks_both(apv):
     table = apv.suite_table(REPO_ROOT)
     names = _names(apv.select(table, ["services/backend/x.py", "services/mcp-broker/y.py"]))
-    assert names == ["backend", "persona-postgres", "broker"]
+    assert names == ["backend", "backend-performance", "persona-postgres", "broker"]
 
 
 def test_select_all_returns_whole_table_in_order(apv):
@@ -148,6 +148,9 @@ def test_backend_runs_same_tests_with_reports_under_xdist(apv, tmp_path, monkeyp
     backend = next(s for s in apv.suite_table(REPO_ROOT, out=tmp_path) if s["name"] == "backend")
     assert backend["cmd"][backend["cmd"].index("-n") + 1] == "3"
     assert "tests" in backend["cmd"] and "--timeout=120" in backend["cmd"]
+    assert backend["cmd"][backend["cmd"].index("-m", 3) + 1] == "not performance"
+    perf = next(s for s in apv.suite_table(REPO_ROOT) if s["name"] == "backend-performance")
+    assert "-n" not in perf["cmd"] and "performance" in perf["cmd"]
     assert "--cov=agentplatform" in backend["cmd"]
     assert f"--junitxml={tmp_path / 'junit-backend.xml'}" in backend["cmd"]
     monkeypatch.setattr(apv, "has_module", lambda py, name: name != "xdist")

@@ -903,6 +903,19 @@ async def get_ui_icon(icon_id: str, request: Request, revision: int = Query(...,
         raise ud_http(error)
 
 
+@router.get(PREFIX + "/component-library", response_model=S.UiPlatformComponentLibraryOut)
+async def list_ui_platform_components(request: Request, name: str | None = Query(None, max_length=80),
+                                      caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """List Agent Platform components and the native properties their variants expose."""
+    from agentplatform.ui_designer.platform_catalog import catalog_manifest
+
+    manifest = catalog_manifest()
+    if name is not None:
+        manifest = {**manifest, "components": [component for component in manifest["components"]
+                                               if component["name"].casefold() == name.casefold()]}
+    return manifest
+
+
 @router.get(PREFIX + "/templates", response_model=S.UiTemplatesOut)
 async def list_ui_templates(request: Request,
                              caller: Caller = Depends(require_ui_designer_access(*READ))):

@@ -132,7 +132,7 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
     pp = _pythonpath(root)
     pytest_q = [py, "-m", "pytest", "-q"]
 
-    backend_cmd = pytest_q + ["--timeout=120", "tests"]
+    backend_cmd = pytest_q + ["--timeout=120", "-m", "not performance", "tests"]
     if has_module(py, "xdist"):
         backend_cmd += ["-n", str(backend_workers())]
     backend_artifacts = []
@@ -151,11 +151,14 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
                   "PLAYWRIGHT_JSON_OUTPUT_NAME": str(out / "playwright-web.json")}
         pw_artifacts = [out / "junit-web.xml", out / "playwright-web.json"]
 
-    web_globs = ["services/web/**", "packages/ui/**", "apps/*/frontend/**", "package.json", "package-lock.json"]
+    web_globs = ["services/web/**", "packages/ui/**", "apps/*/frontend/**", "package.json", "package-lock.json", "bin/build-designer-parity",
+                 "services/backend/agentplatform/ui_designer/**"]
     api_globs = ["services/backend/agentplatform/api/**"]
     suites = [
         _suite("backend", ["services/backend/**", "sdk/**", "bin/ap-verify", "bin/ap_verify*"],
                "services/backend", backend_cmd, env=pp, artifacts=backend_artifacts),
+        _suite("backend-performance", ["services/backend/**", "sdk/**", "bin/ap-verify", "bin/ap_verify*"],
+               "services/backend", pytest_q + ["-m", "performance", "tests/test_ui_designer_layout.py"], env=pp),
         # The SDK is generated from the API's OpenAPI document; CI fails on
         # drift. A clean run leaves the tree untouched; a drifted one leaves
         # the regenerated files in place, and the tail says so.
@@ -180,6 +183,8 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
                requires=["npm"]),
         _suite("web-tokens", web_globs, "services/web", ["npm", "run", "-s", "check:tokens"],
                requires=["npm"]),
+        _suite("designer-token-parity", web_globs,
+               "services/web", ["npm", "run", "-s", "check:designer-tokens"], requires=["npm"]),
         _suite("web-design-system-tests", web_globs, "services/web", ["npm", "run", "-s", "test:design-system"],
                requires=["npm"]),
         _suite("web-build", web_globs, "services/web", ["npm", "run", "-s", "build"],
@@ -192,7 +197,7 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
                ["npx", "playwright", "test", "--reporter=line,junit,json"],
                env=pw_env, requires=["npx"], artifacts=pw_artifacts),
         _suite("web-storybook-tests", web_globs, "services/web", ["npm", "run", "-s", "test:storybook:visual"],
-               requires=["npm", "docker"]),
+               env={"AP_VERIFY_PYTHON": py}, requires=["npm", "docker"]),
     ]
 
     for app_dir in sorted((root / "apps").glob("*")):

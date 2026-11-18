@@ -156,14 +156,10 @@ def png_bytes(w, h, color):
 
 
 def test_images_share_one_defs_entry_and_fit_modes(tmp_path):
-    raw = io.BytesIO()
-    im = Image.new("RGB", (40, 20), "#2ecc71")
-    for x in range(20):
-        for y in range(20):
-            im.putpixel((x, y), (231, 76, 60))
-    im.save(raw, "PNG")
-    sha = hashlib.sha256(raw.getvalue()).hexdigest()
-    (tmp_path / f"{sha}.png").write_bytes(raw.getvalue())
+    # A checked-in source image keeps the content hash stable across PNG encoders.
+    raw = (Path(__file__).parent / "fixtures" / "ui_designer" / "image-fit-source.png").read_bytes()
+    sha = hashlib.sha256(raw).hexdigest()
+    (tmp_path / f"{sha}.png").write_bytes(raw)
     d = doc_with([{"id": "row", "type": "frame", "w": 200, "h": 60, "fill": "#000000",
                    "layout": {"dir": "row", "gap": 5, "pad": 5}, "children": [
         {"id": "cover", "type": "image", "asset": sha, "fit": "cover", "w": 40, "h": 40, "radius": 6},
@@ -271,10 +267,30 @@ async def test_job_timeout_kills_and_respawns_the_worker(service):
 async def test_memory_fence_kills_the_job_not_the_service(service):
     if sys.platform != "linux":
         pytest.skip("RLIMIT_DATA is only enforced on Linux")
+    # The 3150 × 3150 output fits the pixel cap. Nested opacity groups force
+    # native compositing buffers without exceeding any authored document limit.
+    size = {"w": 1050, "h": 1050}
+    foreground = {"id": "foreground", "type": "rect", **size,
+                  "fill": {"gradient": "linear", "stops": [[0, "#f00"], [1, "#080"]]}}
+    layer = {"id": "layer", "type": "frame", **size, "fill": "#000",
+             "opacity": .8, "children": [foreground]}
+    scene = doc_with([{"id": "composite", "type": "frame", **size, "fill": "#000",
+                       "opacity": .8, "children": [layer]}])
+    body = {"doc": scene, "mode": "dark", "nodes": ["composite"], "scale": 3}
+    control = await service(job_memory_mb=512, job_timeout_s=20)
+    assert (await control.post("/render", json=body)).status == 200
+
     c = await service(job_memory_mb=64, job_timeout_s=20)
-    r = await c.post("/render", json={"doc": noisy_doc(400), "mode": "dark", "nodes": ["noise"], "scale": 3})
-    assert r.status in (500, 504) and (await r.json())["code"] == UD_RENDER_FAILED
+    small = {"doc": hud(), "mode": "dark", "nodes": ["hud"]}
+    assert (await c.post("/render", json=small)).status == 200
+    before = c.app[renderer.POOL].all[0].proc.pid
+    response = await c.post("/render", json=body)
+    error = await response.json()
+    assert response.status == 504 and error["code"] == UD_RENDER_FAILED
+    assert "worker exited" in error["message"]
     assert (await c.get("/healthz")).status == 200
+    assert (await c.post("/render", json=small)).status == 200
+    assert c.app[renderer.POOL].all[0].proc.pid != before
 
 
 # --- the client and the cache ----------------------------------------------

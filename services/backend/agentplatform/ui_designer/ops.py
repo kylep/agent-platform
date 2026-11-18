@@ -24,6 +24,7 @@ OP_FIELDS: dict[str, tuple[set[str], set[str]]] = {  # op -> (required, optional
     "resize": ({"id", "set"}, set()),
     "boolean": ({"kind", "ids"}, set()),
     "icon": ({"icon", "revision", "parent", "id"}, {"index", "size", "color", "stroke_width", "x", "y"}),
+    "platform_component": ({"component", "variant", "revision", "parent", "id"}, {"props", "x", "y", "index"}),
     "remove": ({"ids"}, set()),
     "move": ({"id", "parent"}, {"index"}),
     "replace": ({"id", "node"}, set()),
@@ -193,6 +194,13 @@ def _insert(doc: dict, op: dict, path: str) -> dict:
     assign_ids(node, _taken(doc))
     kids.insert(_index(op.get("index"), len(kids), join_path(path, "index")), node)
     return doc
+
+
+def _platform_component(doc: dict, op: dict, path: str) -> dict:
+    from .platform_library import install_instance
+
+    instance = install_instance(doc, op, path)
+    return _insert(doc, {"parent": op["parent"], "node": instance, "index": op.get("index")}, path)
 
 
 def _update(doc: dict, op: dict, path: str) -> dict:
@@ -497,4 +505,4 @@ def _set_doc(doc: dict, op: dict, path: str) -> dict:
 _OPS = {"insert": _insert, "update": _update, "remove": _remove, "move": _move,
         "replace": _replace, "set_text": _set_text, "tokens": _tokens,
         "define_component": _define_component, "set_doc": _set_doc,
-        "component_sets": _component_sets}
+        "component_sets": _component_sets, "platform_component": _platform_component}

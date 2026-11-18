@@ -2433,7 +2433,7 @@ async def image_gen(action: str, prompt: str | None = None, model: str | None = 
 # for the artifacts reason: the author of every write is the forwarded bearer,
 # and the answer to `edit`/`snapshot` is PICTURES (`_with_pictures`).
 UI_DESIGNER_ACTIONS = ("list", "create", "get", "outline", "edit", "snapshot",
-                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library", "templates", "icons", "motion", "fonts", "sharing")
+                       "history", "restore", "place", "inspect", "comments", "export", "lint", "library", "templates", "icons", "motion", "fonts", "sharing", "component_library")
 _UI_DESIGNER = "/api/ui-designer"
 # Inside it the API commits first and renders under its own 15 s deadline.
 _UI_DESIGNER_TIMEOUT = 45
@@ -2574,11 +2574,11 @@ Document schema (closed: unknown keys are rejected; ids are a-z0-9-):
     type: {name: style}}; reference as "$color.name", "$space.name", "$radius.name", "$type.name".
 Ops (one batch applies atomically; each op is an object with "op"):
   insert {parent: page|frame id,node,index?}  update {id,set:{prop:value|null}}  resize {id,set} (sole op; dimension/bound edits apply pins).
-  remove {ids: [id]}                               move {id, parent, index?}
-  replace {id, node}                               set_text {id, text}
+  remove {ids:[id]}  move {id,parent,index?}  replace {id,node}  set_text {id,text}
   tokens {set:{color:{name:value|null}}} (merges; null deletes); define_component {id:new component id,from:node id}.
   boolean {kind:union|subtract|intersect|exclude,ids:[2..8 ordered siblings]} (sole op; filled contours, not stroke outlines; first ID/style retained).
   icon {icon,revision:1,parent,id,size?:16..128,color?:hex,stroke_width?:0.5..4,x?,y?,index?} (sole op; request_id required). component_sets {set:{id:whole-definition|null}} replaces/removes definitions.
+  platform_component {component,variant,revision:1,parent,id,props?,x?,y?,index?} inserts a native Agent Platform component with pinned definitions and theme tokens. Discover names and props with component_library {name?}; inspect generates React usage.
   set_doc {doc}  replaces the whole document. It is the ONLY way to add or remove a
     page (there is no add_page op); `insert` parents are existing pages or frames.
   update is literal and cannot set id/type/children; a page only takes title. resize/boolean/icon return exact literal undo_ops (128 ops/8KiB max); redo the original request.
@@ -2608,6 +2608,15 @@ Example edit ops (new page: a frame, a text and a row of two cards):
         return await _artifact_call("GET", f"{_UI_DESIGNER}/icons",
             {"q": q or "", "limit": _clamp(limit, 100, 40), "cursor": after},
             timeout=_UI_DESIGNER_TIMEOUT)
+    if action == "component_library":
+        out = await _artifact_call("GET", f"{_UI_DESIGNER}/component-library",
+            {"name": name} if name else None, timeout=_UI_DESIGNER_TIMEOUT)
+        manifest = _artifact_rows(out)
+        if name or not isinstance(manifest, dict):
+            return out
+        return _json.dumps({**manifest, "components": [
+            {"name": component["name"], "variants": [variant["id"] for variant in component["variants"]]}
+            for component in manifest["components"]]})
     if action == "templates":
         return await _artifact_call("GET", f"{_UI_DESIGNER}/templates", timeout=_UI_DESIGNER_TIMEOUT)
     if action == "list":
