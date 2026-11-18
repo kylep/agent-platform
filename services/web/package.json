@@ -9,6 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:ui": "playwright test",
+    "check:site-routes": "node design-capture/check-routes.mjs",
+    "capture:site": "playwright test --config playwright.site-capture.config.ts",
     "walk": "node scripts/walk.mjs",
     "storybook": "storybook dev -p 6006",
     "build:storybook": "storybook build",

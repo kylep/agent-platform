@@ -8,7 +8,7 @@ import type { Page, Route } from "@playwright/test";
 
 // An agent IS its row (docs/design/15): the listing carries the full
 // definition plus server-derived readiness.
-const def = (over: Record<string, unknown>) => ({
+const def = (over: { name: string } & Record<string, unknown>) => ({
   prompt: "You are a platform agent.", description: "", model: "", role: "operator",
   system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
   result_topic: "", transcript_retention_days: null,
@@ -174,7 +174,7 @@ const PNG_B64 =
 const artifact = (id: string, over: Record<string, unknown>) => ({
   id, name: "", mime: "image/png", size: 1024, sha256: aid("f"), kind: "image",
   width: 1024, height: 1024, owner: "user:kyle", run_id: null, source: "upload",
-  meta: {}, tags: [], created_at: at(30), deleted_at: null,
+  meta: {}, tags: [] as string[], created_at: at(30), deleted_at: null,
   thumb_url: `/api/artifacts/${id}/thumb`, content_url: `/api/artifacts/${id}/content`,
   ...over,
 });
