@@ -229,8 +229,13 @@ def record_results(base, args):
 def _window(base, args, default):
     n = legacy._int_arg(args, "runs", default, 1, legacy.MAX_RUNS)
     runs = _rows(base, "runs_recent")[:n]
-    ids = {run["id"] for run in runs}
-    results = [row for row in _rows(base, "results_all") if row["run"] in ids]
+    # Read only the windowed runs, one indexed `results_for_run` query each.
+    # Scanning `results_all` and filtering afterwards made every report pay for
+    # the whole store, and the per-read row cap failed them all once the store
+    # passed ~27 nightlies (QA-26) — whatever `runs` asked for.
+    results = []
+    for run in runs:
+        results.extend(_rows(base, "results_for_run", {"run": run["id"]}))
     return runs, results
 
 

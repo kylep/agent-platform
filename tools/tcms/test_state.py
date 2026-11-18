@@ -44,3 +44,46 @@ def test_record_results_stages_parsed_rows_before_marking_run_complete(monkeypat
         "request_id": "tcms-complete:run-test-state", "collection": "runs",
         "id": "a" * 32, "expected_version": 1,
         "values": {"ingest_state": "complete"}})
+
+
+def _report_store(monkeypatch, n_runs=30, per_run=4):
+    """A fake store whose `results_all` would trip the row cap: the report
+    actions must read only the windowed runs through `results_for_run`."""
+    runs = [{"id": f"run{i:02d}", "version": 1, "commit_sha": f"{i:040x}"}
+            for i in range(n_runs)]
+    reads = []
+
+    def rows(_base, view, params=None, **_kwargs):
+        reads.append((view, (params or {}).get("run")))
+        if view == "runs_recent":
+            return runs
+        if view == "cases_recent":
+            return []
+        if view == "results_for_run":
+            run = params["run"]
+            return [{"id": f"{run}-{k}", "version": 1, "run": run, "ref": f"t::{k}",
+                     "case": None, "status": "fail" if (run == "run01" and k == 0) else "pass",
+                     "duration_ms": 1000, "layer": "unit"} for k in range(per_run)]
+        raise AssertionError(f"report read the unbounded view {view}")
+
+    monkeypatch.setattr(state, "_rows", rows)
+    return reads
+
+
+def test_report_window_reads_only_the_requested_runs(monkeypatch):
+    reads = _report_store(monkeypatch)
+    runs, results = state._window("proxy", {"runs": 5}, 20)
+    assert [r["id"] for r in runs] == [f"run{i:02d}" for i in range(5)]
+    assert {r["run"] for r in results} == {r["id"] for r in runs}
+    assert len(results) == 5 * 4
+    assert [run for view, run in reads if view == "results_for_run"] == [
+        r["id"] for r in runs]
+
+
+def test_flaky_runtime_and_prune_never_scan_every_result(monkeypatch):
+    reads = _report_store(monkeypatch)
+    flaky = state.read("proxy", {"action": "flaky", "runs": 5})
+    assert "t::0" in str(flaky)
+    for action in ("runtime_report", "prune_candidates"):
+        state.read("proxy", {"action": action})
+    assert not any(view == "results_all" for view, _ in reads)
