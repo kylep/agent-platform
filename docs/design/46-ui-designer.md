@@ -396,7 +396,7 @@ Server-side, per agent per rolling hour: 120 writes (`UD-BUDGET-WRITES`,
 the second meter before the first, and only `snapshot`-only loops do; per
 request at most 4 images and 10 megapixels of output; scale ∈ {0.5, 1, 2,
 3}. Humans in the browser are not metered; a human API key's pictures
-over the facade take the pixel budget (§6). All of these, the cache size and the renderer
+over the facade take the byte ladder but no pixel budget (§6). All of these, the cache size and the renderer
 limits (§5) are chart values with these defaults.
 
 ### 3.3 Warnings (lint, not errors)
@@ -591,10 +591,11 @@ text:
 
 The API keeps every rule: document access (`require_ui_designer_access`
 and the document ACL, so a restricted document's pictures reach only its
-readers/editors), the snapshot byte ladder and the rolling pixel budget —
-which now meter a human API key (by participant) as well as an agent,
-because both pictures land in a model's context; Kyle's browser session
-stays unmetered. A run-less **agent** key is still refused:
+readers/editors) and the snapshot byte ladder, which now applies to a
+human API key as well as an agent because both pictures land in a model's
+context. The rolling pixel budget stays agents-only: a person on a key
+manages their own quota (Kyle, 2026-11-18). Kyle's browser session is
+under neither. A run-less **agent** key is still refused:
 `UD-NO-IMAGES-HERE` on `render`, and `edit` already requires a run.
 `svg`, `/resolved`, asset bytes and `place` remain excluded, and an
 export is still an artifact Kyle opens at `/artifacts/<id>`.

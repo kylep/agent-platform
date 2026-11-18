@@ -20,8 +20,9 @@ export, events and imports are later phases. What this module owns:
   own MCP clients over the facade (a human API key: `edit` with `snapshot`, or
   `render` without editing; the facade turns both into image content). Only a
   run-less AGENT key is refused (`UD-NO-IMAGES-HERE`). Every picture bound for
-  a model's context, an agent's or a key holder's, is under the byte ladder and
-  the rolling pixel budget; Kyle's browser session is under neither.
+  a model's context, an agent's or a key holder's, is under the byte ladder;
+  only agents are under the rolling pixel budget (a person manages their own
+  quota). Kyle's browser session is under neither.
 """
 from __future__ import annotations
 
@@ -208,21 +209,19 @@ async def _check_write_budget(request: Request, caller: Caller) -> None:
 
 
 def _pixel_subject(request: Request, caller: Caller) -> str | None:
-    """Whose pixel window a render is charged to: the agent, or a human API
-    key's participant (its pictures go into a model's context on a laptop),
-    or None for a browser session, which is not budgeted."""
-    if caller.agent is not None:
-        return caller.agent
-    state = getattr(request, "state", None)
-    if getattr(state, "auth_kind", None) in (None, "session"):
-        return None
-    return caller.participant
+    """Whose pixel window a render is charged to: the agent, or None for a
+    person (a browser session or a human API key), who is not budgeted."""
+    return caller.agent
 
 
 def _model_bound(request: Request, caller: Caller) -> bool:
     """Whether a picture lands in a model's context (an agent run or a key
-    holder's MCP client) and so takes the snapshot byte ladder."""
-    return _pixel_subject(request, caller) is not None
+    holder's MCP client) and so takes the snapshot byte ladder. A browser
+    session's picture does not."""
+    if caller.agent is not None:
+        return True
+    state = getattr(request, "state", None)
+    return getattr(state, "auth_kind", None) not in (None, "session")
 
 
 def _pixel_window(request: Request, subject: str) -> deque:
@@ -262,7 +261,7 @@ def _card_text(text: str, limit: int) -> str:
 
 
 def _check_pixel_budget(request: Request, caller: Caller) -> None:
-    """Agents and API keys (`_pixel_subject`): rendered megapixels per rolling
+    """Agents only (`_pixel_subject`): rendered megapixels per rolling
     hour. Kept in memory (one API replica); a restart forgives a loop, which the
     write budget still caps."""
     budget = request.app.state.settings.ui_designer_pixels_per_hour_mp

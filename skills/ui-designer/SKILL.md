@@ -15,7 +15,7 @@ Use the `ui_designer` tool to build screens as a document of frames, not as pixe
 3. **Look.** Pass `snapshot=[<node ids>]` (at most 4) on the same `edit` and read the returned picture. Check it against what you meant. `action=snapshot` re-renders without editing; use `scale=2` on one region to inspect a detail, and `annotate=true` to see node ids drawn on the picture.
 4. Fix what you saw in the next batch. Read the `warnings` in the receipt too: overflow, low contrast, a coordinate on a laid-out child.
 
-**Over the MCP facade** (a Claude Code or Codex session with a personal API key, no agent run), the same loop uses the facade's tools: `ui_document_outline`, then `edit_ui_document` with `snapshot=[<node ids>]` (plus `scale`, `annotate`, `mode`), whose pictures come back as image blocks after the JSON receipt. `snapshot_ui_document slug=<doc> nodes=[...]` re-renders without editing (read access is enough). The pixel budget applies to your key too.
+**Over the MCP facade** (a Claude Code or Codex session with a personal API key, no agent run), the same loop uses the facade's tools: `ui_document_outline`, then `edit_ui_document` with `snapshot=[<node ids>]` (plus `scale`, `annotate`, `mode`), whose pictures come back as image blocks after the JSON receipt. `snapshot_ui_document slug=<doc> nodes=[...]` re-renders without editing (read access is enough). A personal key has no pixel budget; mind your own context.
 
 ## Design with layout and tokens
 

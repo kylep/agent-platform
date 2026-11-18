@@ -271,20 +271,20 @@ async def test_human_key_gets_snapshot_pictures_on_edit_and_render(sf, token_cli
                                headers=key)
     assert r.status_code == 200 and r.headers["content-type"] == "image/png", r.text
     assert [b for path, b in fake.calls if path == "/render"][-1]["max_bytes"] == 1 << 20
-    # The key's pictures count against the rolling pixel budget.
-    window = token_client._transport.app.state.ui_designer_pixels["user:facade"]
-    assert sum(mp for _t, mp in window) > 0
+    # A person's key is not charged to any pixel window.
+    windows = getattr(token_client._transport.app.state, "ui_designer_pixels", {})
+    assert "user:facade" not in windows
 
 
-async def test_human_key_pixel_budget_is_enforced(sf, token_client):
+async def test_human_key_has_no_pixel_budget(sf, token_client):
     _fake_renderer(token_client)
     key = await _human_token(sf, "facade", "admin")
     await _real_doc(token_client, key)
     token_client._transport.app.state.settings.ui_designer_pixels_per_hour_mp = 0.0001
     url = f"/api/ui-designer/docs/{SLUG}/render?node=root"
-    assert (await token_client.get(url, headers=key)).status_code == 200
-    r = await token_client.get(url, headers=key)
-    assert r.status_code == 429 and r.json()["detail"]["code"] == "UD-BUDGET-PIXELS", r.text
+    for _ in range(3):
+        r = await token_client.get(url, headers=key)
+        assert r.status_code == 200, r.text
 
 
 async def test_private_document_pictures_follow_document_access(sf, token_client):
