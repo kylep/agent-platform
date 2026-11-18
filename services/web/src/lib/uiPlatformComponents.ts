@@ -48,7 +48,7 @@ export function usePlatformLibrary(enabled: boolean) {
     if (!enabled || library) return;
     const controller = new AbortController();
     setError("");
-    api<PlatformLibrary>("/api/ui-designer/component-library", { signal: controller.signal })
+    api<PlatformLibrary>("/api/ui-designer/component-library?detail=full", { signal: controller.signal })
       .then((result) => {
         if (!controller.signal.aborted) setLibrary(result);
       })

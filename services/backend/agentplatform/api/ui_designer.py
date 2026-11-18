@@ -924,17 +924,44 @@ async def get_ui_icon(icon_id: str, request: Request, revision: int = Query(...,
         raise ud_http(error)
 
 
+def _component_index(component: dict) -> dict:
+    variants = component["variants"]
+    default = next((v for v in variants if v["id"] == "default"), variants[0] if variants else {})
+    return {"name": component["name"], "category": component.get("category"),
+            "description": component["description"], "import_path": component["import_path"],
+            "variants": [variant["id"] for variant in variants],
+            "properties": [prop["name"] for prop in component["properties"]],
+            "default_width": default.get("width"), "default_height": default.get("height")}
+
+
 @router.get(PREFIX + "/component-library", response_model=S.UiPlatformComponentLibraryOut)
 async def list_ui_platform_components(request: Request, name: str | None = Query(None, max_length=80),
+                                      detail: Literal["index", "full"] | None = Query(None),
                                       caller: Caller = Depends(require_ui_designer_access(*READ))):
-    """List Agent Platform components and the native properties their variants expose."""
+    """List Agent Platform components. `detail=index` (the default for a personal API key
+    without `name`) is a compact catalogue; `detail=full` (the default with `name`) adds variants' props, fixtures and limitations."""
     from agentplatform.ui_designer.platform_catalog import catalog_manifest
 
     manifest = catalog_manifest()
     if name is not None:
         manifest = {**manifest, "components": [component for component in manifest["components"]
                                                if component["name"].casefold() == name.casefold()]}
+    # Without `detail`, only a personal API key (an MCP client, where the full
+    # catalogue is ~20k tokens of context) gets the index. The browser and the
+    # agent broker keep the full manifest, so an older web or broker build that
+    # does not send `detail` keeps working.
+    person_key = caller.agent is None and _model_bound(request, caller)
+    if (detail or ("index" if name is None and person_key else "full")) == "index":
+        manifest = {**manifest, "components": [_component_index(c) for c in manifest["components"]]}
     return manifest
+
+
+@router.get(PREFIX + "/reference", response_model=S.UiDesignerReferenceOut)
+async def ui_designer_reference(request: Request,
+                                caller: Caller = Depends(require_ui_designer_access(*READ))):
+    """A compact cheat sheet generated from the live schema, ops, tokens and limits."""
+    from agentplatform.ui_designer.reference import build_reference
+    return {"text": build_reference(request.app.state.settings)}
 
 
 @router.get(PREFIX + "/templates", response_model=S.UiTemplatesOut)

@@ -358,4 +358,4 @@ def test_component_library_discovery_is_compact_and_can_expand_a_component(api):
         {"name": "Button", "variants": ["default"]}
     ]
     assert json.loads(ud(action="component_library", name="Button")) == manifest
-    assert api[-1][:3] == ("GET", route, {"name": "Button"})
+    assert api[-1][:3] == ("GET", route, {"name": "Button", "detail": "full"})

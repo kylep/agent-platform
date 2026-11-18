@@ -14,6 +14,7 @@ from attrs import field as _attrs_field
 
 if TYPE_CHECKING:
     from ..models.ui_platform_component import UiPlatformComponent
+    from ..models.ui_platform_component_index import UiPlatformComponentIndex
 
 
 T = TypeVar("T", bound="UiPlatformComponentLibraryOut")
@@ -23,21 +24,29 @@ T = TypeVar("T", bound="UiPlatformComponentLibraryOut")
 class UiPlatformComponentLibraryOut:
     """
     Attributes:
-        components (list[UiPlatformComponent]):
+        components (list[UiPlatformComponent] | list[UiPlatformComponentIndex]):
         id (Literal['agent-platform']):
         revision (int):
     """
 
-    components: list[UiPlatformComponent]
+    components: list[UiPlatformComponent] | list[UiPlatformComponentIndex]
     id: Literal["agent-platform"]
     revision: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        components = []
-        for components_item_data in self.components:
-            components_item = components_item_data.to_dict()
-            components.append(components_item)
+        components: list[dict[str, Any]]
+        if isinstance(self.components, list):
+            components = []
+            for components_type_0_item_data in self.components:
+                components_type_0_item = components_type_0_item_data.to_dict()
+                components.append(components_type_0_item)
+
+        else:
+            components = []
+            for components_type_1_item_data in self.components:
+                components_type_1_item = components_type_1_item_data.to_dict()
+                components.append(components_type_1_item)
 
         id = self.id
 
@@ -58,14 +67,42 @@ class UiPlatformComponentLibraryOut:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.ui_platform_component import UiPlatformComponent
+        from ..models.ui_platform_component_index import UiPlatformComponentIndex
 
         d = dict(src_dict)
-        components = []
-        _components = d.pop("components")
-        for components_item_data in _components:
-            components_item = UiPlatformComponent.from_dict(components_item_data)
 
-            components.append(components_item)
+        def _parse_components(
+            data: object,
+        ) -> list[UiPlatformComponent] | list[UiPlatformComponentIndex]:
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                components_type_0 = []
+                _components_type_0 = data
+                for components_type_0_item_data in _components_type_0:
+                    components_type_0_item = UiPlatformComponent.from_dict(
+                        components_type_0_item_data
+                    )
+
+                    components_type_0.append(components_type_0_item)
+
+                return components_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, list):
+                raise TypeError()
+            components_type_1 = []
+            _components_type_1 = data
+            for components_type_1_item_data in _components_type_1:
+                components_type_1_item = UiPlatformComponentIndex.from_dict(
+                    components_type_1_item_data
+                )
+
+                components_type_1.append(components_type_1_item)
+
+            return components_type_1
+
+        components = _parse_components(d.pop("components"))
 
         id = cast(Literal["agent-platform"], d.pop("id"))
         if id != "agent-platform":

@@ -40,7 +40,8 @@ Supply the first page at creation as above, or choose an editable starter from `
 - Build frames with a layout (direction, gap, padding, align) and let children flow. Do not give coordinates to children of a laid-out frame; use `x`/`y` only inside a frame with no layout or on an `absolute` child.
 - Use colour, type and spacing **tokens**, not raw values, so light and dark modes both work.
 - Use `fill` and `hug` sizing before fixed sizes; fix a size only when it is the point.
-- Name nodes by role (`topbar`, `score`), so outlines read like the design.
+- Name nodes by role (`topbar`, `score`) through their `id` and optional `title`; there is no `name` key, and unknown keys fail validation.
+- Over the facade, call `ui_designer_reference` once for the exact node keys, ops, tokens and limits (small, generated from the live schema), and `list_ui_platform_components` for the compact component index (`name=<Component>` or `detail=full` for variants and props).
 
 ## When something fails
 
