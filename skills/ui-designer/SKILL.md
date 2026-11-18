@@ -33,6 +33,16 @@ Use the `ui_designer` tool to build screens as a document of frames, not as pixe
 
 3. To compare screens later, pass their frame IDs, a single retained `version`, and `max_edge=384` to `snapshot_ui_document`. Inspect a single frame at the default size for text detail.
 
+4. Prefer a laid-out frame with platform tokens over coordinates. A `platform_component` op loads the platform tokens and the light and dark modes into the document, so put one first in the batch and later ops in the same batch can use `$color.ap-ui-v1-*`, `$space.ap-ui-v1-*`, `$radius.ap-ui-v1-*` and `$type.ap-ui-v1-*`. Layout `gap` and `pad` take a space token or a number; a text node's `style` takes a type token. A platform component has no layout fields of its own: insert it, then `move` it into the laid-out frame. This batch works against the frame above and renders correctly with `mode="dark"`.
+
+   ```json
+   [{"op":"platform_component","component":"Button","variant":"default","revision":1,"parent":"overview","id":"save","props":{"children":"Save"}},
+    {"op":"insert","parent":"overview","index":0,"node":{"id":"panel","type":"frame","w":"fill","h":"hug","fill":"$color.ap-ui-v1-surface","radius":"$radius.ap-ui-v1-md","layout":{"dir":"column","gap":"$space.ap-ui-v1-s","pad":"$space.ap-ui-v1-l"},"children":[{"id":"panel-title","type":"text","text":"Runs","style":"$type.ap-ui-v1-body","color":"$color.ap-ui-v1-text"}]}},
+    {"op":"move","id":"save","parent":"panel"}]
+   ```
+
+   `max_edge=384` is for checking layout only; text is not legible at that size.
+
 Supply the first page at creation as above, or choose an editable starter from `list_ui_templates`. For platform screens, `list_ui_platform_components` provides the existing React mappings. The source checkout's `services/web/design-capture/routes.json` inventories existing screens and redirects.
 
 ## Design with layout and tokens
