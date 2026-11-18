@@ -287,6 +287,16 @@ async def test_human_key_has_no_pixel_budget(sf, token_client):
         assert r.status_code == 200, r.text
 
 
+async def test_personal_key_gets_the_compact_component_index_by_default(sf, token_client):
+    key = await _human_token(sf, "facade", "admin")
+    r = await token_client.get("/api/ui-designer/component-library", headers=key)
+    assert r.status_code == 200, r.text
+    first = r.json()["components"][0]
+    assert "limitations" not in first and all(isinstance(v, str) for v in first["variants"])
+    r = await token_client.get("/api/ui-designer/component-library?name=button", headers=key)
+    assert "fixture" in r.json()["components"][0]["variants"][0]
+
+
 async def test_private_document_pictures_follow_document_access(sf, token_client):
     from .test_ui_designer_access import share
     _fake_renderer(token_client)

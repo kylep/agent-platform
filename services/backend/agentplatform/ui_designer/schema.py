@@ -62,6 +62,11 @@ REF_RE = re.compile(rf"^\$(color|space|radius|type)\.({TOKEN_NAME})$")
 PATH_D_RE = re.compile(r"^[MmLlHhVvCcSsQqTtAaZz0-9eE+\-., \t\r\n]*$")
 
 TOKEN_GROUPS = ("color", "space", "radius", "type")
+LAYOUT_KEYS = ("dir", "gap", "pad", "align", "justify", "wrap", "columns", "row_gap", "column_gap")
+LAYOUT_DIRS = ("row", "column", "grid")
+LAYOUT_ALIGN = ("start", "center", "end", "stretch")
+LAYOUT_JUSTIFY = ("start", "center", "end", "space-between")
+SIZE_KEYWORDS = ("fill", "hug")
 NODE_TYPES = ("frame", "text", "rect", "ellipse", "line", "path", "image", "instance")
 
 _SHARED = {"id", "type", "title", "w", "h", "x", "y", "absolute", "rotate", "fill", "stroke",
@@ -344,7 +349,7 @@ def _color(c: _Ctx, v: Any, path: str) -> None:
 
 
 def _size(c: _Ctx, v: Any, path: str) -> None:
-    if v in ("fill", "hug") and isinstance(v, str):
+    if v in SIZE_KEYWORDS and isinstance(v, str):
         return
     _num(c, v, path, 0, MAX_NUMBER)
 
@@ -493,10 +498,10 @@ def _backdrop(c: _Ctx, v: Any, path: str) -> None:
 
 
 def _layout(c: _Ctx, v: Any, path: str) -> None:
-    if not _obj(c, v, path, {"dir", "gap", "pad", "align", "justify", "wrap", "columns", "row_gap", "column_gap"}):
+    if not _obj(c, v, path, set(LAYOUT_KEYS)):
         return
     if "dir" in v:
-        _enum(c, v["dir"], join_path(path, "dir"), ("row", "column", "grid"))
+        _enum(c, v["dir"], join_path(path, "dir"), LAYOUT_DIRS)
     if v.get("dir") == "grid":
         for key in ("wrap", "justify"):
             if key in v:
@@ -525,10 +530,9 @@ def _layout(c: _Ctx, v: Any, path: str) -> None:
         else:
             _num(c, p, join_path(path, "pad"), 0, MAX_NUMBER)
     if "align" in v:
-        _enum(c, v["align"], join_path(path, "align"), ("start", "center", "end", "stretch"))
+        _enum(c, v["align"], join_path(path, "align"), LAYOUT_ALIGN)
     if "justify" in v:
-        _enum(c, v["justify"], join_path(path, "justify"),
-              ("start", "center", "end", "space-between"))
+        _enum(c, v["justify"], join_path(path, "justify"), LAYOUT_JUSTIFY)
     if "wrap" in v:
         _bool(c, v["wrap"], join_path(path, "wrap"))
 

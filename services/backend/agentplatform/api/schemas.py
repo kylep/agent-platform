@@ -2329,10 +2329,25 @@ class UiPlatformComponent(BaseModel):
     category: str | None = None
 
 
+class UiPlatformComponentIndex(BaseModel):
+    name: str
+    category: str | None = None
+    description: str
+    import_path: str
+    variants: list[str]
+    properties: list[str]
+    default_width: float | str | None = None
+    default_height: float | str | None = None
+
+
 class UiPlatformComponentLibraryOut(BaseModel):
     id: Literal["agent-platform"]
     revision: int
-    components: list[UiPlatformComponent]
+    components: list[UiPlatformComponent] | list[UiPlatformComponentIndex]
+
+
+class UiDesignerReferenceOut(BaseModel):
+    text: str
 
 
 class UiTemplateSummary(BaseModel):

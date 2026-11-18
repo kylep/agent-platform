@@ -6,6 +6,9 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
+from ...models.list_ui_platform_components_detail_type_0 import (
+    ListUiPlatformComponentsDetailType0,
+)
 from ...models.ui_platform_component_library_out import UiPlatformComponentLibraryOut
 from ...types import UNSET, Response, Unset
 
@@ -13,6 +16,7 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     *,
     name: None | str | Unset = UNSET,
+    detail: ListUiPlatformComponentsDetailType0 | None | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -23,6 +27,15 @@ def _get_kwargs(
     else:
         json_name = name
     params["name"] = json_name
+
+    json_detail: None | str | Unset
+    if isinstance(detail, Unset):
+        json_detail = UNSET
+    elif isinstance(detail, ListUiPlatformComponentsDetailType0):
+        json_detail = detail.value
+    else:
+        json_detail = detail
+    params["detail"] = json_detail
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -69,13 +82,17 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     name: None | str | Unset = UNSET,
+    detail: ListUiPlatformComponentsDetailType0 | None | Unset = UNSET,
 ) -> Response[HTTPValidationError | UiPlatformComponentLibraryOut]:
     """List Ui Platform Components
 
-     List Agent Platform components and the native properties their variants expose.
+     List Agent Platform components. `detail=index` (the default for a personal API key
+    without `name`) is a compact catalogue; `detail=full` (the default with `name`) adds variants'
+    props, fixtures and limitations.
 
     Args:
         name (None | str | Unset):
+        detail (ListUiPlatformComponentsDetailType0 | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -87,6 +104,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         name=name,
+        detail=detail,
     )
 
     response = client.get_httpx_client().request(
@@ -100,13 +118,17 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     name: None | str | Unset = UNSET,
+    detail: ListUiPlatformComponentsDetailType0 | None | Unset = UNSET,
 ) -> HTTPValidationError | UiPlatformComponentLibraryOut | None:
     """List Ui Platform Components
 
-     List Agent Platform components and the native properties their variants expose.
+     List Agent Platform components. `detail=index` (the default for a personal API key
+    without `name`) is a compact catalogue; `detail=full` (the default with `name`) adds variants'
+    props, fixtures and limitations.
 
     Args:
         name (None | str | Unset):
+        detail (ListUiPlatformComponentsDetailType0 | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -119,6 +141,7 @@ def sync(
     return sync_detailed(
         client=client,
         name=name,
+        detail=detail,
     ).parsed
 
 
@@ -126,13 +149,17 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     name: None | str | Unset = UNSET,
+    detail: ListUiPlatformComponentsDetailType0 | None | Unset = UNSET,
 ) -> Response[HTTPValidationError | UiPlatformComponentLibraryOut]:
     """List Ui Platform Components
 
-     List Agent Platform components and the native properties their variants expose.
+     List Agent Platform components. `detail=index` (the default for a personal API key
+    without `name`) is a compact catalogue; `detail=full` (the default with `name`) adds variants'
+    props, fixtures and limitations.
 
     Args:
         name (None | str | Unset):
+        detail (ListUiPlatformComponentsDetailType0 | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -144,6 +171,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         name=name,
+        detail=detail,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -155,13 +183,17 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     name: None | str | Unset = UNSET,
+    detail: ListUiPlatformComponentsDetailType0 | None | Unset = UNSET,
 ) -> HTTPValidationError | UiPlatformComponentLibraryOut | None:
     """List Ui Platform Components
 
-     List Agent Platform components and the native properties their variants expose.
+     List Agent Platform components. `detail=index` (the default for a personal API key
+    without `name`) is a compact catalogue; `detail=full` (the default with `name`) adds variants'
+    props, fixtures and limitations.
 
     Args:
         name (None | str | Unset):
+        detail (ListUiPlatformComponentsDetailType0 | None | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -175,5 +207,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             name=name,
+            detail=detail,
         )
     ).parsed

@@ -416,8 +416,11 @@ Insert using the normal versioned `edit` action, for example:
 Use the actual current version, parent ID, and a fresh request ID; retry an
 uncertain request with identical inputs. `inspect` returns the implementation
 mapping and JSX when it remains valid. REST clients use
-`GET /api/ui-designer/component-library` (optionally `?name=Button`) and the
-existing document edit/inspect endpoints. Updating `variant` uses the native
+`GET /api/ui-designer/component-library` (optionally `?name=Button`; without a
+name it returns a compact index, `?detail=full` restores the full manifest) and the
+existing document edit/inspect endpoints. `GET /api/ui-designer/reference`
+returns `{text}`, a under-6 KB cheat sheet generated from the live schema, ops,
+platform tokens and limits, so agents need not read the design docs. Updating `variant` uses the native
 axis values returned in the catalog, not the display label. HTML export remains
 a static flattened design export; **Copy JSX** is the component-aware handoff.
 

@@ -53,13 +53,13 @@ HANDWRITTEN = {"snapshot_ui_document"}
 
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 194-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 195-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (252 tools)."""
+    """The admin-on surface — KEEP + GATE (253 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -185,11 +185,11 @@ async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, 
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 194."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 195."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 194, \
+    assert len(tools) == len(expected) == 195, \
         sorted({(t._route.method, t._route.path) for t in tools})
     assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
             ("GET", "/api/backups/jobs/{name}")} <= {
@@ -197,14 +197,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (252 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (253 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 252, \
+    assert len(admin_tools) == len(expected) == 253, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -740,8 +740,8 @@ def test_visual_diff_images_are_not_exposed_as_base64_text(tools, admin_tools):
 
 
 def test_handwritten_tools_are_pinned(spec):
-    """One hand-written tool on both surfaces (design/46 §6): 195 and 253."""
-    for admin, total in ((False, 195), (True, 253)):
+    """One hand-written tool on both surfaces (design/46 §6): 196 and 254."""
+    for admin, total in ((False, 196), (True, 254)):
         surface = all_tools(spec, admin)
         assert {t.name for t in surface if not hasattr(t, "_route")} == HANDWRITTEN
         assert len(surface) == total

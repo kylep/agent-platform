@@ -2610,7 +2610,7 @@ Example edit ops (new page: a frame, a text and a row of two cards):
             timeout=_UI_DESIGNER_TIMEOUT)
     if action == "component_library":
         out = await _artifact_call("GET", f"{_UI_DESIGNER}/component-library",
-            {"name": name} if name else None, timeout=_UI_DESIGNER_TIMEOUT)
+            {"name": name, "detail": "full"} if name else {"detail": "full"}, timeout=_UI_DESIGNER_TIMEOUT)
         manifest = _artifact_rows(out)
         if name or not isinstance(manifest, dict):
             return out

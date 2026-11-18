@@ -120,6 +120,9 @@ from .kafka_health import KafkaHealth
 from .lint_ui_document_severity_type_0 import LintUiDocumentSeverityType0
 from .list_artifacts_kind_type_0 import ListArtifactsKindType0
 from .list_artifacts_source_type_0 import ListArtifactsSourceType0
+from .list_ui_platform_components_detail_type_0 import (
+    ListUiPlatformComponentsDetailType0,
+)
 from .me_out import MeOut
 from .me_out_kind import MeOutKind
 from .memory_in import MemoryIn
@@ -346,6 +349,7 @@ from .ui_comment_list import UiCommentList
 from .ui_comment_notification import UiCommentNotification
 from .ui_comment_notification_status import UiCommentNotificationStatus
 from .ui_comment_out import UiCommentOut
+from .ui_designer_reference_out import UiDesignerReferenceOut
 from .ui_doc_create_in import UiDocCreateIn
 from .ui_doc_create_in_doc_type_0 import UiDocCreateInDocType0
 from .ui_doc_delete_out import UiDocDeleteOut
@@ -427,6 +431,7 @@ from .ui_motion_preview_out_fps import UiMotionPreviewOutFps
 from .ui_placed_asset import UiPlacedAsset
 from .ui_placed_assets_out import UiPlacedAssetsOut
 from .ui_platform_component import UiPlatformComponent
+from .ui_platform_component_index import UiPlatformComponentIndex
 from .ui_platform_component_library_out import UiPlatformComponentLibraryOut
 from .ui_platform_component_property import UiPlatformComponentProperty
 from .ui_platform_component_variant import UiPlatformComponentVariant
@@ -605,6 +610,7 @@ __all__ = (
     "LintUiDocumentSeverityType0",
     "ListArtifactsKindType0",
     "ListArtifactsSourceType0",
+    "ListUiPlatformComponentsDetailType0",
     "MemoryIn",
     "MemoryPatch",
     "MemoryView",
@@ -829,6 +835,7 @@ __all__ = (
     "UiCommentNotification",
     "UiCommentNotificationStatus",
     "UiCommentOut",
+    "UiDesignerReferenceOut",
     "UiDocCreateIn",
     "UiDocCreateInDocType0",
     "UiDocDeleteOut",
@@ -908,6 +915,7 @@ __all__ = (
     "UiPlacedAsset",
     "UiPlacedAssetsOut",
     "UiPlatformComponent",
+    "UiPlatformComponentIndex",
     "UiPlatformComponentLibraryOut",
     "UiPlatformComponentProperty",
     "UiPlatformComponentVariant",
