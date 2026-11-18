@@ -584,7 +584,7 @@ text:
   returns the receipt with base64 snapshots as before; the facade's
   `UiDesignerPictures` middleware lifts each one into an `ImageContent`
   block and leaves a pointer string in the receipt's `data` field.
-- `snapshot_ui_document(slug, nodes?, mode?, scale?, annotate?, version?)`
+- `snapshot_ui_document(slug, nodes?, mode?, scale?, annotate?, version?, max_edge?)`
   — a hand-written facade tool (the generated `render` route stays in
   `EXCLUDED_PATHS`) that calls `GET …/render` once per node, at most 4,
   and returns the PNGs as `ImageContent`. Needs read access.

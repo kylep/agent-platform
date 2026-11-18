@@ -763,6 +763,8 @@ async def test_snapshot_tool_returns_image_content_and_forwards_args(spec, monke
 
     async def upstream(request):
         seen.append((request.url.path, dict(request.url.params), request.headers.get("authorization")))
+        if request.url.params.get("node") == "slow":
+            raise httpx.ReadTimeout("timed out", request=request)
         if request.url.params.get("node") == "gone":
             return httpx.Response(404, json={"detail": {"code": "UD-NOT-FOUND", "message": "no node"}})
         return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
@@ -771,14 +773,17 @@ async def test_snapshot_tool_returns_image_content_and_forwards_args(spec, monke
         mcp = facade.build(spec, client=client, admin_tools=False)
         _as_caller(monkeypatch)
         result = await mcp.call_tool("snapshot_ui_document", {
-            "slug": "hud", "nodes": ["frame1", "gone"], "scale": 2, "annotate": True, "mode": "dark"})
+            "slug": "hud", "nodes": ["frame1", "slow", "gone"], "scale": 2, "annotate": True,
+            "mode": "dark", "max_edge": 384, "version": 3})
     kinds = [c.type for c in result.content]
     assert kinds == ["text", "text", "image"], kinds
+    assert "slow: render request failed (ReadTimeout)" in result.content[0].text
     assert "gone: error 404 UD-NOT-FOUND" in result.content[0].text
     image = result.content[2]
     assert image.mimeType == "image/png" and base64.b64decode(image.data) == PNG
     assert seen[0] == ("/api/ui-designer/docs/hud/render",
-                       {"node": "frame1", "mode": "dark", "scale": "2.0", "annotate": "true"},
+                       {"node": "frame1", "mode": "dark", "scale": "2.0", "annotate": "true",
+                        "max_edge": "384", "version": "3"},
                        "Bearer ap_kyle")
     assert all(PNG.hex() not in c.text for c in result.content if c.type == "text")
 

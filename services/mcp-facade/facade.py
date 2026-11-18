@@ -547,11 +547,14 @@ def build(spec: dict, client: httpx.AsyncClient | None = None,
         scale: Annotated[float, Field(description="0.5, 1, 2 or 3.")] = 1,
         annotate: Annotated[bool, Field(description="Draw node ids on the picture.")] = False,
         version: Annotated[int | None, Field(ge=1, description="A past version; omit for current.")] = None,
+        max_edge: Annotated[int | None, Field(ge=64, le=1568, description=(
+            "Maximum image edge in pixels. Use 384 for small previews; default 1568."
+        ))] = None,
     ) -> ToolResult:
         """Render a UI Designer document (or up to 4 of its nodes) WITHOUT editing
         it, and return the pictures as image content. Needs read access to the
-        document; the API's pixel budget and byte ladder apply. To picture the
-        result of a change, pass `snapshot=[...]` to `edit_ui_document` instead."""
+        document. Personal keys have no hourly pixel cap. Image size limits apply.
+        Pass `snapshot=[...]` to `edit_ui_document` for pictures of an edit."""
         if not _UI_SLUG_RE.fullmatch(slug):
             raise ValueError("invalid slug")
         targets: list[str | None] = list(nodes) if nodes else [None]
@@ -562,13 +565,17 @@ def build(spec: dict, client: httpx.AsyncClient | None = None,
         for target in targets:
             params = {k: v for k, v in (("node", target), ("mode", mode), ("scale", scale),
                                         ("annotate", "true" if annotate else None),
-                                        ("version", version)) if v is not None}
-            response = await api_client.get(
-                f"/api/ui-designer/docs/{slug}/render", params=params,
-                headers=caller_auth_headers(current_request()),
-                timeout=httpx.Timeout(_UI_RENDER_TIMEOUT))
-            mime = (response.headers.get("content-type") or "").split(";")[0].strip()
+                                        ("version", version), ("max_edge", max_edge)) if v is not None}
             label = target or "page"
+            try:
+                response = await api_client.get(
+                    f"/api/ui-designer/docs/{slug}/render", params=params,
+                    headers=caller_auth_headers(current_request()),
+                    timeout=httpx.Timeout(_UI_RENDER_TIMEOUT))
+            except httpx.RequestError as exc:
+                lines.append(f"{label}: render request failed ({type(exc).__name__})")
+                continue
+            mime = (response.headers.get("content-type") or "").split(";")[0].strip()
             if response.status_code >= 400 or not mime.startswith("image/"):
                 lines.append(f"{label}: error {_ui_error_text(response)}")
                 continue

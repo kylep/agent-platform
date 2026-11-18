@@ -17,6 +17,24 @@ Use the `ui_designer` tool to build screens as a document of frames, not as pixe
 
 **Over the MCP facade** (a Claude Code or Codex session with a personal API key, no agent run), the same loop uses the facade's tools: `ui_document_outline`, then `edit_ui_document` with `snapshot=[<node ids>]` (plus `scale`, `annotate`, `mode`), whose pictures come back as image blocks after the JSON receipt. `snapshot_ui_document slug=<doc> nodes=[...]` re-renders without editing (read access is enough). A personal key has no pixel budget; mind your own context.
 
+## First frame from a laptop session
+
+1. Choose your own new slug. Call `create_ui_document` with that slug, a fresh `request_id`, and the following `doc` value.
+
+   ```json
+   {"schema":1,"title":"Workspace","pages":[{"id":"workspace","title":"Workspace","children":[{"id":"overview","type":"frame","w":960,"h":640,"children":[]}]}]}
+   ```
+
+2. Read `ui_document_outline` and `list_ui_comments`. Call `edit_ui_document` with the same slug, the returned version as `expected_version`, a fresh `request_id`, and `snapshot=["overview"]`. This example adds a heading.
+
+   ```json
+   [{"op":"insert","parent":"overview","node":{"id":"heading","type":"text","text":"Overview","x":24,"y":24}}]
+   ```
+
+3. To compare screens later, pass their frame IDs, a single retained `version`, and `max_edge=384` to `snapshot_ui_document`. Inspect a single frame at the default size for text detail.
+
+Supply the first page at creation as above, or choose an editable starter from `list_ui_templates`. For platform screens, `list_ui_platform_components` provides the existing React mappings. The source checkout's `services/web/design-capture/routes.json` inventories existing screens and redirects.
+
 ## Design with layout and tokens
 
 - Build frames with a layout (direction, gap, padding, align) and let children flow. Do not give coordinates to children of a laid-out frame; use `x`/`y` only inside a frame with no layout or on an `absolute` child.
