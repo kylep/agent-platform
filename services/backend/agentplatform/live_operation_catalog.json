@@ -3932,6 +3932,180 @@
       "snapshot_eligible": false
     },
     {
+      "id": "tool.stock_bets.bet@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "bet",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.check@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "check",
+      "category": "domain_capability",
+      "effects": [
+        "external_read",
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.history@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "history",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.import@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "import",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.lesson@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "lesson",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.playbook@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "playbook",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.research@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "research",
+      "category": "domain_capability",
+      "effects": [
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.scoreboard@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "scoreboard",
+      "category": "domain_capability",
+      "effects": [
+        "reads_sensitive"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
+      "id": "tool.stock_bets.settle@1",
+      "source": "mcp-custom",
+      "tool": "stock_bets",
+      "action": "settle",
+      "category": "domain_capability",
+      "effects": [
+        "external_read",
+        "reads_sensitive",
+        "mutates_platform"
+      ],
+      "output_classification": "private",
+      "view_eligible": false,
+      "reason": "No reviewed human page adapter",
+      "input_schema": null,
+      "output_schema": null,
+      "target_scope": null,
+      "supported_callers": [],
+      "limits": null,
+      "snapshot_eligible": false
+    },
+    {
       "id": "tool.stockmarket.add_symbol@1",
       "source": "mcp-custom",
       "tool": "stockmarket",

@@ -197,6 +197,16 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         if tool == "tcms":
             return (["mutates_platform"] if action in ("sync_cases", "record_results")
                     else ["reads_sensitive"]), "internal"
+        if tool == "stock_bets":
+            # Paper bets (wiki stock-bets). Reads stay in the App; settle and
+            # check fetch Yahoo bars, so they read externally too.
+            if action in ("scoreboard", "history"):
+                return ["reads_sensitive"], "private"
+            if action == "check":
+                return ["external_read", "reads_sensitive"], "private"
+            if action == "settle":
+                return ["external_read", "reads_sensitive", "mutates_platform"], "private"
+            return ["mutates_platform"], "private"
         if tool == "judgment":
             # Kai's private record of Kyle (docs/design/38); every action is
             # owner-only and none of it is page-eligible.
