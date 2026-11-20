@@ -11,7 +11,9 @@ description: >-
   target_pct?, stop_pct?} (0.2 to 5 each), confidence 0.50-0.90, basis
   catalyst|momentum|reversal|macro|default, thesis (2 sentences), sources
   (1-3 URLs). Entry is today's official close; the exit is the next
-  session. A second bet for a session is refused; a bet after the close is
+  session. Stake follows confidence: $1,000 x (confidence - 0.50) / 0.40
+  ($0 at 0.50, $500 at 0.70, $1,000 at 0.90), so state your honest chance;
+  the App also scores a flat $1,000 stake beside it. A second bet for a session is refused; a bet after the close is
   marked late; on a holiday it answers status=closed (not an error).
   settle: scores every open bet whose exit session has closed (+20 min), and
   lists bets still waiting. Safe to call any time; never double-scores.

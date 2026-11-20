@@ -37,6 +37,16 @@ SETTLE_GRACE = timedelta(minutes=20)
 LESSON_MAX = 500
 SCOREBOARD_RECENT = 20
 FIELD = sorted(engine.SYMBOLS)
+# Confidence-sized stake (Kyle, 2026-11-20): $0 at 0.50, $1,000 at 0.90,
+# linear between. The flat $1,000 P&L stays beside it; sized beating flat
+# over many bets is the evidence that confidence carries information.
+SIZED_MAX = Decimal("1000")
+
+
+def sized_stake(confidence: float) -> float:
+    c = Decimal(str(confidence))
+    frac = (c - engine.CONFIDENCE_MIN) / (engine.CONFIDENCE_MAX - engine.CONFIDENCE_MIN)
+    return float(round(SIZED_MAX * min(max(frac, Decimal(0)), Decimal(1)), 2))
 
 
 class ToolError(ValueError):
@@ -132,6 +142,7 @@ def bet(ctx: Ctx, args: dict) -> dict:
     values = _bet_values(taken.bet, playbook, "pet")
     receipt = ctx.store.create("bets", values, _rid("bet", values["session"]))
     return {"status": "accepted", "id": receipt.get("id"), "session": values["session"],
+            "sized_stake_usd": sized_stake(values["confidence"]),
             "exit_session": values["exit_session"], "late": values["late"],
             "playbook": playbook, "taken_at": values["taken_at"],
             "scores_after": "the exit session's close; call settle after that"}
@@ -284,6 +295,9 @@ def _block(rows: list[dict]) -> dict:
         "pnl_usd": round(sum(r["pnl_usd"] for r in rows), 2),
         "spy_avg_net_pct": avg("spy_net_pct", rows),
         "spy_pnl_usd": round(sum(r["spy_pnl_usd"] for r in rows), 2),
+        "sized_pnl_usd": round(sum(sized_stake(r["confidence"]) * r["net_pct"] / 100
+                                   for r in rows), 2),
+        "sized_avg_stake_usd": round(fmean(sized_stake(r["confidence"]) for r in rows), 2),
     }
     field = [r for r in rows if r.get("field_net_pct") is not None]
     if field:
@@ -315,7 +329,9 @@ def scoreboard(ctx: Ctx, args: dict) -> dict:
         "notes": ("win = net % > 0 after 0.05% cost. direction_hit ignores the exit plan. "
                   "spy_* is always-long SPY for the same sessions with the same cost; "
                   "field_* is the same side and exit plan on all 25 symbols, averaged "
-                  "(the random-pick baseline). ~150 settled bets are needed to tell a "
+                  "(the random-pick baseline). pnl_usd is a flat $1,000 stake; sized_pnl_usd stakes "
+                  "$1,000 x (confidence - 0.50) / 0.40, so it beats flat only if higher "
+                  "confidence really wins more. ~150 settled bets are needed to tell a "
                   "60% hit rate from 50%."),
     }
 
@@ -325,9 +341,11 @@ def history(ctx: Ctx, args: dict) -> dict:
     n = max(1, min(int(args.get("limit") or 10), 60))
     keep = ("session", "symbol", "side", "exit_kind", "target_pct", "stop_pct",
             "confidence", "basis", "thesis", "playbook", "late", "status",
+            "sized_stake_usd",
             "exit_reason", "net_pct", "win", "direction_hit", "spy_net_pct",
             "field_net_pct", "lesson")
-    return {"bets": [{k: b.get(k) for k in keep if b.get(k) is not None}
+    return {"bets": [{k: v for k, v in ({**b, "sized_stake_usd": sized_stake(b["confidence"])}
+                                        .items()) if k in keep and v is not None}
                      for b in _all_bets(ctx)[-n:]]}
 
 

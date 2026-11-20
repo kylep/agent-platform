@@ -257,3 +257,18 @@ def test_engine_symbols_match_tool_description():
     manifest = (Path(__file__).parent / "tool.yaml").read_text()
     for symbol in engine.SYMBOLS:
         assert f" {symbol}" in manifest
+
+
+def test_sized_stake_follows_confidence():
+    assert [bets.sized_stake(c) for c in (0.5, 0.55, 0.6, 0.7, 0.9)] == [0, 125, 250, 500, 1000]
+
+
+def test_scoreboard_sizes_pnl_by_confidence():
+    store = FakeStore()
+    bets.execute(ctx(store, at(FRI, 15, 30)), {**BET, "confidence": 0.7})
+    bets.execute(ctx(store, at(MON, 16, 30)), {"action": "settle"})
+    overall = bets.execute(ctx(store, at(MON, 22, 0), caller="olu"),
+                           {"action": "scoreboard"})["overall"]
+    # flat $1,000 x 2.45% = 24.50; sized $500 x 2.45% = 12.25
+    assert overall["pnl_usd"] == 24.5 and overall["sized_pnl_usd"] == 12.25
+    assert overall["sized_avg_stake_usd"] == 500
