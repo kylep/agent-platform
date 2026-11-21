@@ -30,8 +30,14 @@ def _no_ambient_settings_env(monkeypatch):
     kafka_health onto a real (unreachable from here) broker — failures that
     have nothing to do with the code under test. A test that wants either
     non-default still sets it itself via monkeypatch or an explicit Settings()
-    kwarg, which wins over this fixture."""
+    kwarg, which wins over this fixture.
+
+    AP_CODEX_PROXY_URL is the same case: a pod that sits beside a codex-proxy
+    exports it, `Settings().codex_proxy_url` then picks it up, and every quota
+    refresh makes an extra `/internal/quota` call the quota and codex-auth
+    tests do not expect."""
     monkeypatch.delenv("AP_CLAUDE_PROXY_URL", raising=False)
+    monkeypatch.delenv("AP_CODEX_PROXY_URL", raising=False)
     monkeypatch.delenv("AP_KAFKA_BOOTSTRAP", raising=False)
 
 @pytest.fixture(scope="session", autouse=True)
