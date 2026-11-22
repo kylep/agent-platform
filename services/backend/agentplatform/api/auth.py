@@ -17,6 +17,7 @@ from agentplatform.appdata import credentials as _tc
 from agentplatform.db import ApiKey, ChatIdentity, LoginSession, Principal, utcnow
 
 ph = PasswordHasher()
+
 # A hash no password matches, verified on the login path's miss branch so an
 # unknown principal name costs the same as a wrong password.
 _NO_SUCH_PRINCIPAL_HASH = ph.hash(secrets.token_urlsafe(32))
@@ -571,6 +572,16 @@ async def _verify_run_token(request: Request, token: str, agent: str) -> dict | 
 _SA_CACHE_TTL = 60.0
 
 
+def _sa_cache_put(cache: dict, key: str, value) -> None:
+    """Remember a validated token for the TTL, dropping what has expired.
+    Every run pod carries its own projected token, so a cache nothing ever
+    evicted grew by one entry per run for the life of the process."""
+    now = time.monotonic()
+    for stale in [k for k, (expires, _) in cache.items() if expires <= now]:
+        del cache[stale]
+    cache[key] = (now + _SA_CACHE_TTL, value)
+
+
 def connector_identity(principal: str) -> str | None:
     """The Discord identity bound to a validated connector SA principal."""
     if principal == "connector-discord":
@@ -600,7 +611,7 @@ async def workload_sa(request: Request, token: str) -> str | None:
     if not username:
         return None
     sa_name = username.rsplit(":", 1)[-1]
-    cache[h] = (time.monotonic() + _SA_CACHE_TTL, sa_name)
+    _sa_cache_put(cache, h, sa_name)
     return sa_name
 
 
@@ -629,7 +640,7 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str, st
     sa_name = username.rsplit(":", 1)[-1]
     if sa_name == request.app.state.settings.connector_service_account:
         out = ("connector-discord", "connector", None)
-        cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
+        _sa_cache_put(cache, h, out)
         return out
     connector_prefix = request.app.state.settings.connector_service_account + "-"
     if sa_name.startswith(connector_prefix):
@@ -639,7 +650,7 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str, st
         if identity is None or identity.connector != "discord":
             return None
         out = (f"connector-discord:{identity_id}", "connector", None)
-        cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
+        _sa_cache_put(cache, h, out)
         return out
     if not sa_name.startswith("agent-"):
         return None
@@ -653,7 +664,7 @@ async def _validate_sa_token(request: Request, token: str) -> tuple[str, str, st
     if role is None:
         return None       # no platform grant: nothing for this identity to be
     out = (f"sa:{agent}", role, agent)
-    cache[h] = (time.monotonic() + _SA_CACHE_TTL, out)
+    _sa_cache_put(cache, h, out)
     return out
 
 
