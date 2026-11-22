@@ -6,7 +6,8 @@ from sqlalchemy import func, select
 
 from agentplatform.appdata.definitions import validate_app
 from agentplatform.appdata import intents
-from agentplatform.appdata.access import RecordError
+from agentplatform.appdata import records as rec
+from agentplatform.appdata.access import Caller, RecordError
 from agentplatform.appdata.judgment_cutover import verify_copy
 from agentplatform.appdata.judgment_migration import (
     bundle,
@@ -16,6 +17,7 @@ from agentplatform.appdata.judgment_migration import (
 from agentplatform.appdata.models import (
     AppDataApp,
     AppDataDefinition,
+    AppDataPageIntent,
     AppDataRecord,
     AppDataRecordVersion,
 )
@@ -255,3 +257,99 @@ async def test_review_delete_plan_change_needs_fresh_confirmation(sf):
     async with sf() as s:
         with pytest.raises(RecordError, match="confirm again"):
             await intents.dispatch(s, intent["intent_id"], intent["digest"])
+
+
+KAI_TOOL = Caller("agent:kai", via_tool="tool:judgment")
+
+
+async def test_direct_record_writes_cannot_bypass_the_judgment_guard(sf):
+    """API keys never reach the page-intent routes (test_appdata_intents);
+    this is the other door: plain record calls, even as Kyle or Kai."""
+    await _seed_review(sf)
+    async with sf() as s:
+        ctx = await rec.load_app(s, "a" * 32)
+        for collection, rid in (("feedback", "f" * 32), ("predictions", "p" * 32),
+                                ("belief_versions", "1" * 32)):
+            with pytest.raises(RecordError) as refused:
+                await rec.delete_records(s, ctx, Caller("kyle"), collection, [rid])
+            assert refused.value.code == "AD-TOOL-ONLY"
+        with pytest.raises(RecordError) as refused:
+            await rec.update_record(s, ctx, Caller("kyle"), "feedback", "f" * 32,
+                                    {"kyle_words": "rewritten"}, expected_version=1)
+        assert refused.value.code == "AD-TOOL-ONLY"
+        with pytest.raises(RecordError) as refused:
+            await rec.update_record(s, ctx, Caller("agent:kai"), "beliefs", "b" * 32,
+                                    {"claim": "rewritten"}, expected_version=3)
+        assert refused.value.code == "AD-TOOL-ONLY"
+        # Even through the tool's own credential, Kai can't mint Kyle's confirmation.
+        with pytest.raises(RecordError) as refused:
+            await rec.create_record(s, ctx, KAI_TOOL, "beliefs", {
+                "number": 1, "claim": "imported", "provenance": "kyle_confirmed",
+                "confidence": "low", "status": "active"})
+        assert refused.value.code == "AD-RULE-WRITER"
+
+
+async def test_stale_target_needs_fresh_confirmation(sf):
+    await _seed_review(sf)
+    async with sf() as s:
+        intent = await intents.create(s, "judgment", page="belief",
+                                      template="correct_belief", record_id="b" * 32,
+                                      values={"claim": "Kyle's words"})
+        ctx = await rec.load_app(s, "a" * 32)
+        await rec.update_record(s, ctx, KAI_TOOL, "beliefs", "b" * 32,
+                                {"number": 4, "claim": "Kai moved first",
+                                 "provenance": "inference", "reason": "new"},
+                                expected_version=3)
+    async with sf() as s:
+        with pytest.raises(RecordError, match="confirm again"):
+            await intents.dispatch(s, intent["intent_id"], intent["digest"])
+
+
+async def test_kyle_adds_confirmed_feedback_without_touching_the_prediction(sf):
+    await _seed_review(sf)
+    async with sf() as s:
+        with pytest.raises(RecordError, match="outcome"):
+            await intents.create(s, "judgment", page="prediction",
+                                 template="add_feedback", record_id="p" * 32,
+                                 values={"kyle_words": "built it"})
+        intent = await intents.create(s, "judgment", page="prediction",
+                                      template="add_feedback", record_id="p" * 32,
+                                      values={"kyle_words": "I built it to learn",
+                                              "outcome": "contradicted",
+                                              "shared_as": "choice"})
+    async with sf() as s:
+        first = await intents.dispatch(s, intent["intent_id"], intent["digest"])
+        again = await intents.dispatch(s, intent["intent_id"], intent["digest"])
+        assert again == {**first, "replayed": True}
+        row = await s.get(AppDataRecord, ("a" * 32, "feedback", first["id"]))
+        assert row.doc["prediction"] == "p" * 32 and row.doc["shared_as"] == "choice"
+        assert row.doc["confirmed_at"] and row.author == "kyle"
+        prediction = await s.get(AppDataRecord, ("a" * 32, "predictions", "p" * 32))
+        assert prediction.current_version == 1
+
+
+async def test_delete_leaves_no_retained_copy_of_the_deleted_version(sf):
+    source = snapshot()
+    source["belief_versions"][1]["feedback_id"] = "f" * 32
+    source["feedback"][0]["belief_version"] = 1
+    await _seed_review(sf, source)
+    async with sf() as s:
+        stale = await intents.create(s, "judgment", page="belief",
+                                     template="correct_belief", record_id="b" * 32,
+                                     values={"claim": "quotes version 3"})
+        intent = await intents.create(s, "judgment", page="review",
+                                      template="delete_feedback", record_id="f" * 32)
+    async with sf() as s:
+        first = await intents.dispatch(s, intent["intent_id"], intent["digest"])
+    async with sf() as s:
+        history = (await s.execute(select(AppDataRecordVersion).where(
+            AppDataRecordVersion.record_id == "b" * 32))).scalars().all()
+        assert history, "version 1's own history survives"
+        assert all(old.doc.get("number") != 3 and old.doc.get("feedback") != "f" * 32
+                   for old in history)
+        assert await s.get(AppDataPageIntent, stale["intent_id"]) is None
+        kept = await s.get(AppDataPageIntent, intent["intent_id"])
+        assert kept.confirmation == {}
+        # The deleting intent keeps its signed envelope, so a retry replays.
+        again = await intents.dispatch(s, intent["intent_id"], intent["digest"])
+        assert again == {**first, "replayed": True}

@@ -7,16 +7,21 @@ copy command. Neither runs on a fresh install or on a schedule.
 The 2026-10-03 source preflight found 41 beliefs, 66 belief versions, four
 predictions, one prediction link, six feedback records, and 25 earlier belief
 snapshots. The converter accepted a consistent read-only snapshot. There is no
-Judgment state App yet.
+Judgment state App yet; `--apply` creates it.
 
-**Do not run `--apply` yet.** The legacy UI lets Kyle correct and reject
-beliefs, confirm feedback, and remove versions. The current state page recipe
-only reads records and history. Its generic page templates also refuse writes
-to tool-only collections, which is intentional; a page must not silently
-bypass Kai's guarded Judgment tool. Preserve these review actions through a
-Kyle-authorized, explicitly scoped path before switching the writer or UI.
+**Kyle's review actions (ENG-10).** The pages bind reviewed tool actions
+(`page_tool_actions.REVIEWED`): confirm, correct, reject and delete a belief;
+add feedback to a prediction or delete it; confirm or delete feedback. Each
+runs only as a Kyle-session page intent (`intents.dispatch`), signed, single
+use, replayed from its receipt on retry, and refused for a fresh confirmation
+if the target, delete plan or page moved. Every collection's create, update
+and delete is tool-only, and only Kyle may write `provenance:
+kyle_confirmed`, so a direct record call, an API key or Kai's own credential
+can't bypass the guard. A delete also removes the deleted versions from the
+surviving belief's storage history and drops every other pending Judgment
+confirmation, since those quote record text.
 
-When that path is ready, the cutover order is: encrypted backup; disable Kai's
+The cutover order is: encrypted backup; disable Kai's
 Judgment writes and any concurrent run; run the default dry-run in the API
 pod; run `python -m agentplatform.appdata.judgment_cutover --apply` once; check
 current and historical parity; switch the `judgment` tool to `state.py` and

@@ -26,6 +26,9 @@ _spec.loader.exec_module(schema)
 APP = "judgment"
 MAX_RESPONSE = 1_048_576
 MAX_READ = 8_192
+MAX_SCAN = 5_000
+CONTRARY = ("contradicted", "mixed")
+SHARED_AS = ("preference", "choice", "correction")
 
 
 class JudgmentError(ValueError):
@@ -98,6 +101,21 @@ def _query(base: str, view: str, params: dict | None = None,
            limit: int = 50) -> list[dict]:
     out = _call(base, "query", view=view, params=params or {}, limit=limit)
     return [_values(row) for row in out.get("rows", [])]
+
+
+def _query_all(base: str, view: str, params: dict | None = None) -> list[dict]:
+    """Every row of a paging view: a review over a silently cut list would
+    understate what is pending."""
+    rows, cursor = [], None
+    while True:
+        out = _call(base, "query", view=view, params=params or {}, limit=200,
+                    cursor=cursor)
+        rows += [_values(row) for row in out.get("rows", [])]
+        cursor = out.get("next_cursor")
+        if not cursor:
+            return rows
+        if len(rows) >= MAX_SCAN:
+            raise JudgmentError(f"more than {MAX_SCAN} {view} rows; ask Kyle to prune")
 
 
 def _text(name: str, value, required=True):
@@ -259,7 +277,10 @@ def _feedback(base: str, args: dict) -> dict:
     if prediction_id:
         _get(base, "predictions", prediction_id)
     values = {"prediction": prediction_id, "belief_version": version_id,
+              "belief": belief_id,
               "kyle_words": _text("kyle_words", args.get("kyle_words")),
+              "shared_as": schema.choice("shared_as", args.get("shared_as"),
+                                         SHARED_AS, required=False),
               "source_ref": schema.source_ref(args.get("source_ref"), required=True),
               "source_at": (schema.timestamp("source_at", args.get("source_at"))
                             or None),
@@ -273,8 +294,76 @@ def _feedback(base: str, args: dict) -> dict:
     return {"ok": True, "id": feedback_id}
 
 
+def _with_evidence(base: str, row: dict, *, full: bool) -> dict:
+    """A belief with what argues against it, so the claim never travels alone:
+    Kyle's latest confirmed version when the head differs, and the feedback
+    on the belief or on predictions that relied on it (only contradicting or
+    mixed items in a search; everything for one belief)."""
+    belief = _public_belief(row)
+    versions = _query_all(base, "versions_for_belief", {"belief": row["id"]})
+    confirmed = [v for v in versions if v.get("provenance") == "kyle_confirmed"]
+    if confirmed:
+        latest = max(confirmed, key=lambda v: v["number"])
+        if latest["number"] != belief["version"]:
+            belief["latest_kyle_confirmed"] = {
+                "version": latest["number"], "claim": latest.get("claim"),
+                "scope": latest.get("scope")}
+    feedback = [{**f, "on": "belief"} for f in
+                _query_all(base, "feedback_for_belief", {"belief": row["id"]})]
+    predictions = [link["prediction"] for link in
+                   _query_all(base, "links_for_belief", {"belief": row["id"]})]
+    for pid in dict.fromkeys(predictions):
+        seen = {f["id"] for f in feedback}
+        feedback += [{**f, "on": "prediction"} for f in
+                     _query_all(base, "feedback_for_prediction", {"prediction": pid})
+                     if f["id"] not in seen]
+    if not full:
+        feedback = [f for f in feedback if f.get("outcome") in CONTRARY]
+    belief["feedback"] = feedback
+    if full:
+        belief["predictions_relying_on_it"] = list(dict.fromkeys(predictions))
+    return belief
+
+
+def _uncited(base: str, feedback: list[dict]) -> list[dict]:
+    """Contradicting or mixed feedback that no belief version answers yet."""
+    return [f for f in feedback if f.get("outcome") in CONTRARY
+            and not _query(base, "versions_for_feedback", {"feedback": f["id"]}, 1)]
+
+
+def _review(base: str) -> dict:
+    """Kai's on-demand review (ENG-8). Counts are sample sizes, not a score:
+    sparse, self-selected feedback can't support an accuracy rate."""
+    predictions = _query_all(base, "predictions_recent")
+    feedback = _query_all(base, "feedback_recent")
+    by_prediction: dict[str, list[dict]] = {}
+    for f in feedback:
+        if f.get("prediction"):
+            by_prediction.setdefault(f["prediction"], []).append(f)
+    items = []
+    for p in predictions:
+        rows = by_prediction.get(p["id"], [])
+        resolution = schema.resolution(rows)
+        if p.get("timing") != "prospective" or resolution is None:
+            continue
+        items.append({
+            "prediction": {k: p.get(k) for k in (
+                "id", "created_at", "scenario", "alternatives", "predicted_choice",
+                "rationale", "confidence")},
+            "resolution": resolution, "flags": schema.prediction_flags(p, rows),
+            "feedback": [{**f, "revisions": [
+                {"belief": v["belief"], "version": v["number"], "claim": v.get("claim"),
+                 "provenance": v.get("provenance")}
+                for v in _query_all(base, "versions_for_feedback", {"feedback": f["id"]})]}
+                for f in rows]})
+    return {"counts": schema.review_counts(predictions, by_prediction, feedback),
+            "resolved_prospective": items}
+
+
 def _read(base: str, args: dict) -> dict:
     action = args["action"]
+    if action == "review":
+        return _review(base)
     if action == "recall":
         if args.get("id"):
             record_id = _ref("id", args["id"], True)
@@ -286,9 +375,15 @@ def _read(base: str, args: dict) -> dict:
                         raise
                 else:
                     if collection == "beliefs":
-                        row = _public_belief(row)
+                        row = _with_evidence(base, row, full=True)
                         row["history"] = _call(base, "history", collection="beliefs",
                                                 id=record_id, limit=50).get("versions", [])
+                    elif collection == "predictions":
+                        row["relies_on"] = _query(base, "links_for_prediction",
+                                                  {"prediction": record_id}, 20)
+                        row["feedback"] = _query_all(base, "feedback_for_prediction",
+                                                     {"prediction": record_id})
+                        row["resolution"] = schema.resolution(row["feedback"]) or "unresolved"
                     return {"collection": collection, "record": row}
             raise JudgmentError("no belief, prediction or feedback with that id")
         query = _text("query", args.get("query"), False) or ""
@@ -296,25 +391,24 @@ def _read(base: str, args: dict) -> dict:
         if type(limit) is not int or not 1 <= limit <= 50:
             raise JudgmentError("limit must be 1–50")
         view = "belief_search" if query else "beliefs_recent"
-        return {"beliefs": [_public_belief(row) for row in _query(
+        return {"beliefs": [_with_evidence(base, row, full=False) for row in _query(
             base, view, {"query": query} if query else {}, limit)]}
-    predictions = _query(base, "predictions_recent", limit=100)
-    feedback = _query(base, "feedback_recent", limit=100)
+    predictions = _query_all(base, "predictions_recent")
+    feedback = _query_all(base, "feedback_recent")
     resolved = {row["prediction"] for row in feedback
                 if row.get("prediction") and row.get("outcome") in
                 schema.RESOLVING_OUTCOMES}
     return {"pending": [p for p in predictions if p.get("timing") == "prospective"
                         and p["id"] not in resolved],
-            "mixed_or_contradicted": [f for f in feedback if f.get("outcome") in
-                                      ("mixed", "contradicted")]}
+            "contradicting_feedback_no_version_cites": _uncited(base, feedback)}
 
 
 def run(args: dict) -> str | dict:
     _identity()
     base = _base(args)
     action = args.get("action")
-    if action not in ("belief", "predict", "feedback", "recall", "pending"):
-        raise JudgmentError("action must be belief|predict|feedback|recall|pending")
+    if action not in ("belief", "predict", "feedback", "recall", "pending", "review"):
+        raise JudgmentError("action must be belief|predict|feedback|recall|pending|review")
     if action in ("belief", "predict", "feedback"):
         for field in ("author", "confirmed_at", "timing", "created_at"):
             if field in args:

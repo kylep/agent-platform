@@ -875,7 +875,8 @@ def test_tool_yaml_shape():
     assert not doc.get("infra", {}).get("secrets")
     assert doc["timeout_seconds"] == 30
     props = doc["params"]["properties"]
-    assert props["action"]["enum"] == ["belief", "predict", "feedback", "recall", "pending"]
+    assert props["action"]["enum"] == ["belief", "predict", "feedback", "recall", "pending",
+                                       "review"]
     assert doc["params"]["required"] == ["action"]
     # The server sets these; the manifest must not invite them.
     for name in run.SERVER_SET:

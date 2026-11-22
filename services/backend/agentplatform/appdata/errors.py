@@ -85,6 +85,7 @@ CODES: dict[str, str] = {
     "JD-PAGE-LINK": "Link to a page of this App that declares the parameter, or to a "
                     "platform path such as `/tickets`.",
     "JD-PAGE-ACTION": "Name an action template the page declares, on the block's collection.",
+    "JD-PAGE-TOOL-ACTION": "Bind a reviewed page tool action exactly: its operation, collection and editable fields.",
     "JD-PAGE-HISTORY": "Show history only for a versioned collection's record detail.",
     "JD-PAGE-LAYOUT": "Use approved HTML tags/classes and one named ap-view per block; scripts and event attributes are forbidden.",
     "JD-PAGE-CALC": "Calculated groups are display rows, not editable source records.",

@@ -14,11 +14,11 @@ import hashlib
 import json
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from agentplatform.appdata import records as rec
 from agentplatform.appdata.access import Caller, RecordError
-from agentplatform.appdata.models import AppDataRecord
+from agentplatform.appdata.models import AppDataPageIntent, AppDataRecord, AppDataRecordVersion
 from agentplatform.db import utcnow
 
 
@@ -39,6 +39,10 @@ REVIEWED: dict[str, PageToolAction] = {
     "judgment_confirm_feedback": PageToolAction(
         "judgment", "feedback", ("kyle_words",)),
     "judgment_delete_feedback": PageToolAction("judgment", "feedback", ()),
+    # Kyle's own words on a prediction: confirmed on creation, as on the
+    # legacy page. The prediction itself never changes.
+    "judgment_add_feedback": PageToolAction(
+        "judgment", "predictions", ("kyle_words", "outcome", "shared_as")),
 }
 
 
@@ -164,6 +168,19 @@ async def prepare(session, ctx, operation: str, record_id: str | None,
         return {}, row.current_version, digest, {
             "current": current, "resulting_values": None, "changes": {},
             "delete_plan": summary}
+    if operation == "judgment_add_feedback":
+        feedback = ctx.collection("feedback")
+        values = {"kyle_words": _text(editable.get("kyle_words"), "kyle_words",
+                                      required=True)}
+        for field in ("outcome", "shared_as"):
+            if editable.get(field) is not None:
+                values[field] = rec.normalize_value(ctx, feedback, field, editable[field])
+        if "outcome" not in values:
+            raise RecordError("JD-REVIEW-VALUE", "feedback needs an outcome", 422)
+        resulting = {"prediction": record_id, **values, "confirmed_at": "on confirmation"}
+        return values, row.current_version, None, {
+            "current": current, "resulting_values": resulting, "changes": resulting,
+            "delete_plan": None}
 
     values = dict(editable)
     if operation == "judgment_correct_belief":
@@ -210,6 +227,39 @@ def _resulting(operation: str, current: dict, values: dict) -> dict:
     raise RecordError("JD-REVIEW-ACTION", "unknown Judgment review action", 404)
 
 
+async def _forget(session, ctx, rows: dict, targets: list[tuple[str, str]],
+                  intent_id: str) -> None:
+    """Deletion overrides history retention (docs/building-blocks/judgment.md).
+
+    The record engine drops a deleted record's own history. A surviving
+    belief still holds a deleted version's document in its storage history,
+    from earlier edits and from this cascade's own head and unlink writes, so
+    those rows go too. Page confirmations quote what they were about to
+    change; every other Judgment intent goes, and this one keeps only its
+    signed envelope so a retry still replays its receipt.
+    """
+    numbers: dict[str, set[int]] = {}
+    for name, rid in targets:
+        if name == "belief_versions":
+            doc = rows["belief_versions"][rid].doc
+            numbers.setdefault(doc["belief"], set()).add(doc["number"])
+    feedback = {rid for name, rid in targets if name == "feedback"}
+    survivors = set(numbers) - {rid for name, rid in targets if name == "beliefs"}
+    history = (await session.execute(select(AppDataRecordVersion).where(
+        AppDataRecordVersion.app_id == ctx.app_id,
+        AppDataRecordVersion.collection == "beliefs",
+        AppDataRecordVersion.record_id.in_(survivors)))).scalars().all() if survivors else []
+    for old in history:
+        if (old.doc.get("number") in numbers[old.record_id]
+                or old.doc.get("feedback") in feedback):
+            await session.delete(old)
+    await session.execute(delete(AppDataPageIntent).where(
+        AppDataPageIntent.app_id == ctx.app_id, AppDataPageIntent.id != intent_id))
+    current = await session.get(AppDataPageIntent, intent_id)
+    current.confirmation = {}
+    await session.flush()
+
+
 async def apply(session, ctx, operation: str, record_id: str, values: dict,
                 expected_version: int, intent_id: str) -> dict:
     spec = REVIEWED[operation]
@@ -226,6 +276,7 @@ async def apply(session, ctx, operation: str, record_id: str, values: dict,
         if plan.blocked:
             raise RecordError("AD-REF-RESTRICT", "Judgment deletion changed", 409)
         await rec.execute_plan(session, ctx, KYLE_REVIEW, plan)
+        await _forget(session, ctx, rows, targets, intent_id)
         if heads:
             await rec.bump_counters(session, ctx.app_id, ["beliefs"])
         return {"collection": spec.collection, "id": record_id, "deleted": True,
@@ -235,6 +286,16 @@ async def apply(session, ctx, operation: str, record_id: str, values: dict,
     row = await rec._fetch(session, ctx, collection, record_id, lock=True)
     if row.current_version != expected_version:
         raise RecordError("AD-VERSION-CONFLICT", "the reviewed record changed", 409)
+    if operation == "judgment_add_feedback":
+        feedback_id = uuid.uuid5(uuid.NAMESPACE_URL,
+                                 f"judgment-review:{intent_id}:feedback").hex
+        doc = {"prediction": record_id, **values,
+               "confirmed_at": utcnow().replace(tzinfo=timezone.utc).isoformat()}
+        result = await rec._insert(session, ctx, KYLE_REVIEW, ctx.collection("feedback"),
+                                   doc, feedback_id)
+        await rec.bump_counters(session, ctx.app_id, ["feedback"])
+        return {"collection": "feedback", "id": result.id,
+                "version": result.current_version}
     if operation == "judgment_confirm_feedback":
         patch = {**values}
         if not row.doc.get("confirmed_at"):

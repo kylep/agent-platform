@@ -26,6 +26,16 @@ from agentplatform.appdata.records import (bump_counters, load_app, normalize_va
 PRIVATE = {"read": ["owner", "kyle"]}
 OUTCOMES = ["supported", "contradicted", "mixed", "context_changed", "unresolved"]
 CONFIDENCE = ["low", "medium", "high"]
+# Every write, Kyle's deletes included, goes through the Judgment tool or a
+# reviewed page action (page_tool_actions.py), never a generic record call:
+# the tool keeps belief and version rows paired, and only the reviewed
+# delete cascade removes versions, history and the copies they leave behind.
+TOOL_ONLY = {"create": ["tool:judgment"], "update": ["tool:judgment"],
+             "delete": ["tool:judgment"]}
+# Imported text or a missing reply never becomes Kyle's confirmation: only
+# Kyle's own principal may write that value, whatever the tool code does.
+KYLE_CONFIRMS = {"kind": "writer", "field": "provenance", "value": "kyle_confirmed",
+                 "writers": ["kyle"]}
 
 
 def bundle() -> dict:
@@ -51,7 +61,7 @@ def bundle() -> dict:
          },
          "access": {**PRIVATE, "create": ["owner"], "update": ["owner", "kyle"],
                     "delete": ["kyle"]},
-         "writers": {"create": ["tool:judgment"], "update": ["tool:judgment"]},
+         "writers": TOOL_ONLY, "rules": [KYLE_CONFIRMS],
          "indexed": ["status", "provenance"]},
         {"collection": "belief_versions", "write_mode": "immutable",
          "description": "Stable IDs for old and new belief versions referenced by predictions.",
@@ -71,9 +81,9 @@ def bundle() -> dict:
              "feedback": {"type": "ref", "collection": "feedback", "on_delete": "unlink"},
          },
          "access": {**PRIVATE, "create": ["owner", "kyle"], "update": [], "delete": ["kyle"]},
-         "writers": {"create": ["tool:judgment"]},
-         "rules": [{"kind": "unique", "fields": ["belief", "number"]}],
-         "indexed": ["belief", "number"]},
+         "writers": TOOL_ONLY,
+         "rules": [{"kind": "unique", "fields": ["belief", "number"]}, KYLE_CONFIRMS],
+         "indexed": ["belief", "number", "feedback"]},
         {"collection": "predictions", "write_mode": "immutable",
          "description": "Prospective or retrospective decisions Kai predicted.",
          "fields": {
@@ -88,7 +98,7 @@ def bundle() -> dict:
              "question_ref": {"type": "string", "max": 200},
          },
          "access": {**PRIVATE, "create": ["owner"], "update": [], "delete": ["kyle"]},
-         "writers": {"create": ["tool:judgment"]}, "indexed": ["timing"]},
+         "writers": TOOL_ONLY, "indexed": ["timing"]},
         {"collection": "prediction_beliefs", "write_mode": "immutable",
          "description": "A prediction's claim about one exact belief version.",
          "fields": {
@@ -101,7 +111,7 @@ def bundle() -> dict:
              "belief_version": {"type": "int", "min": 1, "required": True},
          },
          "access": {**PRIVATE, "create": ["owner"], "update": [], "delete": ["kyle"]},
-         "writers": {"create": ["tool:judgment"]},
+         "writers": TOOL_ONLY,
          "rules": [{"kind": "unique", "fields": ["prediction", "belief",
                                                 "belief_version"]}],
          "indexed": ["prediction", "belief"]},
@@ -110,7 +120,13 @@ def bundle() -> dict:
              "prediction": {"type": "ref", "collection": "predictions", "on_delete": "unlink"},
              "belief_version": {"type": "ref", "collection": "belief_versions",
                                 "on_delete": "unlink"},
+             # The belief that version belongs to, so retrieval can attach
+             # feedback to the claim. An id, not a ref, like
+             # prediction_beliefs.belief.
+             "belief": {"type": "string", "max": 32},
              "kyle_words": {"type": "text", "max": 4000, "required": True},
+             # A stated preference and an actual choice are different evidence.
+             "shared_as": {"type": "enum", "values": ["preference", "choice", "correction"]},
              "source_ref": {"type": "string", "max": 200},
              "source_at": {"type": "datetime"},
              "outcome": {"type": "enum", "values": OUTCOMES, "required": True},
@@ -118,11 +134,12 @@ def bundle() -> dict:
                                 "access": {"read": ["owner"]}},
              "confirmed_at": {"type": "datetime"},
          },
-         "access": {**PRIVATE, "create": ["owner"], "update": ["kyle"],
+         "access": {**PRIVATE, "create": ["owner", "kyle"], "update": ["kyle"],
                     "delete": ["kyle"]},
-         "writers": {"create": ["tool:judgment"]},
+         "writers": TOOL_ONLY,
          "rules": [{"kind": "immutable_after_create",
-                    "fields": ["prediction", "belief_version", "source_at", "outcome"]}],
+                    "fields": ["prediction", "belief_version", "belief", "source_at",
+                               "outcome", "shared_as"]}],
          "indexed": ["prediction", "belief_version", "source_at"]},
     ]
     views = [
@@ -163,9 +180,30 @@ def bundle() -> dict:
          "params": {"prediction": {"type": "string", "required": True}},
          "filter": [{"field": "prediction", "op": "eq",
                      "value": {"param": "prediction"}}], "paging": True},
+        {"view": "feedback_for_belief", "collection": "feedback",
+         "params": {"belief": {"type": "string", "required": True}},
+         "filter": [{"field": "belief", "op": "eq", "value": {"param": "belief"}}],
+         "sort": [{"field": "created_at", "dir": "asc"}], "paging": True},
+        {"view": "links_for_belief", "collection": "prediction_beliefs",
+         "params": {"belief": {"type": "string", "required": True}},
+         "filter": [{"field": "belief", "op": "eq", "value": {"param": "belief"}}],
+         "paging": True},
+        {"view": "versions_for_feedback", "collection": "belief_versions",
+         "params": {"feedback": {"type": "string", "required": True}},
+         "filter": [{"field": "feedback", "op": "eq", "value": {"param": "feedback"}}],
+         "paging": True},
+        # Sample sizes for Kyle's review. Deliberately counts, never a rate.
+        {"view": "predictions_by_timing", "collection": "predictions",
+         "group_by": {"field": "timing"}, "aggregates": [{"fn": "count", "as": "count"}]},
+        {"view": "feedback_by_outcome", "collection": "feedback",
+         "group_by": {"field": "outcome"}, "aggregates": [{"fn": "count", "as": "count"}]},
     ]
     pages = [
         {"page": "review", "title": "Judgment review", "blocks": [
+            {"kind": "table", "view": "predictions_by_timing", "title": "Predictions",
+             "columns": [{"field": "timing"}, {"field": "count"}]},
+            {"kind": "table", "view": "feedback_by_outcome", "title": "Feedback outcomes",
+             "columns": [{"field": "outcome"}, {"field": "count"}]},
             {"kind": "table", "view": "beliefs_recent", "title": "Beliefs",
              "columns": [{"field": "claim"}, {"field": "status"}],
              "row_link": {"page": "belief", "param": "id"}},
@@ -213,10 +251,19 @@ def bundle() -> dict:
                      "params": {"id": {"page_param": "id"}},
                      "fields": ["scenario", "alternatives", "predicted_choice", "rationale",
                                 "confidence", "timing", "question_ref", "created_at"],
-                     "actions": ["delete_prediction"]}],
-         "actions": [{"kind": "tool_action", "name": "delete_prediction",
-                      "operation": "judgment_delete_prediction", "collection": "predictions",
-                      "label": "Delete prediction"}]},
+                     "actions": ["add_feedback", "delete_prediction"]},
+                    {"kind": "table", "view": "feedback_for_prediction", "title": "Feedback",
+                     "params": {"prediction": {"page_param": "id"}},
+                     "columns": [{"field": "kyle_words"}, {"field": "shared_as"},
+                                 {"field": "outcome"}, {"field": "confirmed_at"}]}],
+         "actions": [
+             {"kind": "tool_action", "name": "add_feedback",
+              "operation": "judgment_add_feedback", "collection": "predictions",
+              "label": "Add your feedback",
+              "editable_fields": ["kyle_words", "outcome", "shared_as"]},
+             {"kind": "tool_action", "name": "delete_prediction",
+              "operation": "judgment_delete_prediction", "collection": "predictions",
+              "label": "Delete prediction"}]},
     ]
     tools = [{"tool": "judgment", "roles": {
         "beliefs": {"collection": "beliefs", "verbs": ["read", "create", "update"]},
@@ -343,7 +390,7 @@ def convert_snapshot(source: dict[str, list[dict]]) -> dict[str, list[ImportReco
         out["feedback"].append(ImportRecord(
             "feedback", f["id"], _doc({
                 "prediction": f["prediction_id"], "belief_version": ref,
-                "kyle_words": f["kyle_words"], "source_ref": f["source_ref"],
+                "belief": f["belief_id"], "kyle_words": f["kyle_words"], "source_ref": f["source_ref"],
                 "source_at": f["source_at"], "outcome": f["outcome"],
                 "interpretation": f["interpretation"],
                 "confirmed_at": f["confirmed_at"]}), f["author"], f["created_at"],
