@@ -261,8 +261,17 @@ async def test_monitor_cannot_bypass_recovery_via_tickets_but_pai_can_dispose(to
     assert resolved.status_code == 200, resolved.text
     async with sf() as s:
         assert (await s.get(HealthIncident, "tool-denials:memory")).status == "resolved"
-    recurred = await token_client.post("/api/health/incidents", headers=headers, json={
-        "incident_key": "tool-denials:memory", "title": "Memory denial recurred", "body": "Again."})
+    again = {"incident_key": "tool-denials:memory", "title": "Memory denial recurred", "body": "Again."}
+    # The same dispositioned denial is still in the rolling window: not a recurrence.
+    unchanged = await token_client.post("/api/health/incidents", headers=headers, json=again)
+    assert unchanged.status_code == 200, unchanged.text
+    async with sf() as s:
+        assert (await s.get(Ticket, ticket_id)).state == "done"
+        assert (await s.get(HealthIncident, "tool-denials:memory")).status == "resolved"
+        s.add(ToolAudit(tool="memory", agent="health-monitor", action="read",
+            args_digest="test-call-signature", decision="deny:api", ts=utcnow()))
+        await s.commit()
+    recurred = await token_client.post("/api/health/incidents", headers=headers, json=again)
     assert recurred.status_code == 200, recurred.text
     async with sf() as s:
         assert (await s.get(Ticket, ticket_id)).state == "open"

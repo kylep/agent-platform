@@ -85,6 +85,12 @@ async def _verify_tool_recovery(session, ticket: Ticket, tool: str) -> list[str]
     return sorted(runs)
 
 
+async def _denied_since(session, tool: str, since: datetime) -> bool:
+    return await session.scalar(select(ToolAudit.id).where(
+        ToolAudit.tool == tool, ToolAudit.decision.like("deny%"),
+        ToolAudit.ts > since).limit(1)) is not None
+
+
 async def report_incident(session, producer, *, incident_key: str, title: str,
                           body: str, resolved: bool = False, run=None,
                           budget_limit: int = 20) -> Ticket | None:
@@ -149,6 +155,14 @@ async def report_incident(session, producer, *, incident_key: str, title: str,
                 body="Recovered: " + (body or "Health check is now healthy."), run=run)
         return ticket
     recurring = record.status == "resolved"
+    if (recurring and ticket.state in CLOSED_STATES and ticket.closed_at is not None
+            and incident_key.startswith("tool-denials:")
+            and not await _denied_since(session, incident_key.removeprefix("tool-denials:"),
+                                        as_utc(ticket.closed_at))):
+        # The denial still in the rolling window is the one the disposition
+        # already covered; reopening would summon Pai for no new evidence.
+        await session.commit()
+        return ticket
     last = record.updated_at
     if last is not None and last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)   # sqlite drops the zone
