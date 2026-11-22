@@ -1,4 +1,5 @@
 """Browser presence is UUID-bound ephemeral state, never a content edit."""
+import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -105,7 +106,12 @@ async def test_scoped_stream_closes_on_viewer_acl_revocation(sf, token_client, a
     from agentplatform.api import relay as relay_api
     identifier, _ = document
     headers = await _human_token(sf, 'viewer', 'reader')
-    monkeypatch.setattr(relay_api, 'HEARTBEAT_SECONDS', .05)
+    # Not faster than 0.5s: the in-memory sqlite behind these tests is ONE shared
+    # connection, and a stream re-check that closes its session right as the
+    # access PUT is mid-transaction rolls the PUT's update back, so the revocation
+    # is lost and the stream (correctly, for what it can see) never closes.
+    # test_accounts' SSE revocation test works around it the same way.
+    monkeypatch.setattr(relay_api, 'HEARTBEAT_SECONDS', .5)
     async with sse(token_client, f'{P}/docs/{SLUG}/presence/events', headers=headers) as (response, reader):
         assert response['status'] == 200
         assert (await reader.event())[0] == 'presence'
@@ -113,8 +119,13 @@ async def test_scoped_stream_closes_on_viewer_acl_revocation(sf, token_client, a
             'visibility': 'restricted', 'readers': [], 'editors': [], 'expected_access_version': 0,
             'request_id': 'presence-revoke'})
         assert changed.status_code == 200
-        with pytest.raises(Exception):
-            await reader.event(.2)
+        # Frames sent BEFORE the revocation may already be queued: drain those.
+        # Once access is gone the stream ends and goes quiet. A stream that kept
+        # sending would never time out, so 10 reads (about 5s of beats) with no
+        # timeout fails.
+        with pytest.raises(asyncio.TimeoutError):
+            for _ in range(10):
+                await reader.event(1.5)
 
 
 async def test_runless_agent_cannot_advertise_editing(sf, token_client, document, seed_agent, agent_store):
