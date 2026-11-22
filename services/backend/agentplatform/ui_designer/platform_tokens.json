@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "source_sha256": "5d4ea41e473d3e7cc8429e7a2294c8f31042c001e97c0d072ab2d4f203a3eaba",
+  "tokens": {
+    "color": {
+      "accent": {
+        "dark": "#36e2c4",
+        "light": "#0d6f67"
+      },
+      "accent-hover": {
+        "dark": "#6ff0db",
+        "light": "#0a5d56"
+      },
+      "border": {
+        "dark": "#222a38",
+        "light": "#d8dee9"
+      },
+      "canvas": {
+        "dark": "#0b0e14",
+        "light": "#ffffff"
+      },
+      "chart-1": {
+        "dark": "#6ea8fe",
+        "light": "#2563eb"
+      },
+      "chart-2": {
+        "dark": "#4ade80",
+        "light": "#16a34a"
+      },
+      "chart-3": {
+        "dark": "#fbbf24",
+        "light": "#b45309"
+      },
+      "chart-4": {
+        "dark": "#ffa657",
+        "light": "#c2410c"
+      },
+      "chart-5": {
+        "dark": "#b794f6",
+        "light": "#7c3aed"
+      },
+      "chart-6": {
+        "dark": "#3ddbe8",
+        "light": "#0d9488"
+      },
+      "chart-7": {
+        "dark": "#d2a8ff",
+        "light": "#6d28d9"
+      },
+      "chart-8": {
+        "dark": "#9aa4b2",
+        "light": "#52606d"
+      },
+      "danger": {
+        "dark": "#f87171",
+        "light": "#d32323"
+      },
+      "link": {
+        "dark": "#36e2c4",
+        "light": "#2563eb"
+      },
+      "on-accent": {
+        "dark": "#0b0e14",
+        "light": "#ffffff"
+      },
+      "quota-5h": {
+        "dark": "#2f6fe0",
+        "light": "#2f6fe0"
+      },
+      "quota-7d": {
+        "dark": "#c2379b",
+        "light": "#c2379b"
+      },
+      "quota-codex-5h": {
+        "dark": "#16794f",
+        "light": "#16794f"
+      },
+      "quota-codex-7d": {
+        "dark": "#0f766e",
+        "light": "#0f766e"
+      },
+      "quota-label-on": {
+        "dark": "#ffffff",
+        "light": "#ffffff"
+      },
+      "quota-track": {
+        "dark": "#ffffff",
+        "light": "#ffffff"
+      },
+      "raised": {
+        "dark": "#1c2230",
+        "light": "#ffffff"
+      },
+      "success": {
+        "dark": "#4ade80",
+        "light": "#15803d"
+      },
+      "surface": {
+        "dark": "#11151f",
+        "light": "#f4f6fa"
+      },
+      "text": {
+        "dark": "#e6e9ef",
+        "light": "#18181b"
+      },
+      "text-muted": {
+        "dark": "#9aa4b2",
+        "light": "#52606d"
+      },
+      "text-subtle": {
+        "dark": "#8a94a4",
+        "light": "#5e6b79"
+      },
+      "warning": {
+        "dark": "#f5a623",
+        "light": "#b45309"
+      }
+    },
+    "space": {
+      "xxs": 2,
+      "xs": 4,
+      "s": 8,
+      "m": 16,
+      "l": 24,
+      "xl": 32
+    },
+    "radius": {
+      "sm": 2,
+      "md": 4,
+      "lg": 8
+    },
+    "type": {
+      "body": {
+        "family": "Inter",
+        "size": 14,
+        "weight": 400,
+        "line": 1.4285714285714286
+      },
+      "small": {
+        "family": "Inter",
+        "size": 12,
+        "weight": 400,
+        "line": 1.3333333333333333
+      },
+      "mono": {
+        "family": "JetBrains Mono",
+        "size": 13,
+        "weight": 400,
+        "line": 1.625
+      }
+    }
+  }
+}

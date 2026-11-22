@@ -1,0 +1,1824 @@
+{
+  "id": "agent-platform",
+  "revision": 1,
+  "components": [
+    {
+      "name": "Banner",
+      "import_path": "@ap/ui/banner",
+      "description": "Inline information, success, and error messages.",
+      "category": "Feedback",
+      "story_id": "ui-banner--variants",
+      "properties": [
+        {
+          "name": "children",
+          "type": "text",
+          "default": "The deployment is ready.",
+          "prop": "children"
+        }
+      ],
+      "limitations": [
+        "The sample uses a fixed available width."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Info",
+          "props": {
+            "variant": "info",
+            "children": "The deployment is ready."
+          },
+          "fixture": {},
+          "width": 280,
+          "height": 40.75,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "ok",
+          "label": "Ok",
+          "props": {
+            "variant": "ok",
+            "children": "The deployment is ready."
+          },
+          "fixture": {},
+          "width": 280,
+          "height": 40.75,
+          "selection": {
+            "state": "ok"
+          }
+        },
+        {
+          "id": "danger",
+          "label": "Danger",
+          "props": {
+            "variant": "danger",
+            "children": "The deployment is ready."
+          },
+          "fixture": {},
+          "width": 280,
+          "height": 40.75,
+          "selection": {
+            "state": "danger"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Button",
+      "import_path": "@ap/ui/button",
+      "description": "Primary, secondary, destructive, and inline actions.",
+      "category": "Actions",
+      "story_id": "ui-button--variants",
+      "properties": [
+        {
+          "name": "children",
+          "type": "text",
+          "default": "Continue",
+          "prop": "children"
+        }
+      ],
+      "limitations": [
+        "Link appearance always uses the bare size.",
+        "Hover, keyboard focus, and events belong to the app."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Primary · md · enabled",
+          "props": {
+            "variant": "primary",
+            "size": "md",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 84.505,
+          "height": 32,
+          "selection": {
+            "style": "primary",
+            "size": "md",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "primary-disabled",
+          "label": "Primary · md · disabled",
+          "props": {
+            "variant": "primary",
+            "size": "md",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 84.505,
+          "height": 32,
+          "selection": {
+            "style": "primary",
+            "size": "md",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "primary-sm",
+          "label": "Primary · sm · enabled",
+          "props": {
+            "variant": "primary",
+            "size": "sm",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 67.861,
+          "height": 24,
+          "selection": {
+            "style": "primary",
+            "size": "sm",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "primary-sm-disabled",
+          "label": "Primary · sm · disabled",
+          "props": {
+            "variant": "primary",
+            "size": "sm",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 67.861,
+          "height": 24,
+          "selection": {
+            "style": "primary",
+            "size": "sm",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "primary-bare",
+          "label": "Primary · bare · enabled",
+          "props": {
+            "variant": "primary",
+            "size": "bare",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "primary",
+            "size": "bare",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "primary-bare-disabled",
+          "label": "Primary · bare · disabled",
+          "props": {
+            "variant": "primary",
+            "size": "bare",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "primary",
+            "size": "bare",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "secondary",
+          "label": "Secondary · md · enabled",
+          "props": {
+            "variant": "secondary",
+            "size": "md",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 86.505,
+          "height": 34,
+          "selection": {
+            "style": "secondary",
+            "size": "md",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "secondary-disabled",
+          "label": "Secondary · md · disabled",
+          "props": {
+            "variant": "secondary",
+            "size": "md",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 86.505,
+          "height": 34,
+          "selection": {
+            "style": "secondary",
+            "size": "md",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "secondary-sm",
+          "label": "Secondary · sm · enabled",
+          "props": {
+            "variant": "secondary",
+            "size": "sm",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 69.861,
+          "height": 26,
+          "selection": {
+            "style": "secondary",
+            "size": "sm",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "secondary-sm-disabled",
+          "label": "Secondary · sm · disabled",
+          "props": {
+            "variant": "secondary",
+            "size": "sm",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 69.861,
+          "height": 26,
+          "selection": {
+            "style": "secondary",
+            "size": "sm",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "secondary-bare",
+          "label": "Secondary · bare · enabled",
+          "props": {
+            "variant": "secondary",
+            "size": "bare",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 62.505,
+          "height": 23,
+          "selection": {
+            "style": "secondary",
+            "size": "bare",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "secondary-bare-disabled",
+          "label": "Secondary · bare · disabled",
+          "props": {
+            "variant": "secondary",
+            "size": "bare",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 62.505,
+          "height": 23,
+          "selection": {
+            "style": "secondary",
+            "size": "bare",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "danger",
+          "label": "Danger · md · enabled",
+          "props": {
+            "variant": "danger",
+            "size": "md",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 84.505,
+          "height": 32,
+          "selection": {
+            "style": "danger",
+            "size": "md",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "danger-disabled",
+          "label": "Danger · md · disabled",
+          "props": {
+            "variant": "danger",
+            "size": "md",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 84.505,
+          "height": 32,
+          "selection": {
+            "style": "danger",
+            "size": "md",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "danger-sm",
+          "label": "Danger · sm · enabled",
+          "props": {
+            "variant": "danger",
+            "size": "sm",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 67.861,
+          "height": 24,
+          "selection": {
+            "style": "danger",
+            "size": "sm",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "danger-sm-disabled",
+          "label": "Danger · sm · disabled",
+          "props": {
+            "variant": "danger",
+            "size": "sm",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 67.861,
+          "height": 24,
+          "selection": {
+            "style": "danger",
+            "size": "sm",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "danger-bare",
+          "label": "Danger · bare · enabled",
+          "props": {
+            "variant": "danger",
+            "size": "bare",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "danger",
+            "size": "bare",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "danger-bare-disabled",
+          "label": "Danger · bare · disabled",
+          "props": {
+            "variant": "danger",
+            "size": "bare",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "danger",
+            "size": "bare",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "link",
+          "label": "Link · md · enabled",
+          "props": {
+            "variant": "link",
+            "size": "md",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "link",
+            "size": "md",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "link-disabled",
+          "label": "Link · md · disabled",
+          "props": {
+            "variant": "link",
+            "size": "md",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "link",
+            "size": "md",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "link-sm",
+          "label": "Link · sm · enabled",
+          "props": {
+            "variant": "link",
+            "size": "sm",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "link",
+            "size": "sm",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "link-sm-disabled",
+          "label": "Link · sm · disabled",
+          "props": {
+            "variant": "link",
+            "size": "sm",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "link",
+            "size": "sm",
+            "availability": "disabled"
+          }
+        },
+        {
+          "id": "link-bare",
+          "label": "Link · bare · enabled",
+          "props": {
+            "variant": "link",
+            "size": "bare",
+            "disabled": false,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "link",
+            "size": "bare",
+            "availability": "enabled"
+          }
+        },
+        {
+          "id": "link-bare-disabled",
+          "label": "Link · bare · disabled",
+          "props": {
+            "variant": "link",
+            "size": "bare",
+            "disabled": true,
+            "children": "Continue"
+          },
+          "fixture": {},
+          "width": 60.505,
+          "height": 21,
+          "selection": {
+            "style": "link",
+            "size": "bare",
+            "availability": "disabled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chip",
+      "import_path": "@ap/ui/chip",
+      "description": "Compact uppercase pill for a label or filter.",
+      "category": "Feedback",
+      "story_id": "ui-chip--variants",
+      "properties": [
+        {
+          "name": "children",
+          "type": "text",
+          "default": "Runtime",
+          "prop": "children"
+        }
+      ],
+      "limitations": [],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Neutral",
+          "props": {
+            "variant": "neutral",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "ok",
+          "label": "Ok",
+          "props": {
+            "variant": "ok",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "ok"
+          }
+        },
+        {
+          "id": "warn",
+          "label": "Warn",
+          "props": {
+            "variant": "warn",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "warn"
+          }
+        },
+        {
+          "id": "danger",
+          "label": "Danger",
+          "props": {
+            "variant": "danger",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "danger"
+          }
+        },
+        {
+          "id": "accent",
+          "label": "Accent",
+          "props": {
+            "variant": "accent",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "accent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ChipButton",
+      "import_path": "@ap/ui/chip",
+      "description": "Compact uppercase pill for a label or filter.",
+      "category": "Feedback",
+      "story_id": "ui-chip--clickable",
+      "properties": [
+        {
+          "name": "children",
+          "type": "text",
+          "default": "Runtime",
+          "prop": "children"
+        }
+      ],
+      "limitations": [
+        "Pressed and disabled are static appearances. The app handles toggle and click events."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Neutral",
+          "props": {
+            "variant": "neutral",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "ok",
+          "label": "Ok",
+          "props": {
+            "variant": "ok",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "ok"
+          }
+        },
+        {
+          "id": "warn",
+          "label": "Warn",
+          "props": {
+            "variant": "warn",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "warn"
+          }
+        },
+        {
+          "id": "danger",
+          "label": "Danger",
+          "props": {
+            "variant": "danger",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "danger"
+          }
+        },
+        {
+          "id": "accent",
+          "label": "Accent",
+          "props": {
+            "variant": "accent",
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "accent"
+          }
+        },
+        {
+          "id": "pressed",
+          "label": "Pressed filter",
+          "props": {
+            "variant": "accent",
+            "aria-pressed": true,
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "pressed"
+          }
+        },
+        {
+          "id": "disabled",
+          "label": "Disabled",
+          "props": {
+            "variant": "neutral",
+            "disabled": true,
+            "children": "Runtime"
+          },
+          "fixture": {},
+          "width": 72.29,
+          "height": 22.5,
+          "selection": {
+            "state": "disabled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "StatusChip",
+      "import_path": "@ap/ui/chip",
+      "description": "Status label with semantic color from the platform status vocabulary.",
+      "category": "Feedback",
+      "story_id": "ui-chip--statuses",
+      "properties": [],
+      "limitations": [
+        "Choose a preset status to keep its appearance and React status value in sync."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Ready",
+          "props": {
+            "status": "ready"
+          },
+          "fixture": {},
+          "width": 57.504,
+          "height": 22.5,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "succeeded",
+          "label": "Succeeded",
+          "props": {
+            "status": "succeeded"
+          },
+          "fixture": {},
+          "width": 90.11,
+          "height": 22.5,
+          "selection": {
+            "state": "succeeded"
+          }
+        },
+        {
+          "id": "running",
+          "label": "Running",
+          "props": {
+            "status": "running"
+          },
+          "fixture": {},
+          "width": 73.3,
+          "height": 22.5,
+          "selection": {
+            "state": "running"
+          }
+        },
+        {
+          "id": "failed",
+          "label": "Failed",
+          "props": {
+            "status": "failed"
+          },
+          "fixture": {},
+          "width": 58.371,
+          "height": 22.5,
+          "selection": {
+            "state": "failed"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ConfirmDialog",
+      "import_path": "@ap/ui/dialog",
+      "description": "Discard changes?",
+      "category": "Dialogs",
+      "story_id": "ui-confirmdialog--open",
+      "properties": [
+        {
+          "name": "title",
+          "type": "text",
+          "default": "Discard changes?",
+          "prop": "title"
+        },
+        {
+          "name": "children",
+          "type": "text",
+          "default": "Your unsaved changes will be lost.",
+          "prop": "children"
+        },
+        {
+          "name": "confirm-label",
+          "type": "text",
+          "default": "Discard",
+          "prop": "confirmLabel"
+        }
+      ],
+      "limitations": [
+        "The sample represents the open modal panel. The app supplies the overlay, focus management, actions, and any form fields."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Open",
+          "props": {
+            "open": true,
+            "title": "Discard changes?",
+            "children": "Your unsaved changes will be lost.",
+            "confirmLabel": "Discard"
+          },
+          "fixture": {},
+          "width": 448,
+          "height": 172,
+          "selection": {
+            "state": "default"
+          }
+        }
+      ]
+    },
+    {
+      "name": "FormDialog",
+      "import_path": "@ap/ui/dialog",
+      "description": "Rename agent",
+      "category": "Dialogs",
+      "story_id": "ui-formdialog--rename",
+      "properties": [
+        {
+          "name": "title",
+          "type": "text",
+          "default": "Rename agent",
+          "prop": "title"
+        },
+        {
+          "name": "children",
+          "type": "text",
+          "default": "Choose a name for this agent.",
+          "prop": "children"
+        },
+        {
+          "name": "submit-label",
+          "type": "text",
+          "default": "Save",
+          "prop": "submitLabel"
+        }
+      ],
+      "limitations": [
+        "The sample represents the open modal panel. The app supplies the overlay, focus management, actions, and any form fields."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Open",
+          "props": {
+            "open": true,
+            "title": "Rename agent",
+            "children": "Choose a name for this agent.",
+            "submitLabel": "Save",
+            "disabled": false
+          },
+          "fixture": {},
+          "width": 448,
+          "height": 172,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "disabled",
+          "label": "Disabled submit",
+          "props": {
+            "open": true,
+            "title": "Rename agent",
+            "children": "Choose a name for this agent.",
+            "submitLabel": "Save",
+            "disabled": true
+          },
+          "fixture": {},
+          "width": 448,
+          "height": 172,
+          "selection": {
+            "state": "disabled"
+          }
+        }
+      ]
+    },
+    {
+      "name": "InfoDialog",
+      "import_path": "@ap/ui/dialog",
+      "description": "About this field",
+      "category": "Dialogs",
+      "story_id": "ui-infodialog--open",
+      "properties": [
+        {
+          "name": "title",
+          "type": "text",
+          "default": "About this field",
+          "prop": "title"
+        },
+        {
+          "name": "children",
+          "type": "text",
+          "default": "Agents use this model for their next run.",
+          "prop": "children"
+        }
+      ],
+      "limitations": [
+        "The sample represents the open modal panel. The app supplies the overlay, focus management, actions, and any form fields."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Open",
+          "props": {
+            "open": true,
+            "title": "About this field",
+            "children": "Agents use this model for their next run."
+          },
+          "fixture": {},
+          "width": 448,
+          "height": 172,
+          "selection": {
+            "state": "default"
+          }
+        }
+      ]
+    },
+    {
+      "name": "CodeEditor",
+      "import_path": "@ap/ui/field",
+      "description": "Monospace multiline field.",
+      "category": "Fields",
+      "story_id": "ui-field--all-fields",
+      "properties": [
+        {
+          "name": "default-value",
+          "type": "text",
+          "default": "model: sonnet",
+          "prop": "defaultValue"
+        }
+      ],
+      "limitations": [
+        "The sample omits native selection, focus, and browser resize controls."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Default",
+          "props": {
+            "defaultValue": "model: sonnet"
+          },
+          "fixture": {},
+          "width": 232,
+          "height": 56.25,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "disabled",
+          "label": "Disabled",
+          "props": {
+            "defaultValue": "model: sonnet",
+            "disabled": true
+          },
+          "fixture": {},
+          "width": 232,
+          "height": 56.25,
+          "selection": {
+            "state": "disabled"
+          }
+        },
+        {
+          "id": "read-only",
+          "label": "Read Only",
+          "props": {
+            "defaultValue": "model: sonnet",
+            "readOnly": true
+          },
+          "fixture": {},
+          "width": 232,
+          "height": 56.25,
+          "selection": {
+            "state": "read-only"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Input",
+      "import_path": "@ap/ui/field",
+      "description": "Single-line text field.",
+      "category": "Fields",
+      "story_id": "ui-field--all-fields",
+      "properties": [
+        {
+          "name": "default-value",
+          "type": "text",
+          "default": "Agent name",
+          "prop": "defaultValue"
+        }
+      ],
+      "limitations": [
+        "The sample omits native selection, focus, and browser resize controls."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Default",
+          "props": {
+            "defaultValue": "Agent name"
+          },
+          "fixture": {},
+          "width": 208,
+          "height": 34,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "disabled",
+          "label": "Disabled",
+          "props": {
+            "defaultValue": "Agent name",
+            "disabled": true
+          },
+          "fixture": {},
+          "width": 208,
+          "height": 34,
+          "selection": {
+            "state": "disabled"
+          }
+        },
+        {
+          "id": "read-only",
+          "label": "Read Only",
+          "props": {
+            "defaultValue": "Agent name",
+            "readOnly": true
+          },
+          "fixture": {},
+          "width": 208,
+          "height": 34,
+          "selection": {
+            "state": "read-only"
+          }
+        },
+        {
+          "id": "invalid",
+          "label": "Invalid",
+          "props": {
+            "defaultValue": "Agent name",
+            "aria-invalid": true
+          },
+          "fixture": {},
+          "width": 208,
+          "height": 34,
+          "selection": {
+            "state": "invalid"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Select",
+      "import_path": "@ap/ui/field",
+      "description": "Native single-choice field.",
+      "category": "Fields",
+      "story_id": "ui-field--all-fields",
+      "properties": [],
+      "limitations": [
+        "Selection and native control behavior belong to the app. Options are a sample composition."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Default",
+          "props": {
+            "defaultValue": "Production"
+          },
+          "fixture": {
+            "options": [
+              "Production",
+              "Staging"
+            ]
+          },
+          "width": 208,
+          "height": 33,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "disabled",
+          "label": "Disabled",
+          "props": {
+            "defaultValue": "Production",
+            "disabled": true
+          },
+          "fixture": {
+            "options": [
+              "Production",
+              "Staging"
+            ]
+          },
+          "width": 208,
+          "height": 33,
+          "selection": {
+            "state": "disabled"
+          }
+        },
+        {
+          "id": "invalid",
+          "label": "Invalid",
+          "props": {
+            "defaultValue": "Production",
+            "aria-invalid": true
+          },
+          "fixture": {
+            "options": [
+              "Production",
+              "Staging"
+            ]
+          },
+          "width": 208,
+          "height": 33,
+          "selection": {
+            "state": "invalid"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Textarea",
+      "import_path": "@ap/ui/field",
+      "description": "Multiline text field.",
+      "category": "Fields",
+      "story_id": "ui-field--all-fields",
+      "properties": [
+        {
+          "name": "default-value",
+          "type": "text",
+          "default": "Describe this agent.",
+          "prop": "defaultValue"
+        }
+      ],
+      "limitations": [
+        "The sample omits native selection, focus, and browser resize controls."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Default",
+          "props": {
+            "defaultValue": "Describe this agent."
+          },
+          "fixture": {},
+          "width": 232,
+          "height": 54,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "disabled",
+          "label": "Disabled",
+          "props": {
+            "defaultValue": "Describe this agent.",
+            "disabled": true
+          },
+          "fixture": {},
+          "width": 232,
+          "height": 54,
+          "selection": {
+            "state": "disabled"
+          }
+        },
+        {
+          "id": "read-only",
+          "label": "Read Only",
+          "props": {
+            "defaultValue": "Describe this agent.",
+            "readOnly": true
+          },
+          "fixture": {},
+          "width": 232,
+          "height": 54,
+          "selection": {
+            "state": "read-only"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Markdown",
+      "import_path": "@ap/ui/markdown",
+      "description": "Plain paragraph examples in chat and prose modes.",
+      "category": "Content",
+      "story_id": "ui-markdown--chat",
+      "properties": [],
+      "limitations": [
+        "The sample lays out native text. Markdown parsing, sanitization, and rich markup require the React component."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Chat line breaks",
+          "props": {
+            "text": "First line.\nSecond line.",
+            "flow": false
+          },
+          "fixture": {},
+          "width": 260,
+          "height": 43.4,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "flow",
+          "label": "Prose flow",
+          "props": {
+            "text": "First line.\nSecond line.",
+            "flow": true
+          },
+          "fixture": {},
+          "width": 260,
+          "height": 21.7,
+          "selection": {
+            "state": "flow"
+          }
+        }
+      ]
+    },
+    {
+      "name": "QuotaBars",
+      "import_path": "@ap/ui/quota",
+      "description": "Sidebar usage meters for Claude and Codex.",
+      "category": "Data",
+      "story_id": "ui-quotabars--range",
+      "properties": [],
+      "limitations": [
+        "Percentages and providers are fixed sample readings. Without window data the React component renders no bars."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Current reading",
+          "props": {
+            "five_hour": {
+              "utilization": 0.25,
+              "resets_at": null
+            },
+            "seven_day": {
+              "utilization": 0.75,
+              "resets_at": null
+            },
+            "stale": false
+          },
+          "fixture": {},
+          "width": 160,
+          "height": 27,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "stale",
+          "label": "Stale reading",
+          "props": {
+            "five_hour": {
+              "utilization": 0.25,
+              "resets_at": null
+            },
+            "seven_day": {
+              "utilization": 0.75,
+              "resets_at": null
+            },
+            "stale": true
+          },
+          "fixture": {},
+          "width": 160,
+          "height": 27,
+          "selection": {
+            "state": "stale"
+          }
+        },
+        {
+          "id": "unknown",
+          "label": "Unknown readings",
+          "props": {
+            "five_hour": {
+              "utilization": null,
+              "resets_at": null
+            },
+            "seven_day": {
+              "utilization": null,
+              "resets_at": null
+            },
+            "stale": false
+          },
+          "fixture": {},
+          "width": 160,
+          "height": 27,
+          "selection": {
+            "state": "unknown"
+          }
+        },
+        {
+          "id": "two-providers",
+          "label": "Two providers",
+          "props": {
+            "five_hour": {
+              "utilization": 0.25,
+              "resets_at": null
+            },
+            "seven_day": {
+              "utilization": 0.75,
+              "resets_at": null
+            },
+            "stale": false,
+            "codex": {
+              "five_hour": {
+                "utilization": 0.4,
+                "resets_at": null
+              },
+              "seven_day": {
+                "utilization": 0.65,
+                "resets_at": null
+              }
+            }
+          },
+          "fixture": {},
+          "width": 160,
+          "height": 60,
+          "selection": {
+            "state": "two-providers"
+          }
+        }
+      ]
+    },
+    {
+      "name": "SideNav",
+      "import_path": "@ap/ui/sidenav",
+      "description": "Sidebar sample with an active link and an expandable group.",
+      "category": "Navigation",
+      "story_id": "ui-sidenav--inside-an-app",
+      "properties": [],
+      "limitations": [
+        "The sample uses fixed links and a fixed footer. Router integration, group toggles, badges, and custom slots belong to the app."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Collapsed group",
+          "props": {
+            "entries": [
+              {
+                "to": "/",
+                "label": "Dashboard",
+                "end": true
+              },
+              {
+                "to": "/studio",
+                "label": "Studio",
+                "children": [
+                  {
+                    "to": "/ui-designer",
+                    "label": "UI Designer"
+                  },
+                  {
+                    "to": "/storybook/",
+                    "label": "Storybook",
+                    "external": true
+                  }
+                ]
+              },
+              {
+                "to": "/settings",
+                "label": "Settings"
+              }
+            ],
+            "activePath": "/settings"
+          },
+          "fixture": {
+            "theme": "dark"
+          },
+          "width": 200,
+          "height": 238,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "expanded",
+          "label": "Expanded group",
+          "props": {
+            "entries": [
+              {
+                "to": "/",
+                "label": "Dashboard",
+                "end": true
+              },
+              {
+                "to": "/studio",
+                "label": "Studio",
+                "children": [
+                  {
+                    "to": "/ui-designer",
+                    "label": "UI Designer"
+                  },
+                  {
+                    "to": "/storybook/",
+                    "label": "Storybook",
+                    "external": true
+                  }
+                ]
+              },
+              {
+                "to": "/settings",
+                "label": "Settings"
+              }
+            ],
+            "activePath": "/ui-designer"
+          },
+          "fixture": {
+            "theme": "dark"
+          },
+          "width": 200,
+          "height": 317.0,
+          "selection": {
+            "state": "expanded"
+          }
+        }
+      ]
+    },
+    {
+      "name": "ThemeToggle",
+      "import_path": "@ap/ui/sidenav",
+      "description": "Theme switch button with both label states.",
+      "category": "Navigation",
+      "story_id": "ui-sidenav--theme-switch",
+      "properties": [],
+      "limitations": [
+        "The theme hook and persisted preference belong to the app. Choose the label state for the canvas theme."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Dark theme",
+          "props": {},
+          "fixture": {
+            "theme": "dark"
+          },
+          "width": 58.805,
+          "height": 26,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "light",
+          "label": "Light theme",
+          "props": {},
+          "fixture": {
+            "theme": "light"
+          },
+          "width": 56.77,
+          "height": 26,
+          "selection": {
+            "state": "light"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stat",
+      "import_path": "@ap/ui/stat",
+      "description": "Metric card with a label, warning color, and optional breakdown.",
+      "category": "Data",
+      "story_id": "ui-stat--row",
+      "properties": [
+        {
+          "name": "label",
+          "type": "text",
+          "default": "Runs",
+          "prop": "label"
+        },
+        {
+          "name": "value",
+          "type": "text",
+          "default": "24",
+          "prop": "value"
+        }
+      ],
+      "limitations": [
+        "Linked cards show the link appearance. Navigation and rich breakdown content belong to the app."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Standard",
+          "props": {
+            "label": "Runs",
+            "value": "24"
+          },
+          "fixture": {},
+          "width": 112,
+          "height": 72.5,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "warning",
+          "label": "Warning",
+          "props": {
+            "label": "Runs",
+            "value": "24",
+            "warn": true
+          },
+          "fixture": {},
+          "width": 112,
+          "height": 72.5,
+          "selection": {
+            "state": "warning"
+          }
+        },
+        {
+          "id": "link",
+          "label": "Linked",
+          "props": {
+            "label": "Runs",
+            "value": "24",
+            "to": "/runs"
+          },
+          "fixture": {},
+          "width": 112,
+          "height": 72.5,
+          "selection": {
+            "state": "link"
+          }
+        },
+        {
+          "id": "breakdown",
+          "label": "With breakdown",
+          "props": {
+            "label": "Runs",
+            "value": "24",
+            "sub": "21 succeeded · 3 failed"
+          },
+          "fixture": {},
+          "width": 256,
+          "height": 95,
+          "selection": {
+            "state": "breakdown"
+          }
+        }
+      ]
+    },
+    {
+      "name": "StatRow",
+      "import_path": "@ap/ui/stat",
+      "description": "A group of metric cards with wrapping at narrow widths.",
+      "category": "Data",
+      "story_id": "ui-stat--wrapping",
+      "properties": [],
+      "limitations": [
+        "The sample presents fixed cards at two available widths. Supply children and container width in React."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Single row",
+          "props": {},
+          "fixture": {
+            "cards": [
+              {
+                "value": "24",
+                "label": "Runs"
+              },
+              {
+                "value": "3",
+                "label": "Failed",
+                "warn": true
+              }
+            ]
+          },
+          "width": 236,
+          "height": 72.5,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "wrapping",
+          "label": "Wrapped row",
+          "props": {},
+          "fixture": {
+            "cards": [
+              {
+                "value": "24",
+                "label": "Runs"
+              },
+              {
+                "value": "3",
+                "label": "Failed",
+                "warn": true
+              }
+            ]
+          },
+          "width": 140,
+          "height": 157,
+          "selection": {
+            "state": "wrapping"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Table",
+      "import_path": "@ap/ui/table",
+      "description": "Data table sample with styled headers and row dividers.",
+      "category": "Data",
+      "story_id": "ui-table--runs",
+      "properties": [],
+      "limitations": [
+        "Rows are a fixed sample composition. The overflowing sample shows clipping. Scroll affordances require the React component."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Populated",
+          "props": {},
+          "fixture": {
+            "headers": [
+              "Agent",
+              "Status"
+            ],
+            "rows": [
+              [
+                "release",
+                "Succeeded"
+              ],
+              [
+                "review",
+                "Running"
+              ]
+            ]
+          },
+          "width": 256,
+          "height": 93.71428571428572,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "empty",
+          "label": "Empty",
+          "props": {},
+          "fixture": {
+            "headers": [
+              "Agent",
+              "Status"
+            ],
+            "rows": [
+              [
+                "No runs"
+              ]
+            ]
+          },
+          "width": 256,
+          "height": 60.714285714285715,
+          "selection": {
+            "state": "empty"
+          }
+        },
+        {
+          "id": "overflowing",
+          "label": "Overflowing",
+          "props": {},
+          "fixture": {
+            "headers": [
+              "Agent",
+              "Status",
+              "Timestamp"
+            ],
+            "rows": [
+              [
+                "release",
+                "Succeeded",
+                "10:45 UTC"
+              ],
+              [
+                "review",
+                "Running",
+                "11:02 UTC"
+              ]
+            ]
+          },
+          "width": 256,
+          "height": 93.71428571428572,
+          "selection": {
+            "state": "overflowing"
+          }
+        }
+      ]
+    },
+    {
+      "name": "TH",
+      "import_path": "@ap/ui/table",
+      "description": "Uppercase table column heading.",
+      "category": "Data",
+      "story_id": "ui-table--runs",
+      "properties": [
+        {
+          "name": "children",
+          "type": "text",
+          "default": "Agent",
+          "prop": "children"
+        }
+      ],
+      "limitations": [
+        "Use within a table heading row in React."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Header",
+          "props": {
+            "children": "Agent"
+          },
+          "fixture": {},
+          "width": 128,
+          "height": 27.714285714285715,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "column-scope",
+          "label": "Column scope",
+          "props": {
+            "children": "Agent",
+            "scope": "col"
+          },
+          "fixture": {},
+          "width": 128,
+          "height": 27.714285714285715,
+          "selection": {
+            "state": "column-scope"
+          }
+        }
+      ]
+    },
+    {
+      "name": "TD",
+      "import_path": "@ap/ui/table",
+      "description": "Body cell for a data row.",
+      "category": "Data",
+      "story_id": "ui-table--runs",
+      "properties": [
+        {
+          "name": "children",
+          "type": "text",
+          "default": "release",
+          "prop": "children"
+        }
+      ],
+      "limitations": [
+        "Use within a table body row in React."
+      ],
+      "variants": [
+        {
+          "id": "default",
+          "label": "Cell",
+          "props": {
+            "children": "release"
+          },
+          "fixture": {},
+          "width": 128,
+          "height": 32,
+          "selection": {
+            "state": "default"
+          }
+        },
+        {
+          "id": "spanning-columns",
+          "label": "Two columns",
+          "props": {
+            "children": "release",
+            "colSpan": 2
+          },
+          "fixture": {},
+          "width": 256,
+          "height": 32,
+          "selection": {
+            "state": "spanning-columns"
+          }
+        }
+      ]
+    }
+  ]
+}

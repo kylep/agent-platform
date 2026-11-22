@@ -27,6 +27,8 @@ def test_catalog_matches_broker_and_custom_manifest_actions():
     assert {item["id"] for item in compiled["operations"]
             if "unknown" in item["effects"]} == {
         "core.query_app.call@1", "tool.linear.raw_graphql@1",
+        # Internal administrator import jobs never become callable page actions.
+        "tool.figma_import.call@1",
         # Design 35 introduced these Tools without a reviewed page contract.
         "tool.backtest.describe_primitives@1", "tool.backtest.validate@1",
         "tool.backtest.run@1", "tool.backtest.rerun@1",
@@ -175,3 +177,9 @@ def test_tool_view_actions_stay_off_typed_v1_pages(monkeypatch):
     assert operation_catalog.view_action("x", "counts") == op
     assert operation_catalog.view_action("x", "other") is None
     assert operation_catalog.view_action("judgment", "recall") is None   # declared nowhere
+
+
+def test_ui_designer_lint_is_read_only_and_has_no_live_page_adapter():
+    entry = operation_catalog.OPERATIONS["core.ui_designer.lint@1"]
+    assert entry["effects"] == ["reads_sensitive"]
+    assert entry["view_eligible"] is False

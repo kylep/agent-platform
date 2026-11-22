@@ -71,7 +71,7 @@ export function outsideCode(text: string, rewrite: (plain: string) => string): s
  * same protection applies: `[[artifact:…]]` in a code span or a link is
  * quoted, not used. Empty prose pieces are dropped, so a body that IS a chip
  * yields one card and no blank paragraph beside it. */
-export type BodyPiece = { kind: "text"; text: string } | { kind: "artifact"; id: string };
+export type BodyPiece = { kind: "text"; text: string } | { kind: "artifact"; id: string } | { kind: "ui"; slug: string; node?: string };
 
 export function splitArtifacts(text: string): BodyPiece[] {
   const out: BodyPiece[] = [];
@@ -80,16 +80,28 @@ export function splitArtifacts(text: string): BodyPiece[] {
   for (const [chunk, guarded] of stretches(text || "")) {
     if (guarded) { buf += chunk; continue; }
     let at = 0;
-    for (const ref of artifactRefs(chunk)) {
+    const references = [...artifactRefs(chunk).map((ref) => ({ ...ref, kind: "artifact" as const })), ...uiRefs(chunk)].sort((a, b) => a.start - b.start);
+    for (const ref of references) {
       buf += chunk.slice(at, ref.start);
       flush();
-      out.push({ kind: "artifact", id: ref.id });
+      out.push(ref.kind === "artifact" ? { kind: "artifact", id: ref.id } : { kind: "ui", slug: ref.slug, node: ref.node });
       at = ref.end;
     }
     buf += chunk.slice(at);
   }
   flush();
   return out;
+}
+
+
+/** Native design references; hash is canonical, slash remains a legacy separator. */
+function uiRefs(text: string) {
+  const refs: { kind: "ui"; slug: string; node?: string; start: number; end: number }[] = [];
+  for (const match of text.matchAll(/\[\[ui:([a-z0-9][a-z0-9-]{0,63})(?:[#/]([a-z0-9][a-z0-9/-]{0,383}))?\]\]/g)) {
+    if (match[2] && !match[2].split("/").every((part) => /^[a-z0-9][a-z0-9-]{0,47}$/.test(part))) continue;
+    refs.push({ kind: "ui", slug: match[1], node: match[2], start: match.index, end: match.index + match[0].length });
+  }
+  return refs;
 }
 
 /** Every ticket key in one stretch of ordinary prose, as a markdown link. */

@@ -1,0 +1,32 @@
+name: figma_import
+description: >-
+  Internal bounded Figma REST fetcher for durable UI Designer import jobs.
+  Writes trees and assets to the executor sink; returns retry metadata on 429.
+internal: true
+timeout_seconds: 240
+infra:
+  secrets: [figma-token]
+params:
+  type: object
+  additionalProperties: false
+  required: [file_key]
+  properties:
+    file_key: {type: string, pattern: '^[A-Za-z0-9_-]{1,128}$'}
+    mode: {type: string, enum: [file_meta, tree_page, asset_batch, references]}
+    what: {type: string, enum: [tree, images, references]}
+    version: {type: string, pattern: '^[A-Za-z0-9_-]{1,128}$'}
+    page_ids:
+      type: array
+      minItems: 1
+      maxItems: 8
+      items: {type: string, pattern: '^[A-Za-z0-9:_-]{1,128}$'}
+    node_ids:
+      type: array
+      minItems: 1
+      maxItems: 8
+      items: {type: string, pattern: '^[A-Za-z0-9:_-]{1,128}$'}
+    image_refs:
+      type: array
+      minItems: 1
+      maxItems: 8
+      items: {type: string, pattern: '^[A-Za-z0-9:_-]{1,128}$'}

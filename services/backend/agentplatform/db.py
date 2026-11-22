@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import Any
 from sqlalchemy import (Boolean, JSON, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String,
                         Text, UniqueConstraint, case, func, select, text)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -975,6 +976,8 @@ class Artifact(Base):
     source: Mapped[str] = mapped_column(String(12), default="upload")
     # Provenance, shaped by the source: a generation's model and prompt, a
     # derivative's parent, a tool's name. Capped at 8 KB of JSON at the door.
+    ui_document_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    ui_provenance: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
     tags: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -987,6 +990,232 @@ class ArtifactBlob(Base):
     __tablename__ = "artifact_blobs"
     artifact_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     data: Mapped[bytes] = mapped_column(LargeBinary)
+
+
+# --- UI Designer (docs/design/46 §2.1) -------------------------------------
+# Business rules live in ui_designer/store.py; these are only the tables.
+_UD_JSON = JSON().with_variant(JSONB(), "postgresql")
+_UD_TS = DateTime(timezone=True)
+
+
+class UiDesignerDocument(Base):
+    """A design document. The slug is unique only among live rows, so a
+    deleted slug can be reused and the tombstone keeps its name. `bytes` is the
+    zlib-compressed size of `doc` (a proxy for the TOASTed JSONB on disk)."""
+    __tablename__ = "ui_designer_documents"
+    __table_args__ = (Index("uq_ui_designer_documents_slug", "slug", unique=True,
+                            postgresql_where=text("deleted_at IS NULL"),
+                            sqlite_where=text("deleted_at IS NULL")),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    slug: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(120), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    owner: Mapped[str] = mapped_column(String(160))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    doc: Mapped[dict] = mapped_column(_UD_JSON)
+    doc_sha256: Mapped[str] = mapped_column(String(64), default="")
+    node_count: Mapped[int] = mapped_column(Integer, default=0)
+    expanded_count: Mapped[int] = mapped_column(Integer, default=0)
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    # The last principal to read or write; a write by anyone else stops folding.
+    last_reader: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(_UD_TS, nullable=True)
+
+
+class UiDesignerVersion(Base):
+    """One history row, folding the writes of one run's burst. `version` is the
+    last write's number, `first_version` the first chunk's; `doc` is the snapshot
+    at `version`. `base_doc` is the snapshot before the first chunk, kept only
+    when a prune removed the row that used to supply it. `bytes` is the
+    compressed size of doc + chunks + base_doc."""
+    __tablename__ = "ui_designer_versions"
+    __table_args__ = (UniqueConstraint("document_id", "version", name="uq_ui_designer_versions_doc_version"),
+                      Index("ix_ui_designer_versions_doc_first", "document_id", "first_version"))
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    document_id: Mapped[str] = mapped_column(ForeignKey("ui_designer_documents.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    first_version: Mapped[int] = mapped_column(Integer)
+    doc: Mapped[dict] = mapped_column(_UD_JSON)
+    chunks: Mapped[list] = mapped_column(_UD_JSON, default=list)
+    base_doc: Mapped[dict | None] = mapped_column(_UD_JSON, nullable=True)
+    author: Mapped[str] = mapped_column(String(128))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    last_write_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerImport(Base):
+    """A Figma import job. The slug is the idempotency key while the job is
+    queued or running; `staged` is the durable per-page checkpoint."""
+    __tablename__ = "ui_designer_imports"
+    __table_args__ = (Index("uq_ui_designer_imports_active_slug", "slug", unique=True,
+                            postgresql_where=text("state IN ('queued', 'running')"),
+                            sqlite_where=text("state IN ('queued', 'running')")),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    slug: Mapped[str] = mapped_column(String(64))
+    file_key: Mapped[str] = mapped_column(String(128))
+    state: Mapped[str] = mapped_column(String(8), default="queued")  # queued|running|done|failed
+    pages: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    staged: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    report: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    initiated_by: Mapped[str] = mapped_column(String(160), default="")
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerAccess(Base):
+    """Sharing is independent of restorable document JSON and content versions."""
+    __tablename__ = "ui_designer_access"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    visibility: Mapped[str] = mapped_column(String(16), default="workspace")
+    access_version: Mapped[int] = mapped_column(Integer, default=0)
+    readers: Mapped[list] = mapped_column(_UD_JSON, default=list)
+    editors: Mapped[list] = mapped_column(_UD_JSON, default=list)
+
+
+class UiDesignerAccessEntry(Base):
+    """Normalized sharing entries make filtered pagination portable and indexed."""
+    __tablename__ = "ui_designer_access_entries"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    principal: Mapped[str] = mapped_column(String(160), primary_key=True, index=True)
+    role: Mapped[str] = mapped_column(String(8), primary_key=True)
+
+
+class UiDesignerPresence(Base):
+    """Transient authenticated tab state; TTL, never document/version history."""
+    __tablename__ = "ui_designer_presence"
+    __table_args__ = (Index("ix_ui_presence_document_expiry", "document_id", "expires_at"),
+                      Index("ix_ui_presence_expiry", "expires_at"))
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    participant: Mapped[str] = mapped_column(String(160), primary_key=True)
+    client_session: Mapped[str] = mapped_column(String(32), primary_key=True)
+    state: Mapped[str] = mapped_column(String(8), default="viewing")
+    version: Mapped[int] = mapped_column(Integer)
+    page_id: Mapped[str] = mapped_column(String(48))
+    node_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sequence: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(_UD_TS)
+    credential_kind: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    credential_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class UiDesignerFont(Base):
+    """Worker-validated static OFL font bytes; never a public raw asset."""
+    __tablename__ = "ui_designer_fonts"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    bytes: Mapped[int] = mapped_column(Integer)
+    family: Mapped[str] = mapped_column(String(128))
+    weight: Mapped[int] = mapped_column(Integer)
+    font_meta: Mapped[dict] = mapped_column(_UD_JSON)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerDocumentFont(Base):
+    """Validated-font placement authorizes declarations and history restoration."""
+    __tablename__ = "ui_designer_document_fonts"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    placed_by: Mapped[str] = mapped_column(String(160))
+    placed_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerAsset(Base):
+    """Image bytes a document owns, content-addressed."""
+    __tablename__ = "ui_designer_assets"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    mime: Mapped[str] = mapped_column(String(80))
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerDocumentAsset(Base):
+    """The placement record: an image node may name only an asset placed here."""
+    __tablename__ = "ui_designer_document_assets"
+    document_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    placed_by: Mapped[str] = mapped_column(String(160))
+    placed_from: Mapped[str] = mapped_column(String(80), default="")
+    placed_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerCommentWake(Base):
+    """Durable per-target comment outbox; run IDs are assigned before launch."""
+    __tablename__ = "ui_designer_comment_wakes"
+    __table_args__ = (UniqueConstraint("comment_id", "target", name="uq_ui_comment_wake_target"),
+                      Index("ix_ui_comment_wake_pending", "state", "created_at"),
+                      Index("ix_ui_comment_wake_document_target", "document_id", "target"))
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    comment_id: Mapped[str] = mapped_column(String(32), index=True)
+    target: Mapped[str] = mapped_column(String(128))
+    version: Mapped[int] = mapped_column(Integer)
+    node_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    author: Mapped[str] = mapped_column(String(160))
+    initiating_principal: Mapped[str] = mapped_column(String(160))
+    parent_run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
+    hop: Mapped[int] = mapped_column(Integer, default=0)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerComment(Base):
+    __tablename__ = "ui_designer_comments"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    node_id: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    parent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    author: Mapped[str] = mapped_column(String(160))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    body: Mapped[str] = mapped_column(Text)
+    resolved_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(_UD_TS, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+
+
+class UiDesignerReceipt(Base):
+    """Request replay (like AppDataBuildOp). `response` is the final version
+    number, warnings and text only, never a snapshot."""
+    __tablename__ = "ui_designer_receipts"
+    __table_args__ = (UniqueConstraint("scope", "request_id", name="uq_ui_designer_receipts_request"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    scope: Mapped[str] = mapped_column(String(160))
+    request_id: Mapped[str] = mapped_column(String(128))
+    document_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    op: Mapped[str] = mapped_column(String(16))  # edit|create|restore|comment
+    args_hash: Mapped[str] = mapped_column(String(64))
+    response: Mapped[dict] = mapped_column(_UD_JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow, index=True)
+
+
+class UiDesignerRender(Base):
+    """Render cache: derivable, bounded, excluded from backups."""
+    __tablename__ = "ui_designer_renders"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(32), index=True)
+    png: Mapped[bytes] = mapped_column(LargeBinary)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow)
+    last_used: Mapped[datetime] = mapped_column(_UD_TS, default=utcnow, index=True)
 
 
 class SchemaMark(Base):
@@ -1373,6 +1602,59 @@ class ScheduledTaskEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RapidChat(Base):
+    """A time- and quota-boxed multi-persona sprint (docs/design/45). The
+    controller (`rapid_chat.py`, in the dispatcher) owns `areas`, `state` and
+    the sink; the API only creates rows and requests a stop."""
+    __tablename__ = "rapid_chats"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    title: Mapped[str] = mapped_column(String(128))
+    goal: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(128))
+    initiated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    participants: Mapped[list] = mapped_column(JSON, default=list)
+    sink: Mapped[dict] = mapped_column(JSON, default=dict)
+    areas: Mapped[list] = mapped_column(JSON, default=list)
+    integrated_pass: Mapped[int] = mapped_column(Integer, default=-1)
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    max_turns: Mapped[int] = mapped_column(Integer, default=200)
+    turn_timeout_seconds: Mapped[int] = mapped_column(Integer, default=240)
+    limits: Mapped[dict] = mapped_column(JSON, default=dict)
+    state: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    end_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    turns_total: Mapped[int] = mapped_column(Integer, default=0)
+    last_quota: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    output_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RapidChatTurn(Base):
+    """The audit log: one row per job handed to a participant, including the
+    exact prompt and the raw reply, so a bad session is debuggable from here."""
+    __tablename__ = "rapid_chat_turns"
+    __table_args__ = (UniqueConstraint("chat_id", "seq", name="uq_rapid_turn_seq"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    chat_id: Mapped[str] = mapped_column(String(32), index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    agent: Mapped[str] = mapped_column(String(128))
+    area_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pass_no: Mapped[int] = mapped_column(Integer, default=0)
+    role: Mapped[str] = mapped_column(String(16))
+    run_id: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parsed: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
 class TaskScheduleGrant(Base):
     """Admin-managed creator -> target permission for delayed invocation."""
     __tablename__ = "task_schedule_grants"
@@ -1661,6 +1943,12 @@ WIKI_SEED_CHANNEL = ("wiki", "every edit, as a diff card")
 # later seed, and a mention in a system row summons nobody either way.
 ART_SEED_CHANNEL = ("art", "every generated image, as a card")
 ART_WELCOME_BODY = "Summon @artist with a brief, or make images yourself in the Studio"
+
+# The UI Designer's room (docs/design/46 section 6): every exported design
+# frame and every labeled version, as a card. The art room's twin.
+UI_DESIGN_CHANNEL_MARK = "ui-design-channel-v1"
+UI_DESIGN_SEED_CHANNEL = ("design", "every exported design frame, as a card")
+UI_DESIGN_WELCOME_BODY = "Exported design frames and named versions land here as cards"
 
 # The one page the wiki ships with. It is the wiki explaining itself, so it is
 # also the worked example of the two things a writer has to know: `[[slug]]`
@@ -2441,6 +2729,30 @@ def _ensure_art_channel(conn) -> None:
         welcome = _relay_message(channel_id, "system:relay", ART_WELCOME_BODY, now)
         conn.execute(RelayMessage.__table__.insert().values(**{**welcome, "kind": "system"}))
     conn.execute(mark_t.insert().values(name=ART_CHANNEL_MARK, applied_at=utcnow()))
+
+
+def _ensure_design_channel(conn) -> None:
+    """Ship `#design` and its welcome row, `_ensure_art_channel`'s shape and
+    bargain: gated on the mark, an existing room adopted without a second
+    welcome, a system row written straight to the table."""
+    mark_t = SchemaMark.__table__
+    if conn.execute(select(mark_t.c.name)
+                    .where(mark_t.c.name == UI_DESIGN_CHANNEL_MARK)).first():
+        return
+    conv_t = Conversation.__table__
+    name, topic = UI_DESIGN_SEED_CHANNEL
+    if not conn.execute(select(conv_t.c.id).where(conv_t.c.kind == "channel",
+                                                  conv_t.c.name == name)).first():
+        channel_id = uuid.uuid4().hex
+        now = utcnow()
+        conn.execute(conv_t.insert().values(
+            id=channel_id, connector="web", external_ref=None, agent=None,
+            kind="channel", name=name, topic=topic, open=True, archived_at=None,
+            ticket_prefix=None, ticket_seq=0, title=f"#{name}", status="active",
+            claude_session_id="", session_blob=None, created_at=now, updated_at=now))
+        welcome = _relay_message(channel_id, "system:relay", UI_DESIGN_WELCOME_BODY, now)
+        conn.execute(RelayMessage.__table__.insert().values(**{**welcome, "kind": "system"}))
+    conn.execute(mark_t.insert().values(name=UI_DESIGN_CHANNEL_MARK, applied_at=utcnow()))
 
 
 def _ensure_wiki_agent(conn) -> None:
@@ -4057,6 +4369,11 @@ async def init_db(engine: AsyncEngine, default_grant: bool = True,
         await conn.run_sync(_ensure_wiki_ddl)
         await conn.run_sync(_ensure_wiki_seed)
         await conn.run_sync(_ensure_art_channel)
+        await conn.run_sync(_ensure_design_channel)
+        from agentplatform.ui_designer.team_seed import ensure_design_team
+        await conn.run_sync(ensure_design_team)
+        from agentplatform.ui_designer.artifact_migration import migrate_design_artifacts
+        await migrate_design_artifacts(conn)
         await conn.run_sync(_ensure_wiki_default_grant, wiki_grant)
         await conn.run_sync(_ensure_quota_default_grant, quota_grant)
         await conn.run_sync(_ensure_artifacts_default_grant, artifacts_grant)

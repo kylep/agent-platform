@@ -58,6 +58,12 @@ spec:
               {{- else }}
               value: "http://agent-platform-tool-executor:8000"
               {{- end }}
+            {{- if .Values.uiRenderer.enabled }}
+            # UI Designer renderer (docs/design/46 §5): the API forwards documents
+            # and image bytes to it; the NetworkPolicy admits only this pod.
+            - name: AP_UI_DESIGNER_RENDERER_URL
+              value: "http://agent-platform-ui-renderer:8000"
+            {{- end }}
             {{- if or (and .Values.claudeProxy.enabled .Values.claudeProxy.quota.enabled) .Values.codexProxy.enabled }}
             # Shared credential for the broker-only internal API routes.
             - name: AP_INTERNAL_SECRET

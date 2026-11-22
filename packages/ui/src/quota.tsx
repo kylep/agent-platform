@@ -65,7 +65,8 @@ function Bar({ name, fill, window: w, observed_at, stale, now }: {
   observed_at?: string | null; stale?: boolean; now: number;
 }) {
   const pct = percent(w.utilization);
-  const label = describe(name, pct, w.resets_at, observed_at, now);
+  const description = describe(name, pct, w.resets_at, observed_at, now);
+  const label = stale && pct !== null ? `${description} · stale reading` : description;
   const text = pct === null ? "" : `${pct}%`;
   return (
     <div className="quota-bar" role="meter" aria-label={label} title={label}

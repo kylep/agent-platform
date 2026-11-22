@@ -752,15 +752,18 @@ class RelayRouter:
         """Invocations in the last hour, per channel and platform-wide. Counted
         from the rows rather than an in-memory tally so a restart does not hand
         the room a fresh budget."""
+        from agentplatform.ui_designer.comment_wakes import comment_spend, invocation_budget_lock
+        await invocation_budget_lock(s)
         cutoff = utcnow() - timedelta(hours=1)
         counted = select(func.count()).select_from(RelayInvocation).where(
             RelayInvocation.decision == "invoked", RelayInvocation.created_at >= cutoff,
             # Watch turns have their own per-room cap (docs/design/41), so room
             # chatter can never spend the budget a human's @mention needs.
             RelayInvocation.reason != "watch")
+        design_used = await comment_spend(s, cutoff)
         return ((await s.scalar(counted.where(
                     RelayInvocation.channel_id == channel_id))) or 0,
-                (await s.scalar(counted)) or 0)
+                ((await s.scalar(counted)) or 0) + design_used)
 
     def _exhausted(self, channel_used: int, global_used: int) -> int | None:
         """The budget that is spent, or None. A human mention is subject to

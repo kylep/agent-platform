@@ -1,0 +1,872 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "slug": "console-home",
+      "title": "Dashboard",
+      "group": "Core",
+      "path": "/",
+      "pattern": "/",
+      "source": "console",
+      "heading": "Dashboard",
+      "probe": "news blocked|blocked: skill"
+    },
+    {
+      "slug": "console-login",
+      "title": "Sign in",
+      "group": "Core",
+      "path": "/login",
+      "pattern": "/login",
+      "source": "console",
+      "heading": "Agent Platform",
+      "probe": "Sign in",
+      "scenario": "anonymous"
+    },
+    {
+      "slug": "console-setup",
+      "title": "First-time setup",
+      "group": "Core",
+      "path": "/setup",
+      "pattern": "/setup",
+      "source": "console",
+      "heading": "Set the admin password",
+      "probe": "Confirm password",
+      "scenario": "setup"
+    },
+    {
+      "slug": "console-profile",
+      "title": "Profile",
+      "group": "Core",
+      "path": "/profile",
+      "pattern": "/profile",
+      "source": "console",
+      "heading": "Profile",
+      "probe": "Change password",
+      "scenario": "profile"
+    },
+    {
+      "slug": "console-not-found",
+      "title": "Page not found",
+      "group": "Core",
+      "path": "/missing-capture-example",
+      "pattern": "*",
+      "source": "console",
+      "heading": "Not found"
+    },
+    {
+      "slug": "console-agents",
+      "title": "Agents",
+      "group": "Agents",
+      "path": "/agents",
+      "pattern": "/agents",
+      "source": "console",
+      "heading": "Agents",
+      "probe": "health-monitor"
+    },
+    {
+      "slug": "console-new-agent",
+      "title": "New agent",
+      "group": "Agents",
+      "path": "/agents/new",
+      "pattern": "/agents/new",
+      "source": "console",
+      "heading": "New Agent",
+      "probe": "Grants"
+    },
+    {
+      "slug": "console-agent-config",
+      "title": "Agent configuration",
+      "group": "Agents",
+      "path": "/agents/health-monitor",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "health-monitor",
+      "probe": "Entrypoints"
+    },
+    {
+      "slug": "console-agent-history",
+      "title": "Agent change history",
+      "group": "Agents",
+      "path": "/agents/health-monitor?tab=history",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "health-monitor",
+      "probe": "Change log"
+    },
+    {
+      "slug": "console-agent-conversations",
+      "title": "Agent conversations",
+      "group": "Agents",
+      "path": "/agents/pai?tab=conversations",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "pai",
+      "probe": "What.s my day look like"
+    },
+    {
+      "slug": "console-agent-tickets",
+      "title": "Agent tickets",
+      "group": "Agents",
+      "path": "/agents/news?tab=tickets",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "news",
+      "probe": "OPS-1"
+    },
+    {
+      "slug": "console-agent-memories",
+      "title": "Agent memories",
+      "group": "Agents",
+      "path": "/agents/pai?tab=memories",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "pai",
+      "probe": "Kyle likes terminals"
+    },
+    {
+      "slug": "console-agent-schedules",
+      "title": "Agent schedules",
+      "group": "Agents",
+      "path": "/agents/health-monitor?tab=schedules",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "health-monitor",
+      "probe": "Entrypoint"
+    },
+    {
+      "slug": "console-agent-tasks",
+      "title": "Agent tasks",
+      "group": "Agents",
+      "path": "/agents/news?tab=tasks",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "news",
+      "probe": "Post the release notes"
+    },
+    {
+      "slug": "console-agent-report",
+      "title": "Agent report",
+      "group": "Agents",
+      "path": "/agents/news?tab=report",
+      "pattern": "/agents/:name",
+      "source": "console",
+      "heading": "news",
+      "probe": "Tokens by model"
+    },
+    {
+      "slug": "console-teams-projects",
+      "title": "Teams and projects",
+      "group": "Agents",
+      "path": "/teams-projects",
+      "pattern": "/teams-projects",
+      "source": "console",
+      "heading": "Teams & Projects",
+      "probe": "Platform Operations"
+    },
+    {
+      "slug": "console-runs",
+      "title": "Runs",
+      "group": "Agents",
+      "path": "/runs",
+      "pattern": "/runs",
+      "source": "console",
+      "heading": "Runs",
+      "probe": "health-monitor"
+    },
+    {
+      "slug": "console-run-detail",
+      "title": "Run detail",
+      "group": "Agents",
+      "path": "/runs/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "pattern": "/runs/:id",
+      "source": "console",
+      "heading": "Run a1a1a1a1",
+      "probe": "All scheduled health checks passed",
+      "scenario": "run-tail"
+    },
+    {
+      "slug": "console-relay",
+      "title": "Relay channel",
+      "group": "Knowledge",
+      "path": "/relay",
+      "pattern": "/relay",
+      "source": "console",
+      "heading": "Relay",
+      "probe": "Morning"
+    },
+    {
+      "slug": "console-relay-dm",
+      "title": "Relay direct messages",
+      "group": "Knowledge",
+      "path": "/relay?kind=dm",
+      "pattern": "/relay",
+      "source": "console",
+      "heading": "Relay",
+      "probe": "What.s my day look like"
+    },
+    {
+      "slug": "console-relay-thread",
+      "title": "Relay thread",
+      "group": "Knowledge",
+      "path": "/relay?channel=rc1&thread=m6",
+      "pattern": "/relay",
+      "source": "console",
+      "heading": "Relay",
+      "probe": "Thread"
+    },
+    {
+      "slug": "console-relay-popout",
+      "title": "Relay pop-out",
+      "group": "Knowledge",
+      "path": "/relay?channel=rc1&popout=1",
+      "pattern": "/relay",
+      "source": "console",
+      "probe": "Morning"
+    },
+    {
+      "slug": "console-tickets",
+      "title": "Tickets",
+      "group": "Knowledge",
+      "path": "/tickets",
+      "pattern": "/tickets",
+      "source": "console",
+      "heading": "Tickets",
+      "probe": "OPS-1"
+    },
+    {
+      "slug": "console-ticket-detail",
+      "title": "Ticket detail",
+      "group": "Knowledge",
+      "path": "/tickets/OPS-1",
+      "pattern": "/tickets/:key",
+      "source": "console",
+      "heading": "OPS-1",
+      "probe": "Weather repeats across the digest"
+    },
+    {
+      "slug": "console-wiki",
+      "title": "Wiki",
+      "group": "Knowledge",
+      "path": "/wiki",
+      "pattern": "/wiki",
+      "source": "console",
+      "heading": "Wiki",
+      "probe": "Everything the platform knows"
+    },
+    {
+      "slug": "console-wiki-page",
+      "title": "Wiki article",
+      "group": "Knowledge",
+      "path": "/wiki/deploying",
+      "pattern": "/wiki/:slug",
+      "source": "console",
+      "heading": "Deploying",
+      "probe": "reuse-values"
+    },
+    {
+      "slug": "console-memories",
+      "title": "Memories",
+      "group": "Knowledge",
+      "path": "/memories",
+      "pattern": "/memories",
+      "source": "console",
+      "heading": "Memories",
+      "probe": "promoted"
+    },
+    {
+      "slug": "console-help",
+      "title": "Help",
+      "group": "Knowledge",
+      "path": "/help",
+      "pattern": "/help",
+      "source": "console",
+      "heading": "Help",
+      "probe": "building blocks|configuration lives in git"
+    },
+    {
+      "slug": "console-help-topic",
+      "title": "Help article",
+      "group": "Knowledge",
+      "path": "/help/agents",
+      "pattern": "/help/:slug",
+      "source": "console",
+      "heading": "Agents",
+      "probe": "who runs"
+    },
+    {
+      "slug": "console-studio",
+      "title": "Image Studio",
+      "group": "Studio",
+      "path": "/studio",
+      "pattern": "/studio",
+      "source": "console",
+      "heading": "Studio",
+      "probe": "GPT Image 1"
+    },
+    {
+      "slug": "console-studio-stage",
+      "title": "Image Studio stage",
+      "group": "Studio",
+      "path": "/studio/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "pattern": "/studio/:id",
+      "source": "console",
+      "heading": "Studio",
+      "probe": "gpt-image-1"
+    },
+    {
+      "slug": "console-artifacts",
+      "title": "Artifacts",
+      "group": "Studio",
+      "path": "/artifacts",
+      "pattern": "/artifacts",
+      "source": "console",
+      "heading": "Artifacts",
+      "probe": "a-dragon-over-the-harbour"
+    },
+    {
+      "slug": "console-artifact-detail",
+      "title": "Artifact lightbox",
+      "group": "Studio",
+      "path": "/artifacts/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "pattern": "/artifacts/:id",
+      "source": "console",
+      "heading": "Artifacts",
+      "probe": "gpt-image-1"
+    },
+    {
+      "slug": "console-designer",
+      "title": "UI Designer documents",
+      "group": "Studio",
+      "path": "/ui-designer",
+      "pattern": "/ui-designer",
+      "source": "console",
+      "heading": "UI Designer",
+      "probe": "Release dashboard"
+    },
+    {
+      "slug": "console-designer-document",
+      "title": "UI Designer editor",
+      "group": "Studio",
+      "path": "/ui-designer/release-dashboard",
+      "pattern": "/ui-designer/:slug",
+      "source": "console",
+      "probe": "Release dashboard"
+    },
+    {
+      "slug": "console-designer-play",
+      "title": "UI Designer prototype",
+      "group": "Studio",
+      "path": "/ui-designer/release-dashboard/play",
+      "pattern": "/ui-designer/:slug/play",
+      "source": "console",
+      "probe": "Release dashboard"
+    },
+    {
+      "slug": "console-changes",
+      "title": "Pending changes",
+      "group": "Operations",
+      "path": "/changes",
+      "pattern": "/changes",
+      "source": "console",
+      "heading": "Pending Changes",
+      "probe": "skill: release-review"
+    },
+    {
+      "slug": "console-dlq",
+      "title": "Dead-letter queue",
+      "group": "Operations",
+      "path": "/dlq",
+      "pattern": "/dlq",
+      "source": "console",
+      "heading": "Dead-letter queue",
+      "probe": "Worker did not acknowledge"
+    },
+    {
+      "slug": "console-reporting",
+      "title": "Reporting",
+      "group": "Operations",
+      "path": "/reporting",
+      "pattern": "/reporting",
+      "source": "console",
+      "heading": "Reporting",
+      "probe": "Seconds per run"
+    },
+    {
+      "slug": "console-reports",
+      "title": "Reports",
+      "group": "Operations",
+      "path": "/reports",
+      "pattern": "/reports",
+      "source": "console",
+      "heading": "Reports",
+      "probe": "daily-news"
+    },
+    {
+      "slug": "console-report-calendar",
+      "title": "Report calendar",
+      "group": "Operations",
+      "path": "/reports/daily-news?m=2026-11",
+      "pattern": "/reports/:type",
+      "source": "console",
+      "heading": "daily-news",
+      "probe": "Open latest"
+    },
+    {
+      "slug": "console-report-detail",
+      "title": "Report viewer",
+      "group": "Operations",
+      "path": "/reports/daily-news/2026-11-16",
+      "pattern": "/reports/:type/:date",
+      "source": "console",
+      "probe": "Daily news"
+    },
+    {
+      "slug": "console-schedules",
+      "title": "Schedules",
+      "group": "Operations",
+      "path": "/schedules",
+      "pattern": "/schedules",
+      "source": "console",
+      "heading": "Schedules",
+      "probe": "health-monitor"
+    },
+    {
+      "slug": "console-tasks",
+      "title": "Tasks",
+      "group": "Operations",
+      "path": "/tasks",
+      "pattern": "/tasks",
+      "source": "console",
+      "heading": "Tasks",
+      "probe": "Post the release notes"
+    },
+    {
+      "slug": "console-task-detail",
+      "title": "Task detail",
+      "group": "Operations",
+      "path": "/tasks?task=t-upcoming",
+      "pattern": "/tasks",
+      "source": "console",
+      "heading": "Tasks",
+      "probe": "Summarize the release"
+    },
+    {
+      "slug": "console-rapid-chats",
+      "title": "Rapid Chats",
+      "group": "Operations",
+      "path": "/rapid-chats",
+      "pattern": "/rapid-chats",
+      "source": "console",
+      "heading": "Rapid Chats",
+      "probe": "Release check"
+    },
+    {
+      "slug": "console-skills",
+      "title": "Skills and tools",
+      "group": "Operations",
+      "path": "/skills",
+      "pattern": "/skills",
+      "source": "console",
+      "heading": "Skills & Tools",
+      "probe": "stocks"
+    },
+    {
+      "slug": "console-connections",
+      "title": "Connections",
+      "group": "Settings",
+      "path": "/secrets",
+      "pattern": "/secrets",
+      "source": "console",
+      "heading": "Connections",
+      "probe": "Discord chat identities"
+    },
+    {
+      "slug": "console-personas",
+      "title": "Local persona sessions",
+      "group": "Settings",
+      "path": "/settings/local-personas",
+      "pattern": "/settings/local-personas",
+      "source": "console",
+      "heading": "Local persona sessions",
+      "probe": "Workstation"
+    },
+    {
+      "slug": "console-settings",
+      "title": "Settings",
+      "group": "Settings",
+      "path": "/settings",
+      "pattern": "/settings",
+      "source": "console",
+      "heading": "Settings",
+      "probe": "AP_RELAY_MAX_HOPS"
+    },
+    {
+      "slug": "console-users",
+      "title": "Users",
+      "group": "Settings",
+      "path": "/settings/users",
+      "pattern": "/settings/users",
+      "source": "console",
+      "heading": "Users",
+      "probe": "alice",
+      "scenario": "accounts"
+    },
+    {
+      "slug": "console-groups",
+      "title": "Groups",
+      "group": "Settings",
+      "path": "/settings/groups",
+      "pattern": "/settings/groups",
+      "source": "console",
+      "heading": "Groups",
+      "probe": "family",
+      "scenario": "accounts"
+    },
+    {
+      "slug": "console-backups",
+      "title": "Backups",
+      "group": "Settings",
+      "path": "/backups",
+      "pattern": "/backups",
+      "source": "console",
+      "heading": "Backups",
+      "probe": "2026"
+    },
+    {
+      "slug": "console-restore",
+      "title": "Restore report",
+      "group": "Settings",
+      "path": "/settings/restore",
+      "pattern": "/settings/restore",
+      "source": "console",
+      "heading": "Restore report",
+      "probe": "Automation"
+    },
+    {
+      "slug": "console-apps",
+      "title": "Apps catalogue",
+      "group": "Apps",
+      "path": "/apps",
+      "pattern": "/apps",
+      "source": "console",
+      "heading": "Apps",
+      "probe": "habits"
+    },
+    {
+      "slug": "console-state-app-pages",
+      "title": "State App pages",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "pattern": "/apps/state/:id",
+      "source": "console",
+      "heading": "habits",
+      "probe": "Days done"
+    },
+    {
+      "slug": "console-state-app-definitions",
+      "title": "State App definitions",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a?tab=definitions",
+      "pattern": "/apps/state/:id",
+      "source": "console",
+      "heading": "habits",
+      "probe": "Approved"
+    },
+    {
+      "slug": "console-state-app-proposals",
+      "title": "State App proposals",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a?tab=proposals",
+      "pattern": "/apps/state/:id",
+      "source": "console",
+      "heading": "habits",
+      "probe": "Allow team members to view weekly totals"
+    },
+    {
+      "slug": "console-state-app-notes",
+      "title": "State App build notes",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a?tab=notes",
+      "pattern": "/apps/state/:id",
+      "source": "console",
+      "heading": "habits",
+      "probe": "logs each habit"
+    },
+    {
+      "slug": "console-state-app-health",
+      "title": "State App health",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a?tab=health",
+      "pattern": "/apps/state/:id",
+      "source": "console",
+      "heading": "habits",
+      "probe": "Rule violations"
+    },
+    {
+      "slug": "console-state-app-page",
+      "title": "State App published page",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a/pages/overview",
+      "pattern": "/apps/state/:appId/pages/:page",
+      "source": "console",
+      "heading": "Habits",
+      "probe": "restricted"
+    },
+    {
+      "slug": "console-state-app-entry",
+      "title": "State App record detail",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a/pages/entry?id=r1",
+      "pattern": "/apps/state/:appId/pages/:page",
+      "source": "console",
+      "heading": "Habit day",
+      "probe": "Easy 5k"
+    },
+    {
+      "slug": "console-state-app-proposal",
+      "title": "State App proposal",
+      "group": "Apps",
+      "path": "/apps/state/5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a/proposals/5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d",
+      "pattern": "/apps/state/:id/proposals/:proposalId",
+      "source": "console",
+      "heading": "Review App proposal",
+      "probe": "Weekly habits"
+    },
+    {
+      "slug": "console-live-view",
+      "title": "Published live page",
+      "group": "Apps",
+      "path": "/live-views/6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a",
+      "pattern": "/live-views/:id",
+      "source": "console",
+      "heading": "Release overview",
+      "probe": "Operational snapshot"
+    },
+    {
+      "slug": "console-live-view-new",
+      "title": "New live page",
+      "group": "Apps",
+      "path": "/live-views/new?app=news",
+      "pattern": "/live-views/new",
+      "source": "console",
+      "heading": "New live page"
+    },
+    {
+      "slug": "console-live-view-edit",
+      "title": "Live page editor",
+      "group": "Apps",
+      "path": "/live-views/6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a/edit",
+      "pattern": "/live-views/:id/edit",
+      "source": "console",
+      "heading": "Edit overview",
+      "probe": "Action access"
+    },
+    {
+      "slug": "app-running",
+      "title": "Running Coach",
+      "group": "Apps",
+      "path": "/apps/running/",
+      "pattern": "/apps/running/",
+      "source": "running",
+      "probe": "Calendar"
+    },
+    {
+      "slug": "app-stockmarket",
+      "title": "Stockmarket overview",
+      "group": "Apps",
+      "path": "/apps/stockmarket/",
+      "pattern": "/apps/stockmarket/",
+      "source": "stockmarket",
+      "probe": "Watchlist"
+    },
+    {
+      "slug": "app-stockmarket-backtests",
+      "title": "Backtest list",
+      "group": "Apps",
+      "path": "/apps/stockmarket/#/backtests",
+      "pattern": "/apps/stockmarket/#/backtests",
+      "source": "stockmarket",
+      "heading": "Backtests",
+      "probe": "DCA into QQQ"
+    },
+    {
+      "slug": "app-stockmarket-compare",
+      "title": "Backtest comparison",
+      "group": "Apps",
+      "path": "/apps/stockmarket/#/backtests/compare?ids=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "pattern": "/apps/stockmarket/#/backtests/compare",
+      "source": "stockmarket",
+      "heading": "Compare",
+      "probe": "DCA into QQQ"
+    },
+    {
+      "slug": "app-stockmarket-backtest",
+      "title": "Backtest detail",
+      "group": "Apps",
+      "path": "/apps/stockmarket/#/backtests/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "pattern": "/apps/stockmarket/#/backtests/:id",
+      "source": "stockmarket",
+      "heading": "Rank vs ETF \\(CAD\\)",
+      "probe": "Momentum rank"
+    },
+    {
+      "slug": "app-tcms",
+      "title": "TCMS overview",
+      "group": "Apps",
+      "path": "/apps/tcms/",
+      "pattern": "/apps/tcms/",
+      "source": "tcms",
+      "heading": "Overview",
+      "probe": "Test pyramid"
+    },
+    {
+      "slug": "app-tcms-runs",
+      "title": "TCMS runs",
+      "group": "Apps",
+      "path": "/apps/tcms/runs",
+      "pattern": "/apps/tcms/runs",
+      "source": "tcms",
+      "heading": "Runs",
+      "probe": "console-smoke"
+    },
+    {
+      "slug": "app-tcms-run",
+      "title": "TCMS run detail",
+      "group": "Apps",
+      "path": "/apps/tcms/runs/42",
+      "pattern": "/apps/tcms/runs/:id",
+      "source": "tcms",
+      "heading": "Run #42",
+      "probe": "Dashboard loads"
+    },
+    {
+      "slug": "app-tcms-cases",
+      "title": "TCMS test cases",
+      "group": "Apps",
+      "path": "/apps/tcms/cases",
+      "pattern": "/apps/tcms/cases",
+      "source": "tcms",
+      "heading": "Cases",
+      "probe": "Dashboard loads"
+    },
+    {
+      "slug": "app-tcms-case",
+      "title": "TCMS case detail",
+      "group": "Apps",
+      "path": "/apps/tcms/cases/WEB-1",
+      "pattern": "/apps/tcms/cases/:key",
+      "source": "tcms",
+      "heading": "Dashboard loads",
+      "probe": "The dashboard shows the recent runs"
+    },
+    {
+      "slug": "app-tcms-health",
+      "title": "TCMS health",
+      "group": "Apps",
+      "path": "/apps/tcms/health",
+      "pattern": "/apps/tcms/health",
+      "source": "tcms",
+      "heading": "Health",
+      "probe": "Dashboard loads"
+    },
+    {
+      "slug": "app-judgment",
+      "title": "Judgment beliefs",
+      "group": "Apps",
+      "path": "/apps/judgment/",
+      "pattern": "/apps/judgment/",
+      "source": "judgment",
+      "heading": "Beliefs",
+      "probe": "Fixture quality"
+    },
+    {
+      "slug": "app-judgment-belief",
+      "title": "Judgment belief detail",
+      "group": "Apps",
+      "path": "/apps/judgment/beliefs/b1",
+      "pattern": "/apps/judgment/beliefs/:id",
+      "source": "judgment",
+      "heading": "Fixture quality rises with small deterministic datasets"
+    },
+    {
+      "slug": "app-judgment-predictions",
+      "title": "Judgment predictions",
+      "group": "Apps",
+      "path": "/apps/judgment/predictions",
+      "pattern": "/apps/judgment/predictions",
+      "source": "judgment",
+      "heading": "Predictions",
+      "probe": "Nightly test run"
+    },
+    {
+      "slug": "app-judgment-prediction",
+      "title": "Judgment prediction detail",
+      "group": "Apps",
+      "path": "/apps/judgment/predictions/p1",
+      "pattern": "/apps/judgment/predictions/:id",
+      "source": "judgment",
+      "heading": "Nightly test run completes in ten minutes"
+    },
+    {
+      "slug": "app-judgment-feedback",
+      "title": "Judgment feedback",
+      "group": "Apps",
+      "path": "/apps/judgment/feedback",
+      "pattern": "/apps/judgment/feedback",
+      "source": "judgment",
+      "heading": "Feedback",
+      "probe": "Keep the setup fast"
+    },
+    {
+      "slug": "app-judgment-review",
+      "title": "Judgment review",
+      "group": "Apps",
+      "path": "/apps/judgment/review",
+      "pattern": "/apps/judgment/review",
+      "source": "judgment",
+      "heading": "Review",
+      "probe": "Nightly test run"
+    },
+    {
+      "slug": "storybook-catalogue",
+      "title": "Storybook catalogue",
+      "group": "Foundation",
+      "path": "/storybook/?path=/story/design-system-foundations--palette",
+      "pattern": "/storybook/",
+      "source": "storybook"
+    },
+    {
+      "slug": "storybook-palette",
+      "title": "Color palette",
+      "group": "Foundation",
+      "path": "/storybook/iframe.html?id=design-system-foundations--palette&viewMode=story",
+      "pattern": "/storybook/iframe.html",
+      "source": "storybook"
+    },
+    {
+      "slug": "storybook-type-scale",
+      "title": "Type scale",
+      "group": "Foundation",
+      "path": "/storybook/iframe.html?id=design-system-foundations--type-scale&viewMode=story",
+      "pattern": "/storybook/iframe.html",
+      "source": "storybook"
+    },
+    {
+      "slug": "storybook-library",
+      "title": "Platform component reference",
+      "group": "Foundation",
+      "path": "/storybook/iframe.html?id=ui-designer-agent-platform-library--reference&viewMode=story",
+      "pattern": "/storybook/iframe.html",
+      "source": "storybook"
+    }
+  ],
+  "aliases": [
+    {
+      "source": "console",
+      "pattern": "/conversations",
+      "path": "/conversations",
+      "canonical": "console-relay-dm",
+      "reason": "Redirects to the Relay direct-message view."
+    }
+  ]
+}

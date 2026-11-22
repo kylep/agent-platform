@@ -23,6 +23,8 @@ class WhoAmI:
         tools (list[str] | None):
         dream (bool | Unset):  Default: False.
         initiated_by (None | str | Unset):
+        rapid (bool | Unset):  Default: False.
+        rapid_ui_slug (None | str | Unset):
     """
 
     agent: None | str
@@ -32,6 +34,8 @@ class WhoAmI:
     tools: list[str] | None
     dream: bool | Unset = False
     initiated_by: None | str | Unset = UNSET
+    rapid: bool | Unset = False
+    rapid_ui_slug: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,6 +64,14 @@ class WhoAmI:
         else:
             initiated_by = self.initiated_by
 
+        rapid = self.rapid
+
+        rapid_ui_slug: None | str | Unset
+        if isinstance(self.rapid_ui_slug, Unset):
+            rapid_ui_slug = UNSET
+        else:
+            rapid_ui_slug = self.rapid_ui_slug
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -75,6 +87,10 @@ class WhoAmI:
             field_dict["dream"] = dream
         if initiated_by is not UNSET:
             field_dict["initiated_by"] = initiated_by
+        if rapid is not UNSET:
+            field_dict["rapid"] = rapid
+        if rapid_ui_slug is not UNSET:
+            field_dict["rapid_ui_slug"] = rapid_ui_slug
 
         return field_dict
 
@@ -126,6 +142,17 @@ class WhoAmI:
 
         initiated_by = _parse_initiated_by(d.pop("initiated_by", UNSET))
 
+        rapid = d.pop("rapid", UNSET)
+
+        def _parse_rapid_ui_slug(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        rapid_ui_slug = _parse_rapid_ui_slug(d.pop("rapid_ui_slug", UNSET))
+
         who_am_i = cls(
             agent=agent,
             principal=principal,
@@ -134,6 +161,8 @@ class WhoAmI:
             tools=tools,
             dream=dream,
             initiated_by=initiated_by,
+            rapid=rapid,
+            rapid_ui_slug=rapid_ui_slug,
         )
 
         who_am_i.additional_properties = d

@@ -529,7 +529,7 @@ def codex_image_spec(prompt: str) -> dict | None:
 async def generate_codex(*, session_factory, producer, settings, agent_store,
                          owner: str, principal: str, prompt, aspect=None,
                          reference_ids=None, name=None, tags=None,
-                         parent_run: Run | None = None) -> Artifact:
+                         parent_run: Run | None = None, source_subject=None) -> Artifact:
     """Dispatch the Codex artist and wait for the runner-ingested artifact.
 
     The generation itself happens inside a normal Codex run, so OAuth remains
@@ -543,6 +543,8 @@ async def generate_codex(*, session_factory, producer, settings, agent_store,
     tags = store.clean_tags(tags)
     # Refuse bad references before starting a quota-consuming run.
     async with session_factory() as s:
+        from agentplatform.ui_designer.artifact_access import reference_document
+        await reference_document(s,reference_ids,owner,who=source_subject,reject_codex=True)
         for artifact_id in reference_ids:
             row = await store.get(s, artifact_id)
             if row is None:
@@ -619,6 +621,12 @@ async def _say_card(session, producer, artifact, prompt: str) -> None:
     budget the moment its card landed. Event rows are never read for
     mentions — the ticket card's protection, borrowed whole."""
     try:
+        from agentplatform.ui_designer.artifact_access import is_design
+        if is_design(artifact):
+            from agentplatform.db import UiDesignerDocument
+            from agentplatform.ui_designer.access import is_workspace
+            document=await session.get(UiDesignerDocument,artifact.ui_document_id,with_for_update=True) if artifact.ui_document_id else None
+            if document is None or document.deleted_at is not None or not await is_workspace(session,document.id):return
         conv = await channel_by_name(session, ART_CHANNEL)
         if conv is None:
             log.warning("no live #%s channel; artifact %s got no card", ART_CHANNEL,
@@ -639,7 +647,7 @@ async def _say_card(session, producer, artifact, prompt: str) -> None:
 async def generate(session, *, settings, tool_registry, producer, owner: str,
                    agent: str | None, run_id: str | None, prompt, model=None, size=None,
                    aspect=None, quality=None, seed=None, reference_ids=None, name=None,
-                   tags=None) -> Artifact:
+                   tags=None, source_subject=None) -> Artifact:
     """One image, for `owner` — a participant the CALLER resolved from its
     token. The order is the design's: the request against the registry, the
     budget, the cap, the references, the executor, the artifact, the card,
@@ -660,6 +668,8 @@ async def generate(session, *, settings, tool_registry, producer, owner: str,
     if seed is not None:
         args["seed"] = int(seed)
     store.clean_tags(tags)
+    from agentplatform.ui_designer.artifact_access import reference_document
+    ui_document_id=await reference_document(session,reference_ids,owner,who=source_subject)
     async with _reserved.lock:
         await _check_budget(session, owner, settings,
                             reserved=_reserved.by_owner.get(owner, 0))
@@ -673,18 +683,19 @@ async def generate(session, *, settings, tool_registry, producer, owner: str,
                                          caller={"agent": agent or "", "run_id": run_id or ""})
         return await _keep(session, producer, settings, file, warnings, entry=entry,
                            owner=owner, run_id=run_id, prompt=prompt,
-                           reference_ids=reference_ids, name=name, tags=tags)
+                           reference_ids=reference_ids, name=name, tags=tags,ui_document_id=ui_document_id)
     finally:
         _reserved.release(owner, price)
 
 
 async def _keep(session, producer, settings, file: dict, warnings: list[str], *, entry: dict,
                 owner: str, run_id: str | None, prompt: str, reference_ids: list[str],
-                name, tags) -> Artifact:
+                name, tags, ui_document_id=None) -> Artifact:
     """The paid image, made a row. From here on a failure is money already
     spent, so it is logged with everything the bill will need — who, which
     model, how much — and answered as a 500 that says so, never a quiet 4xx."""
     sidecar = file.get("meta") if isinstance(file.get("meta"), dict) else {}
+    sidecar={k:v for k,v in sidecar.items() if k!='ui_designer'}
     # The sidecar is the record of what ran, minus its echo of the prompt
     # (kept once, at the top). The registry's estimate stands in for a cost
     # it did not report, so the cap never counts a free image.
@@ -705,7 +716,7 @@ async def _keep(session, producer, settings, file: dict, warnings: list[str], *,
                                  name=_name_for(entry, prompt, file.get("name") or "", name),
                                  claimed_mime=file.get("mime"), source="generated",
                                  meta=meta, tags=tags, run_id=run_id, producer=producer,
-                                 settings=settings, allow_generated=True)
+                                 settings=settings, allow_generated=True,ui_document_id=ui_document_id)
     except Exception:
         log.error("image generated but could not be stored: owner=%s model=%s cost_usd=%s",
                   owner, meta["model"], meta["cost_usd"], exc_info=True)
@@ -719,6 +730,8 @@ async def keep_codex_image(session, producer, settings, *, data: bytes, filename
                            reference_ids=None, aspect: str | None = None,
                            name=None, tags=None) -> Artifact:
     """Keep one built-in Codex ImageGen output under the normal contract."""
+    from agentplatform.ui_designer.artifact_access import reference_document
+    await reference_document(session,list(reference_ids or []),owner,reject_codex=True)
     file = {
         "name": filename,
         "mime": mime,

@@ -617,11 +617,25 @@ class _Agg(BaseModel):
     last_run_at: str | None
 
 
+class BackupStatus(BaseModel):
+    newest: str | None = None
+    newest_age_hours: float | None = None
+    newest_bytes: int | None = None
+    previous_bytes: int | None = None
+    uploaded_count: int = 0
+    local_dump_age_hours: float | None = None
+    failed_leftovers: list[str] = []
+    stale: bool
+    shrunk: bool
+    stale_after_hours: int
+
+
 class MetricsOverview(_Agg):
     runs_24h: int
     runs_7d: int
     dlq: int
     window: int
+    backups: BackupStatus | None = None
 
 
 class AgentMetrics(_Agg):
@@ -1596,6 +1610,8 @@ class WhoAmI(BaseModel):
     tools: list[str] | None
     # A dream run (docs/design/44): `tools` is narrowed to memory.
     dream: bool = False
+    rapid: bool = False
+    rapid_ui_slug: str | None = None
 
 
 # --- quota (docs/design/22) ---------------------------------------------------
@@ -1774,3 +1790,807 @@ class RegistrationState(BaseModel):
 
 
 __all__ = [n for n in dir() if n[0].isupper()]
+
+
+# --- Rapid-chat (docs/design/45) ---------------------------------------------
+
+class RapidChatAreaIn(BaseModel):
+    """A launcher-supplied area; `seed` starts it `drafted` so it is critiqued,
+    not re-derived."""
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=120)
+    seed: str | None = Field(default=None, max_length=6000)
+
+
+class RapidChatSinkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["wiki", "relay", "artifact", "ui_designer"] = "wiki"
+    slug: str = Field(min_length=1, max_length=64)
+    mode: Literal["replace", "append"] = "replace"
+
+
+    @model_validator(mode="after")
+    def ui_replace_only(self):
+        if self.kind == "ui_designer" and self.mode != "replace":
+            raise ValueError("ui_designer sink supports replace mode only")
+        return self
+
+
+class RapidChatLimitsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    claude_5h_max_pct: int = Field(default=95, ge=0, le=100)
+    claude_7d_max_pct: int = Field(default=40, ge=0, le=100)
+    codex_7d_max_pct: int = Field(default=40, ge=0, le=100)
+
+
+class RapidChatIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=128)
+    goal: str = Field(min_length=1, max_length=20000)
+    participants: list[str] = Field(min_length=1, max_length=5)
+    areas: list[str | RapidChatAreaIn] = Field(default=[], max_length=12)
+    sink: RapidChatSinkIn
+    duration_minutes: int = Field(default=60, ge=5, le=240)
+    max_turns: int = Field(default=200, ge=1, le=500)
+    turn_timeout_seconds: int = Field(default=240, ge=60, le=900)
+    limits: RapidChatLimitsIn = Field(default_factory=RapidChatLimitsIn)
+
+
+class RapidChatView(BaseModel):
+    id: str
+    title: str
+    goal: str
+    created_by: str
+    initiated_by: str | None = None
+    created_at: str
+    participants: list[str]
+    sink: dict[str, Any]
+    areas: list[dict[str, Any]]
+    integrated_pass: int
+    duration_minutes: int
+    max_turns: int
+    turn_timeout_seconds: int
+    limits: dict[str, Any]
+    state: str
+    end_reason: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    turns_total: int
+    last_quota: dict[str, Any] | None = None
+    output_ref: dict[str, Any] | None = None
+    summary: str | None = None
+    last_error: str | None = None
+    turn_counts: dict[str, int] = {}
+
+
+class RapidChatTurnView(BaseModel):
+    id: str
+    chat_id: str
+    seq: int
+    agent: str
+    area_key: str | None = None
+    pass_no: int
+    role: str
+    run_id: str | None = None
+    state: str
+    outcome: str | None = None
+    prompt: str
+    result: str | None = None
+    parsed: dict[str, Any] | None = None
+    started_at: str
+    finished_at: str | None = None
+    reason: str | None = None
+
+
+# --- UI Designer (docs/design/46 §6) -----------------------------------------
+
+class UiDocSummary(BaseModel):
+    id: str
+    slug: str
+    title: str
+    description: str = ""
+    owner: str
+    version: int
+    doc_sha256: str
+    node_count: int
+    expanded_count: int
+    bytes: int
+    created_at: str | None = None
+    updated_at: str | None = None
+    deleted_at: str | None = None
+
+
+class UiDocList(BaseModel):
+    docs: list[UiDocSummary]
+    # Pass as `before` for the next page; None at the end.
+    next_before: str | None = None
+
+
+class UiDocCreateIn(BaseModel):
+    slug: str
+    title: str = ""
+    description: str = Field(default="", max_length=2000)
+    doc: dict[str, Any] | None = None
+    reason: str = ""
+    request_id: str | None = Field(default=None, max_length=128)
+
+    template_id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    template_revision: int | None = Field(default=None, ge=1, strict=True)
+
+    @model_validator(mode="after")
+    def _template_selection(self):
+        if self.template_id is not None:
+            if self.doc is not None:
+                raise ValueError("choose a template or an explicit document")
+            if self.template_revision is None or not self.request_id:
+                raise ValueError("template creates require an explicit template_revision and request_id")
+        elif self.template_revision is not None:
+            raise ValueError("template_revision requires template_id")
+        return self
+
+
+class UiDocPlaceIn(BaseModel):
+    artifact_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class UiDocPlaceOut(BaseModel):
+    sha256: str
+    bytes: int
+    mime: str
+
+
+class UiDocEditIn(BaseModel):
+    ops: list[dict[str, Any]]
+    expected_version: int
+    reason: str = ""
+    request_id: str | None = Field(default=None, max_length=128)
+    # Node ids (a page id renders the page) to picture after the write, at most
+    # 4; `true` is the first page. Refused for an agent key without a run.
+    snapshot: list[str | None] | bool | None = None
+    mode: str | None = None
+    scale: float = 1
+    annotate: bool = False
+
+
+class UiDocRestoreIn(BaseModel):
+    version: int
+    expected_version: int
+    reason: str = ""
+    request_id: str | None = Field(default=None, max_length=128)
+
+
+class UiDocSnapshot(BaseModel):
+    node: str | None = None
+    format: str
+    mime: str
+    width: int
+    height: int
+    data: str                    # base64
+    cached: bool = False
+    boxes: dict[str, Any] | None = None
+
+
+class UiDocWriteOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    text: str = ""
+    warnings: list[dict[str, Any]] = []
+    # A repeat of a request_id: nothing applied again; no pictures come back.
+    replayed: bool = False
+    folded: bool = False
+    snapshots: list[UiDocSnapshot] = []
+    # Exact literal inverse for dependent geometry changes; replayed with the receipt.
+    undo_ops: list[dict[str, Any]] | None = None
+
+
+class UiDocGetOut(UiDocSummary):
+    at_version: int
+    state: str | None = None     # `open` | `closed`, for a named version
+    node: str | None = None
+    doc: Any
+    truncated: bool = False
+    notes: list[str] = []
+    # Where the cut stopped: `get node=<parent> after=<id>`.
+    cursor: dict[str, str] | None = None
+    resolved: Any = None
+
+
+class UiDocOutline(BaseModel):
+    slug: str
+    version: int
+    text: str
+    next_after: str | None = None
+    layout: str                  # `resolved` | `authored` (no renderer answered)
+
+
+class UiVersionRow(BaseModel):
+    range: str
+    first_version: int
+    version: int
+    author: str
+    run_id: str | None = None
+    label: str | None = None
+    open: bool
+    created_at: str | None = None
+    last_write_at: str | None = None
+    reasons: list[str] = []
+
+
+class UiVersionList(BaseModel):
+    slug: str
+    version: int
+    versions: list[UiVersionRow]
+    next_before: int | None = None
+
+
+class UiDocDeleteOut(BaseModel):
+    ok: bool = True
+    hard: bool = False
+    assets_removed: int = 0
+    bytes_freed: int = 0
+
+
+class UiDocPruneIn(BaseModel):
+    older_than_days: int = Field(ge=0)
+    keep_last: int = Field(default=20, ge=1)
+
+
+class UiDocPruneOut(BaseModel):
+    removed_rows: int
+    assets_removed: int
+    bytes_freed: int
+
+
+class UiAssetGcOut(BaseModel):
+    assets_removed: int
+    bytes_freed: int
+
+
+class UiPlatformImplementation(BaseModel):
+    status: Literal["exact", "detached"]
+    component: str
+    import_path: str
+    revision: int
+    variant: str | None = None
+    props: dict[str, Any]
+    snippet: str | None = None
+    fixture: dict[str, Any]
+    limitations: list[str]
+    story_id: str | None = None
+
+
+class UiDocInspectOut(BaseModel):
+    slug: str
+    version: int
+    id: str
+    type: str | None = None
+    title: str | None = None
+    # The node's resolved box and its direct children's (`x y w h`, document space).
+    geometry: Any = None
+    # mode (or `default`) -> resolved fill/color/stroke/radius/opacity/shadow/style.
+    modes: dict[str, dict[str, Any]] = {}
+    tokens: list[str] = []
+    text: str | None = None
+    component: str | None = None
+    component_set: dict[str, Any] | None = None
+    implementation: UiPlatformImplementation | None = None
+    authored: Any = None
+    warnings: list[dict[str, Any]] = []
+
+
+class UiCommentNotification(BaseModel):
+    agent: str = Field(max_length=128)
+    status: Literal["queued", "run_created", "skipped"]
+    reason: str | None = Field(default=None, max_length=500)
+    run_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+
+
+class UiCommentIn(BaseModel):
+    expected_document_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    body: str = Field(max_length=8192)
+    node_id: str | None = Field(default=None, max_length=48)
+    x: float | None = None
+    y: float | None = None
+    parent_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    request_id: str | None = Field(default=None, max_length=128)
+
+
+class UiComment(BaseModel):
+    notifications: list[UiCommentNotification] = Field(default_factory=list)
+    id: str
+    node_id: str | None = None
+    x: float | None = None
+    y: float | None = None
+    parent_id: str | None = None
+    author: str
+    run_id: str | None = None
+    body: str
+    resolved_by: str | None = None
+    resolved_at: str | None = None
+    created_at: str | None = None
+
+
+class UiCommentList(BaseModel):
+    document_id: str | None = None
+    slug: str
+    comments: list[UiComment]
+    # Pass as `before` for the next page of older comments; None at the end.
+    next_before: str | None = None
+
+
+class UiCommentOut(BaseModel):
+    document_id: str | None = None
+    notifications: list[UiCommentNotification] = Field(default_factory=list)
+    ok: bool = True
+    slug: str
+    id: str | None = None
+    comment: UiComment | None = None
+    replayed: bool = False
+    resolved: bool | None = None
+
+
+class UiDocDiffOut(BaseModel):
+    slug: str
+    version: int
+    from_version: int
+    to_version: int
+    # One entry per accepted write after `from_version` up to `to_version`:
+    # {version, ops, reason, at}, ops as applied.
+    chunks: list[dict[str, Any]]
+    text: str
+    truncated: bool = False
+
+
+class UiDocLabelIn(BaseModel):
+    label: str | None = Field(default=None, max_length=64)
+    version: int | None = Field(default=None, ge=1)
+
+
+class UiDocLabelOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    label: str | None = None
+
+
+class UiDocExportIn(BaseModel):
+    format: Literal["png", "svg", "pdf", "html"] = "png"
+    node: str | None = None
+    scale: float = 1
+    mode: str | None = None
+    name: str | None = Field(default=None, max_length=120)
+    version: int | None = Field(default=None, ge=1)
+
+
+class UiDocExportOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    artifact_id: str
+    name: str
+    mime: str
+    width: int
+    height: int
+    size: int
+    url: str                     # `/artifacts/<id>`, where Kyle opens it
+    card: str                    # `[[artifact:<id>]]`, works in any message
+    card_posted: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class UiVisualDiffIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    from_version: int = Field(ge=1, strict=True)
+    to_version: int = Field(ge=1, strict=True)
+    node: str | None = Field(default=None, max_length=96)
+    mode: str | None = Field(default=None, max_length=16)
+    scale: float = Field(default=1, strict=True)
+    tolerance: int = Field(default=0, ge=0, le=255, strict=True)
+
+
+class UiVisualDiffRegion(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+    node_ids: list[str]
+
+
+class UiVisualDiffOut(BaseModel):
+    slug: str
+    from_version: int
+    to_version: int
+    mime: Literal["image/png"]
+    image: str
+    base_image: str
+    width: int
+    height: int
+    box: list[float]
+    changed_pixels: int
+    total_pixels: int
+    regions: list[UiVisualDiffRegion]
+    node_ids: list[str]
+    truncated: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
+class UiLintFinding(BaseModel):
+    code: str
+    severity: Literal["error", "warning", "info"]
+    node_id: str | None = None
+    mode: str | None = None
+    message: str
+    suggestion: str
+    approximate: bool
+
+
+class UiLintOut(BaseModel):
+    slug: str
+    version: int
+    rules_version: str
+    findings: list[UiLintFinding]
+    total: int
+    by_severity: dict[str, int]
+    next_cursor: str | None = None
+    truncated: bool = False
+
+
+class UiLibrarySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    source_version: int = Field(ge=1, strict=True)
+    namespace: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,15}$")
+    components: list[str] = Field(default_factory=list, max_length=200)
+    component_sets: list[str] = Field(default_factory=list, max_length=50)
+    tokens: list[str] = Field(default_factory=list, max_length=512)
+
+
+class UiLibraryImportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+    library: UiLibrarySpec
+
+
+class UiLibraryPreviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_version: int = Field(ge=1, strict=True)
+
+
+class UiLibraryApplyIn(UiLibraryPreviewIn):
+    expected_version: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class UiLibrarySummary(BaseModel):
+    library_id: str
+    namespace: str
+    source_id: str
+    source_slug: str
+    source_version: int
+    counts: dict[str, int]
+
+
+class UiLibraryListOut(BaseModel):
+    slug: str
+    version: int
+    libraries: list[UiLibrarySummary]
+
+
+class UiLibraryConflict(BaseModel):
+    kind: str
+    id: str
+    message: str
+
+
+class UiLibraryPreviewOut(BaseModel):
+    slug: str
+    version: int
+    library_id: str
+    source_version: int
+    counts: dict[str, int]
+    added: list[str]
+    updated: list[str]
+    removed: list[str]
+    conflicts: list[UiLibraryConflict]
+    truncated: bool = False
+
+
+class UiLibraryWriteOut(UiDocWriteOut):
+    library_id: str
+
+
+class UiPlatformComponentVariant(BaseModel):
+    id: str
+    label: str
+    props: dict[str, Any]
+    width: float
+    height: float
+    selection: dict[str, str]
+    fixture: dict[str, Any]
+
+
+class UiPlatformComponentProperty(BaseModel):
+    name: str
+    type: str
+    default: Any
+    prop: str
+
+
+class UiPlatformComponent(BaseModel):
+    name: str
+    description: str
+    import_path: str
+    variants: list[UiPlatformComponentVariant]
+    properties: list[UiPlatformComponentProperty]
+    limitations: list[str]
+    story_id: str | None = None
+    category: str | None = None
+
+
+class UiPlatformComponentIndex(BaseModel):
+    name: str
+    category: str | None = None
+    description: str
+    import_path: str
+    variants: list[str]
+    properties: list[str]
+    default_width: float | str | None = None
+    default_height: float | str | None = None
+
+
+class UiPlatformComponentLibraryOut(BaseModel):
+    id: Literal["agent-platform"]
+    revision: int
+    components: list[UiPlatformComponent] | list[UiPlatformComponentIndex]
+
+
+class UiDesignerReferenceOut(BaseModel):
+    text: str
+
+
+class UiTemplateSummary(BaseModel):
+    id: str
+    revision: int
+    title: str
+    description: str
+    width: int
+    height: int
+    tags: list[str]
+    preview_node: str
+
+
+class UiTemplatesOut(BaseModel):
+    templates: list[UiTemplateSummary]
+
+
+class UiPlacedAsset(BaseModel):
+    sha256: str
+    mime: str
+    width: int | None = None
+    height: int | None = None
+
+
+class UiPlacedAssetsOut(BaseModel):
+    slug: str
+    version: int
+    assets: list[UiPlacedAsset]
+    next_cursor: str | None = None
+
+
+class UiIconSource(BaseModel):
+    name: str
+    version: str
+    commit: str
+    license: str
+
+
+class UiIconSummary(BaseModel):
+    id: str
+    name: str
+    tags: list[str]
+    categories: list[str]
+
+
+class UiIconsOut(BaseModel):
+    revision: int
+    source: UiIconSource
+    icons: list[UiIconSummary]
+    total: int
+    next_cursor: str | None = None
+
+
+class UiIconPath(BaseModel):
+    d: str
+    fill: bool
+
+
+class UiIconOut(UiIconSummary):
+    revision: int
+    source: UiIconSource
+    view_box: list[float]
+    d: str
+    paths: list[UiIconPath]
+
+
+class UiMotionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1, strict=True)
+    from_node: str = Field(min_length=1, max_length=512)
+    to_node: str = Field(min_length=1, max_length=512)
+    mode: str | None = Field(default=None, max_length=16)
+    duration_ms: int = Field(default=800, ge=200, le=5000, strict=True)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] = "ease-in-out"
+    fps: Literal[12, 24] = 24
+    max_edge: int = Field(default=720, ge=64, le=720, strict=True)
+
+
+class UiMotionExportIn(UiMotionIn):
+    format: Literal["mp4", "gif"] = "mp4"
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class UiMotionPose(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    x: float = Field(ge=-1000000, le=1000000)
+    y: float = Field(ge=-1000000, le=1000000)
+    w: float = Field(ge=0, le=720)
+    h: float = Field(ge=0, le=720)
+    rotate: float = Field(ge=-1000000, le=1000000)
+    opacity: float = Field(ge=0, le=1)
+    asset: str
+
+
+class UiMotionLayer(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    id: str
+    from_: UiMotionPose | None = Field(alias="from")
+    to: UiMotionPose | None
+
+
+class UiMotionPreviewOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    renderer_version: str
+    motion_version: Literal["motion-1"]
+    mode: str | None = None
+    width: int = Field(ge=1, le=720)
+    height: int = Field(ge=1, le=720)
+    box: list[float]
+    duration_ms: int = Field(ge=200, le=5000)
+    fps: Literal[12, 24]
+    frames: int = Field(ge=2, le=120)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"]
+    from_image: str
+    to_image: str
+    assets: dict[str, str]
+    layers: list[UiMotionLayer] = Field(max_length=64)
+    warnings: list[str] = Field(default_factory=list, max_length=32)
+
+
+class UiMotionExportOut(BaseModel):
+    ok: bool = True
+    slug: str
+    version: int
+    document_id: str
+    artifact_id: str
+    name: str
+    mime: str
+    width: int
+    height: int
+    size: int
+    url: str
+    frames: int
+    duration_ms: int
+    warnings: list[str] = Field(default_factory=list)
+    replayed: bool = False
+
+
+class UiFontRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    family: str = Field(min_length=1, max_length=128)
+    weight: int = Field(ge=100, le=900, strict=True)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class UiFontInfo(UiFontRef):
+    license: Literal["OFL-1.1"]
+    license_text: str = Field(min_length=1, max_length=8192)
+    glyphs: int = Field(ge=1, le=20000)
+    units_per_em: int = Field(ge=16, le=16384)
+    copyright: str = Field(default="", max_length=2048)
+    license_url: str = Field(default="", max_length=1024)
+    font_format: Literal["ttf", "otf"]
+
+
+class UiFontsOut(BaseModel):
+    slug: str
+    version: int
+    fonts: list[UiFontInfo] = Field(max_length=8)
+
+
+class UiFontUploadIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    data_base64: str = Field(min_length=1, max_length=1398104)
+    expected_version: int = Field(ge=1, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class UiFontWriteOut(UiDocWriteOut):
+    fonts: list[UiFontRef] = Field(max_length=8)
+
+
+class UiAccessOut(BaseModel):
+    document_id: str
+    owner: str
+    visibility: Literal["workspace", "restricted"]
+    readers: list[str]
+    editors: list[str]
+    access_version: int
+    can_read: bool
+    can_write: bool
+    can_manage_sharing: bool
+    replayed: bool = False
+
+
+class UiAccessIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_access_version: int = Field(ge=0, strict=True)
+    request_id: str = Field(min_length=1, max_length=128)
+    visibility: Literal["workspace", "restricted"]
+    readers: list[str] = Field(default_factory=list, max_length=64)
+    editors: list[str] = Field(default_factory=list, max_length=64)
+
+
+class UiSharingPrincipal(BaseModel):
+    principal: str
+    label: str
+    kind: Literal["user", "agent"]
+
+
+class UiSharingTeam(BaseModel):
+    principal: str
+    id: str
+    name: str
+    slug: str
+
+
+class UiSharingChoices(BaseModel):
+    principals: list[UiSharingPrincipal]
+    teams: list[UiSharingTeam]
+    truncated: bool
+
+
+class UiPresenceCursor(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    x: float = Field(ge=-100000, le=100000, strict=True)
+    y: float = Field(ge=-100000, le=100000, strict=True)
+
+
+class UiPresenceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    version: int = Field(ge=1, strict=True)
+    page_id: str = Field(min_length=1, max_length=48)
+    state: Literal["viewing", "editing"]
+    node_id: str | None = Field(default=None, min_length=1, max_length=512)
+    cursor: UiPresenceCursor | None = None
+
+
+class UiPresenceSession(BaseModel):
+    participant: str
+    label: str
+    client_session: str = Field(pattern=r"^[0-9a-f]{32}$")
+    state: Literal["viewing", "editing"]
+    version: int
+    page_id: str
+    node_id: str | None = None
+    cursor: UiPresenceCursor | None = None
+    sequence: int
+    expires_at: str
+
+
+class UiPresenceOut(BaseModel):
+    document_id: str
+    server_now: str
+    sessions: list[UiPresenceSession] = Field(max_length=32)

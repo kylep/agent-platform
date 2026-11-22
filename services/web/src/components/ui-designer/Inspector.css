@@ -1,0 +1,16 @@
+.ud-edit-field {
+  display: grid;
+  gap: .25rem;
+  margin: 0 0 .75rem;
+  min-width: 0;
+}
+.ud-edit-field > input, .ud-edit-field > select, .ud-edit-field > textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+@media (max-width: 800px) {
+  .ud-doc > .page-header { flex-wrap: wrap; }
+  .ud-doc > .page-header > h1 { flex-basis: 100%; }
+  .ud-doc > .page-header .ud-actions { flex-wrap: wrap; }
+}

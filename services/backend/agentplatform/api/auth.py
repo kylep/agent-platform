@@ -303,16 +303,82 @@ async def authenticate(request: Request) -> tuple[str, str] | None:
 DREAM_PATHS = re.compile(r"^/api/(?:whoami|memory-(?:review|delete|hybrid)|commitments(?:/[0-9a-f]{32}/(?:complete|void))?)$")
 
 
+# A rapid-chat turn (docs/design/45) only thinks and reads: the controller
+# writes the page, so the turn may reach whoami, wiki reads and the quota
+# readings, and nothing that sends, writes or starts other runs. It holds no
+# memory Tool either: startup memory already brings relevant memories, and a
+# sprint's scratch positions are not memories; the night's dream sees the
+# sprint as one item and decides what to keep.
+RAPID_READ_PATHS = re.compile(r"^/api/(?:whoami|wiki(?:/.*)?|quota(?:/ok)?)$")
+
+
+RAPID_UI_READ_PATHS = re.compile(
+    r"^/api/ui-designer/docs/([a-z0-9][a-z0-9-]{0,63})(?:/(?:outline|inspect|render|svg|resolved|diff|comments|lint|assets|libraries|versions(?:/[1-9][0-9]*)?))?$"
+)
+
+
+def rapid_turn_allows(method: str, path: str, sink: dict | None = None) -> bool:
+    if path == "/api/whoami":
+        return True
+    if method not in ("GET", "HEAD"):
+        return False
+    if RAPID_READ_PATHS.fullmatch(path):
+        return True
+    match = RAPID_UI_READ_PATHS.fullmatch(path)
+    return bool(match and sink and sink.get("kind") == "ui_designer"
+                and match[1] == sink.get("slug") and sink.get("document_id"))
+
+
+async def rapid_chat_for_request(s, request: Request):
+    """Resolve a turn's scope from trusted credentials and DB rows, never input."""
+    from sqlalchemy import select
+    from agentplatform.db import ACTIVE_STATES, RapidChat, RapidChatTurn, Run
+    agent = getattr(request.state, "api_key_agent", None)
+    run_id = getattr(request.state, "api_key_run_id", None)
+    if not agent:
+        return None
+    if run_id:
+        from agentplatform.rapid_chat import active_turn
+        turn = await active_turn(s, run_id)
+        if turn and turn.agent != agent:
+            raise HTTPException(403, "rapid-chat turn identity mismatch")
+        return await s.get(RapidChat, turn.chat_id) if turn else None
+    if getattr(request.state, "auth_kind", None) != "workload":
+        return None
+    # The run pod can use its workload token without the run JWT. Preserve
+    # the same fence; refuse ambiguous scopes rather than widening to either.
+    chats = (await s.execute(select(RapidChat).join(
+        RapidChatTurn, RapidChatTurn.chat_id == RapidChat.id).join(
+        Run, Run.id == RapidChatTurn.run_id).where(
+        RapidChatTurn.agent == agent, Run.state.in_(ACTIVE_STATES)).limit(2))).scalars().all()
+    if len(chats) > 1:
+        raise HTTPException(403, "ambiguous rapid-chat turn scope")
+    return chats[0] if chats else None
+
+
 async def _dream_fence(request: Request) -> None:
     run_id = getattr(request.state, "api_key_run_id", None)
-    if not run_id or not getattr(request.state, "api_key_agent", None):
-        return
-    if DREAM_PATHS.match(request.url.path):
+    agent = getattr(request.state, "api_key_agent", None)
+    if not agent:
         return
     from agentplatform.dreams import active_dream
+    from agentplatform.db import UiDesignerDocument
+    from sqlalchemy import select
     async with request.app.state.session_factory() as s:
-        if await active_dream(s, run_id) is not None:
+        if run_id and not DREAM_PATHS.match(request.url.path) and await active_dream(s, run_id) is not None:
             raise HTTPException(403, "a dreaming run may use only its memory Tool")
+        chat = await rapid_chat_for_request(s, request)
+        if chat is None:
+            return
+        sink = chat.sink or {}
+        if not rapid_turn_allows(request.method, request.url.path, sink):
+            raise HTTPException(403, "a rapid-chat turn may only read its sink; the platform writes it")
+        if RAPID_UI_READ_PATHS.fullmatch(request.url.path):
+            # A deleted/recreated slug must never redirect a turn to a new doc.
+            current = (await s.execute(select(UiDesignerDocument.id).where(
+                UiDesignerDocument.slug == sink.get("slug"), UiDesignerDocument.deleted_at.is_(None)))).scalar_one_or_none()
+            if current != sink.get("document_id"):
+                raise HTTPException(403, "rapid-chat sink identity changed")
 
 
 async def _authenticate(request: Request) -> tuple[str, str] | None:
@@ -636,20 +702,35 @@ async def whoami(request: Request):
     agent = getattr(request.state, "api_key_agent", None)
     run_id = getattr(request.state, "api_key_run_id", None)
     tools: list[str] | None = None
-    dream = False
-    if agent and run_id:
-        # A dream run (docs/design/44) holds only its memory Tool, whatever
-        # the agent's grants: the broker enforces this answer.
-        from agentplatform.dreams import MEMORY_TOOL, active_dream
+    dream = rapid = rapid_ui = False
+    if agent and (run_id or getattr(request.state, "auth_kind", None) == "workload"):
+        # A dream run (docs/design/44) holds only its memory Tool, and a
+        # rapid-chat turn (docs/design/45) only wiki and quota,
+        # whatever the agent's grants: the broker enforces this answer.
+        from agentplatform.dreams import active_dream
         async with request.app.state.session_factory() as s:
-            dream = await active_dream(s, run_id) is not None
+            dream = bool(run_id) and await active_dream(s, run_id) is not None
+            chat = None if dream else await rapid_chat_for_request(s, request)
+            rapid = chat is not None
+            rapid_ui = bool(chat and (chat.sink or {}).get("kind") == "ui_designer")
+
+    def fenced(granted):
+        from agentplatform.agentspec import TOOL_QUOTA, TOOL_WIKI, TOOL_UI_DESIGNER
+        from agentplatform.dreams import MEMORY_TOOL
+        if dream:
+            return [t for t in granted if t == MEMORY_TOOL]
+        if rapid:
+            allowed = (TOOL_WIKI, TOOL_QUOTA, TOOL_UI_DESIGNER) if rapid_ui else (TOOL_WIKI, TOOL_QUOTA)
+            return [t for t in granted if t in allowed]
+        return granted
+    rapid_scope = {"rapid": True, "rapid_ui_slug": chat.sink.get("slug") if rapid_ui else None} if rapid else {}
     frozen = getattr(request.state, "frozen_tools", None)
     if frozen is not None:
         # design/13 C: the grant set was FROZEN into the run JWT at launch —
         # a mid-run grant edit cannot widen (or shrink) a live run.
         return {"principal": name, "role": role, "agent": agent,
-                "run_id": run_id, "tools": [t for t in frozen if t == MEMORY_TOOL] if dream else frozen,
-                "initiated_by": getattr(request.state, "initiated_by", None), "dream": dream}
+                "run_id": run_id, "tools": fenced(frozen),
+                "initiated_by": getattr(request.state, "initiated_by", None), "dream": dream, **rapid_scope}
     if agent:
         st = request.app.state
         await st.agent_store.reload()
@@ -659,11 +740,9 @@ async def whoami(request: Request):
         # `tools:` line means unrestricted" default went away with the file,
         # and the broker's grant check stays a plain membership test.
         granted = info.platform_tools if info else []
-        tools = [t for t in granted if t.startswith("mcp__platform__")]
-        if dream:
-            tools = [t for t in tools if t == MEMORY_TOOL]
+        tools = fenced([t for t in granted if t.startswith("mcp__platform__")])
     return {"principal": name, "role": role, "agent": agent,
-            "run_id": run_id, "tools": tools, "dream": dream}
+            "run_id": run_id, "tools": tools, "dream": dream, **rapid_scope}
 
 @router.get("/api/setup-state", response_model=S.SetupState)
 async def setup_state(request: Request):

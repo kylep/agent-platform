@@ -8,7 +8,7 @@ import type { Page, Route } from "@playwright/test";
 
 // An agent IS its row (docs/design/15): the listing carries the full
 // definition plus server-derived readiness.
-const def = (over: Record<string, unknown>) => ({
+const def = (over: { name: string } & Record<string, unknown>) => ({
   prompt: "You are a platform agent.", description: "", model: "", role: "operator",
   system: false, responds_to_all: true, can_invoke: false, concurrency: 1, timeout_seconds: 1800,
   result_topic: "", transcript_retention_days: null,
@@ -174,7 +174,7 @@ const PNG_B64 =
 const artifact = (id: string, over: Record<string, unknown>) => ({
   id, name: "", mime: "image/png", size: 1024, sha256: aid("f"), kind: "image",
   width: 1024, height: 1024, owner: "user:kyle", run_id: null, source: "upload",
-  meta: {}, tags: [], created_at: at(30), deleted_at: null,
+  meta: {}, tags: [] as string[], created_at: at(30), deleted_at: null,
   thumb_url: `/api/artifacts/${id}/thumb`, content_url: `/api/artifacts/${id}/content`,
   ...over,
 });
@@ -1065,6 +1065,7 @@ function wikiWrite(path: string, method: string, body: Record<string, unknown>):
 }
 
 const FIXTURES: Record<string, unknown> = {
+  "/api/ui-designer/templates": { templates: [] },
   "/api/setup-state": { needs_admin: false, secrets },
   // Every page now passes through Gate's /api/me; the default caller is the
   // admin. accounts.spec.ts layers `mockAccounts` over this for the rest.
@@ -1672,6 +1673,14 @@ export async function mockApi(page: Page): Promise<string[]> {
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if(/^\/api\/ui-designer\/docs\/[^/]+\/presence(?:\/.*)?$/.test(path)) {
+      if(path.endsWith("/events")){await route.fulfill({contentType:"text/event-stream",body:""});return;}
+      await route.fulfill({json:route.request().method()==="DELETE" ? {ok:true}:{document_id:"d".repeat(32),server_now:new Date().toISOString(),sessions:[]}});return;
+    }
+    if (/^\/api\/ui-designer\/docs\/[^/]+\/access$/.test(path) && route.request().method()==="GET") {
+      await route.fulfill({json:{document_id:"d".repeat(32),owner:"user:kyle",visibility:"workspace",readers:[],editors:[],access_version:0,can_read:true,can_write:true,can_manage_sharing:true}});return;
+    }
+    if(path==="/api/ui-designer/sharing-choices") {await route.fulfill({json:{principals:[{principal:"user:kyle",label:"Kyle",kind:"user"}],teams:[],truncated:false}});return;}
     if (path === "/api/maintenance/status") {
       await route.fulfill({ json: { mode: "running" } });
       return;

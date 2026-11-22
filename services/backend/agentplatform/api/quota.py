@@ -37,19 +37,16 @@ import json
 import logging
 from typing import Literal
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from agentplatform import quota_store
+from agentplatform import quota_service, quota_store
 from agentplatform.api import relay as relay_api
 from agentplatform.api import schemas as S
 from agentplatform.api.auth import READ_ROLES, require_role, still_signed_in, stream_cookie
 from agentplatform.db import AgentDef, utcnow
-from agentplatform.quota import (Observation, _percent, is_stale,
-                                 parse_codex_usage, parse_observation,
-                                 parse_observed_at)
+from agentplatform.quota import _percent, parse_observation, parse_observed_at
 from agentplatform.quota_store import STREAM
 from agentplatform.relay_feed import OVERFLOW
 
@@ -66,20 +63,7 @@ VIEW = (*READ_ROLES, "relay")
 # The credential the proxy presents. Compared with `hmac.compare_digest`, as
 # `webhooksecrets.verify_secret` does, and answered with a uniform 401 that
 # says nothing about which part was wrong.
-SECRET_HEADER = "X-AP-Internal-Secret"
-# What the probe sends. The bearer is a placeholder the proxy replaces — the
-# API never holds the token — and the beta header is what the OAuth
-# subscription path needs to be honoured at all.
-PROBE_HEADERS = {"Authorization": "Bearer placeholder",
-                 "anthropic-version": "2023-06-01",
-                 "anthropic-beta": "oauth-2025-04-20",
-                 "content-type": "application/json"}
-# The cheapest thing that can carry a usage header, twice over: `count_tokens`
-# spends no output tokens at all, and a `max_tokens: 1` completion is the floor
-# for a real one. The order is the whole point — step 2 only runs when step 1's
-# response said nothing about usage.
-PROBE_MESSAGE = [{"role": "user", "content": "."}]
-COUNT_TOKENS, MESSAGES = "/v1/messages/count_tokens", "/v1/messages"
+SECRET_HEADER = quota_service.SECRET_HEADER
 # What a caller with no agent row is judged against: the column defaults, read
 # off the column so this file cannot hold a second opinion about them.
 _COLUMNS = AgentDef.__table__.c
@@ -131,25 +115,6 @@ async def _capped_body(request: Request) -> bytes:
     return bytes(body)
 
 
-def _lock(app) -> asyncio.Lock:
-    """The per-process probe lock. Lazily made rather than built in
-    `create_app` so the lock belongs to the loop that first needs it — the SDK
-    generator builds an app with no loop at all."""
-    lock = getattr(app.state, "quota_lock", None)
-    if lock is None:
-        lock = app.state.quota_lock = asyncio.Lock()
-    return lock
-
-
-def _client(app) -> httpx.AsyncClient:
-    """The probe's HTTP client, from `app.state` so a test can hand in a
-    `MockTransport` and the suite never opens a socket."""
-    client = getattr(app.state, "quota_client", None)
-    if client is None:
-        client = app.state.quota_client = httpx.AsyncClient()
-    return client
-
-
 async def _snapshot(request: Request) -> dict:
     now = utcnow()
     async with request.app.state.session_factory() as s:
@@ -178,114 +143,20 @@ async def refresh_quota(request: Request,
     that arrives during a probe waits for it and then finds the fresh snapshot
     it wrote, which is the same answer it would have got from its own probe and
     one fewer request to Anthropic."""
-    async with _lock(request.app):
+    async with quota_service.lock(request.app.state):
         snapshot = await _snapshot(request)
-        claude = (await _refresh(request) if provider in ("all", "claude")
+        claude = (await quota_service.refresh_claude(request.app.state) if provider in ("all", "claude")
                   else snapshot)
         codex = snapshot.get("codex")
         if (provider in ("all", "codex")
                 and request.app.state.settings.codex_proxy_url):
             try:
-                codex = await _refresh_codex(request)
+                codex = await quota_service.refresh_codex(request.app.state)
             except HTTPException as exc:
                 if exc.status_code != 503:
                     raise
                 log.warning("Codex quota refresh unavailable: %s", exc.detail)
         return {**claude, "codex": codex}
-
-
-async def _refresh(request: Request) -> dict:
-    """The refresh, which the caller runs UNDER THE LOCK: the cached answer
-    when the short-circuit allows it, else one probe and the row it wrote.
-    Raises the probe's 503s."""
-    st = request.app.state
-    cached = await _cache_hit(request)
-    if cached is not None:
-        return {**cached, "probe": None}
-    obs, step = await _probe(request)
-    async with st.session_factory() as s:
-        row = await quota_store.observe(s, st.producer, obs)
-        return {**quota_store.serialize(row, utcnow()), "probe": step}
-
-
-async def _cache_hit(request: Request, provider: str = "claude") -> dict | None:
-    """The snapshot, when it is recent enough AND still believable — otherwise
-    None, meaning "probe". Both halves are load-bearing: recency alone would
-    keep serving a window that has already turned over, and freshness alone
-    would let a loop spend a probe per call."""
-    st = request.app.state
-    now = utcnow()
-    async with st.session_factory() as s:
-        row = await quota_store.latest(s, provider)
-        body = quota_store.serialize(row, now)
-    if row is None or is_stale(row, now):
-        return None
-    age = body["age_seconds"]
-    window = st.settings.quota_refresh_min_seconds
-    return body if age is not None and age < window else None
-
-
-async def _probe(request: Request) -> tuple[Observation, str]:
-    """Two steps through the proxy, stopping at the first response that says
-    anything about usage. Raises the route's 503s."""
-    st = request.app.state
-    base = (st.settings.claude_proxy_url or "").rstrip("/")
-    if not base:
-        raise HTTPException(503, "no claude proxy configured")
-    body = {"model": st.settings.quota_probe_model, "messages": PROBE_MESSAGE}
-    steps = (("count_tokens", COUNT_TOKENS, body),
-             ("message", MESSAGES, {**body, "max_tokens": 1}))
-    client = _client(request.app)
-    for step, path, payload in steps:
-        try:
-            resp = await client.post(base + path, json=payload, headers=PROBE_HEADERS,
-                                     timeout=st.settings.quota_probe_timeout_seconds)
-        except httpx.HTTPError:
-            log.warning("quota probe could not reach the claude proxy", exc_info=True)
-            raise HTTPException(503, "the claude proxy could not be reached")
-        # ANY status: a 429 is exactly when these numbers matter most, and it
-        # carries them. `parse_observation` is the single place a header
-        # becomes a value, here as everywhere, and the status rides along into
-        # `raw` for the reason the proxy's does — otherwise `http_status` would
-        # be present on proxy rows and absent on refresh rows, and its absence
-        # would read as "the status was unknown" rather than "nobody recorded
-        # one".
-        obs = parse_observation(resp.headers, utcnow(), "refresh",
-                                http_status=resp.status_code)
-        if obs is not None:
-            return obs, step
-    raise HTTPException(503, "the probe returned no usage headers")
-
-
-async def _refresh_codex(request: Request) -> dict:
-    """Read subscription usage through the Codex credential boundary."""
-    st = request.app.state
-    cached = await _cache_hit(request, "codex")
-    if cached is not None:
-        return {**cached, "probe": None}
-    base = (st.settings.codex_proxy_url or "").rstrip("/")
-    if not base:
-        raise HTTPException(503, "no codex proxy configured")
-    try:
-        response = await _client(request.app).get(
-            base + "/internal/quota",
-            headers={SECRET_HEADER: st.settings.internal_secret},
-            timeout=st.settings.quota_probe_timeout_seconds)
-    except httpx.HTTPError:
-        log.warning("quota probe could not reach the codex proxy", exc_info=True)
-        raise HTTPException(503, "the codex proxy could not be reached")
-    if response.status_code != 200:
-        raise HTTPException(503, f"the codex usage probe returned {response.status_code}")
-    try:
-        payload = response.json()
-    except ValueError:
-        raise HTTPException(503, "the codex usage probe returned invalid JSON") from None
-    obs = parse_codex_usage(payload, utcnow(), "refresh")
-    if obs is None:
-        raise HTTPException(503, "the codex usage probe returned no known windows")
-    async with st.session_factory() as s:
-        row = await quota_store.observe(s, st.producer, obs, "codex")
-    return {**quota_store.serialize(row, utcnow()), "probe": "usage"}
 
 
 @router.get("/api/quota/ok", response_model=S.QuotaOk)
@@ -301,14 +172,14 @@ async def quota_ok(request: Request, caller: str = Depends(require_role(*VIEW)))
     how much that is worth. The thresholds are the caller's own row's when
     the token names an agent, and the column defaults for a person — a
     human asking is asking what an ordinary agent would be told."""
-    async with _lock(request.app):
+    async with quota_service.lock(request.app.state):
         body = await _snapshot(request)
         max_5h, max_7d, runtime = await _thresholds(request)
         reading = body.get("codex") if runtime == "codex" else body
         if reading is None or reading["stale"]:
             try:
-                reading = (await _refresh_codex(request) if runtime == "codex"
-                           else await _refresh(request))
+                reading = (await quota_service.refresh_codex(request.app.state) if runtime == "codex"
+                           else await quota_service.refresh_claude(request.app.state))
             except HTTPException as exc:
                 if exc.status_code != 503:
                     raise

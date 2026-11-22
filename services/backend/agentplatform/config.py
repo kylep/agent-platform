@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     spiffe_workload_socket: str = "unix:///spiffe-workload-api/spire-agent.sock"
     # The broker's ServiceAccount (release-name prefixed) — what run-pod
     # tunnels pin as the expected server identity.
+    dispatcher_token_file: str = "/var/run/ap-identity/token"
+    dispatcher_service_account: str = "ap-dispatcher"
     broker_service_account: str = "ap-mcp-broker"
     # Read-only connector identity. The Discord bridge presents a projected,
     # audience-bound ServiceAccount token to fetch its endpoint bindings; it
@@ -264,6 +266,32 @@ class Settings(BaseSettings):
     # "deleted"; the dispatcher hard-deletes rows (and their bytes) this long
     # after, in the retention loop that prunes transcripts.
     artifacts_prune_days: int = 30
+    # UI Designer (docs/design/46 §2.1, §3.2, §10). Empty renderer URL = no
+    # renderer: render/svg/resolved and `snapshot` answer UD-RENDER-FAILED.
+    ui_designer_renderer_url: str = ""
+    ui_designer_renderer_timeout_s: float = 20
+    # A soft-deleted document is hard-deleted by the dispatcher this long after.
+    ui_designer_prune_days: int = 30
+    ui_designer_render_cache_mb: int = 256
+    # Per agent, rolling hour. The pixel budget is derived: writes x 4 images
+    # x 1.25 MP = 600 MP. Humans are not metered.
+    ui_designer_writes_per_hour: int = 120
+    ui_designer_pixels_per_hour_mp: float = 600
+    ui_designer_cards_per_hour: int = 30
+    ui_designer_max_images_per_request: int = 4
+    ui_designer_max_megapixels_per_request: float = 10
+    # Past this the edit still commits; the receipt says "snapshot timed out".
+    ui_designer_snapshot_deadline_s: float = 15
+    # Every text answer is cut here with a pointer (Codex's default MCP output
+    # limit is the binding one, ~8k tokens).
+    ui_designer_text_cap_bytes: int = 32 * 1024
+    # A JSON request body is refused above this before anything parses it.
+    ui_designer_max_body_bytes: int = 2 * 1024 * 1024
+    # Agent snapshots are re-encoded down to this (the downscale ladder).
+    ui_designer_snapshot_max_bytes: int = 1024 * 1024
+    # Storage caps sized from the ~170 MiB backup budget (§10).
+    ui_designer_max_total_bytes: int = 48 * 1024 * 1024
+    ui_designer_max_version_bytes_per_doc: int = 12 * 1024 * 1024
     # Whether agent creation grants mcp__platform__artifacts. On for the
     # reason relay's is: an agent that cannot keep a file describes it instead.
     artifacts_default_grant: bool = True

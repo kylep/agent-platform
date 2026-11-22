@@ -18,3 +18,48 @@ export const AllFields: StoryObj = {
     </div>
   ),
 };
+
+export const Disabled: StoryObj = {
+  render: () => (
+    <div className="form-col max-w-md">
+      <Input aria-label="Name" defaultValue="health-monitor" disabled />
+      <Select aria-label="Agent" disabled>
+        <option>health-monitor</option>
+      </Select>
+      <Textarea aria-label="Instructions" defaultValue="Check service health." disabled />
+      <CodeEditor aria-label="Agent definition" defaultValue="name: health-monitor" disabled />
+    </div>
+  ),
+};
+
+export const Invalid: StoryObj = {
+  render: () => (
+    <div className="form-col max-w-md">
+      <label className="flex flex-col gap-1">
+        Agent name
+        <Input defaultValue="Health Monitor" aria-invalid="true" aria-describedby="name-error"
+               className="border-danger" />
+      </label>
+      <p id="name-error" className="text-sm text-danger">Use lowercase letters, numbers, or hyphens.</p>
+      <label className="flex flex-col gap-1">
+        Schedule
+        <Select defaultValue="" aria-invalid="true" aria-describedby="schedule-error"
+                className="border-danger">
+          <option value="">Choose a schedule</option>
+          <option value="daily">Daily</option>
+        </Select>
+      </label>
+      <p id="schedule-error" className="text-sm text-danger">Choose a schedule to continue.</p>
+    </div>
+  ),
+};
+
+export const ReadOnly: StoryObj = {
+  render: () => (
+    <div className="form-col max-w-md">
+      <Input aria-label="Name" defaultValue="health-monitor" readOnly />
+      <Textarea aria-label="Instructions" defaultValue="Check service health." readOnly />
+      <CodeEditor aria-label="Agent definition" defaultValue={"name: health-monitor\ntools: []"} readOnly />
+    </div>
+  ),
+};

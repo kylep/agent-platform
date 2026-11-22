@@ -57,6 +57,27 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
   value: {{ .Values.env.AP_MEMORY_EMBEDDING_URL | default (printf "http://%s-memory-embedding:11434" .Release.Name) | quote }}
 - name: AP_LOCAL_PERSONA_ENABLED
   value: {{ .Values.localPersona.enabled | quote }}
+# UI Designer budgets and caps (docs/design/46); values.yaml `uiDesigner`.
+- name: AP_UI_DESIGNER_WRITES_PER_HOUR
+  value: {{ .Values.uiDesigner.writesPerHour | quote }}
+- name: AP_UI_DESIGNER_PIXELS_PER_HOUR_MP
+  value: {{ .Values.uiDesigner.pixelsPerHourMp | quote }}
+- name: AP_UI_DESIGNER_MAX_IMAGES_PER_REQUEST
+  value: {{ .Values.uiDesigner.maxImagesPerRequest | quote }}
+- name: AP_UI_DESIGNER_MAX_MEGAPIXELS_PER_REQUEST
+  value: {{ .Values.uiDesigner.maxMegapixelsPerRequest | quote }}
+- name: AP_UI_DESIGNER_SNAPSHOT_DEADLINE_S
+  value: {{ .Values.uiDesigner.snapshotDeadlineS | quote }}
+- name: AP_UI_DESIGNER_TEXT_CAP_BYTES
+  value: {{ .Values.uiDesigner.textCapBytes | int | quote }}
+- name: AP_UI_DESIGNER_RENDER_CACHE_MB
+  value: {{ .Values.uiDesigner.renderCacheMb | quote }}
+- name: AP_UI_DESIGNER_MAX_TOTAL_BYTES
+  value: {{ .Values.uiDesigner.maxTotalBytes | int | quote }}
+- name: AP_UI_DESIGNER_MAX_VERSION_BYTES_PER_DOC
+  value: {{ .Values.uiDesigner.maxVersionBytesPerDoc | int | quote }}
+- name: AP_UI_DESIGNER_PRUNE_DAYS
+  value: {{ .Values.uiDesigner.pruneDays | quote }}
 {{ include "agent-platform.postgresEnv" . }}
 - name: AP_KAFKA_BOOTSTRAP
   value: "{{ .Release.Name }}-kafka:9092"
@@ -96,6 +117,8 @@ Env vars shared by the api/dispatcher/recorder backend Deployments.
 # executor's, for tool-call credentials (docs/design/39).
 - name: AP_BROKER_SERVICE_ACCOUNT
   value: "{{ .Release.Name }}-mcp-broker"
+- name: AP_DISPATCHER_SERVICE_ACCOUNT
+  value: "{{ .Release.Name }}-dispatcher"
 - name: AP_TOOL_EXECUTOR_SERVICE_ACCOUNT
   value: "{{ .Release.Name }}-tool-executor"
 - name: AP_AGENTS_VOLUME_CLAIM

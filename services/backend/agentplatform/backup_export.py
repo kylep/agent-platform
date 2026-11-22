@@ -22,6 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ARCHIVE_VERSION = 1
+# Optional fourth member (added 2026-11-16): Helm user values + running images.
+# Archives before it have three members and stay valid.
+DEPLOYMENT_MEMBER = "deployment.json"
+# The compressed pg dump inspect/extract accepts; export must not produce more.
+MAX_DATABASE_BYTES = 512 * 1024 * 1024
 BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,221}[a-z0-9]$")
 PREFIX_RE = re.compile(r"^[a-zA-Z0-9/_-]{0,180}$")
 RECIPIENT_RE = re.compile(r"^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$")
@@ -76,6 +81,47 @@ def _namespace_secrets(namespace: str) -> list[dict]:
     ]
 
 
+def decode_helm_release(encoded: str) -> dict:
+    """A `helm.sh/release.v1` Secret's `release` value: Kubernetes base64 over
+    Helm's own base64 over gzip over JSON."""
+    raw = base64.b64decode(base64.b64decode(encoded))
+    return json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
+
+
+def deployment_record(secret_rows: list[dict], pods: list[dict]) -> dict:
+    """What a rebuilt NUC needs beyond the database and Opaque Secrets: each
+    release's user-supplied Helm values (Helm keeps them only in its release
+    Secret, which the restore must not replay wholesale), its chart version,
+    and the images the running pods use (local tags, so: what to rebuild)."""
+    latest: dict[str, dict] = {}
+    for row in secret_rows:
+        if row["type"] != "helm.sh/release.v1" or "release" not in row["data"]:
+            continue
+        release = decode_helm_release(row["data"]["release"])
+        if (release.get("info") or {}).get("status") != "deployed":
+            continue
+        name = release.get("name", "")
+        if name not in latest or release.get("version", 0) > latest[name]["revision"]:
+            latest[name] = {"release": name, "revision": release.get("version", 0),
+                            "chart": ((release.get("chart") or {}).get("metadata") or {}).get("version"),
+                            "values": release.get("config") or {}}
+    images = sorted({c for pod in pods for c in pod["images"]})
+    return {"releases": sorted(latest.values(), key=lambda r: r["release"]), "images": images}
+
+
+def _namespace_deployment(namespace: str) -> dict:
+    from kubernetes import client, config
+
+    config.load_incluster_config()
+    api = client.CoreV1Api()
+    rows = api.list_namespaced_secret(namespace, label_selector="owner=helm,status=deployed").items
+    secret_rows = [{"name": r.metadata.name, "type": r.type, "data": r.data or {}} for r in rows]
+    pods = [{"name": p.metadata.name,
+             "images": [c.image for c in (p.spec.containers or []) + (p.spec.init_containers or [])]}
+            for p in api.list_namespaced_pod(namespace).items if p.status.phase == "Running"]
+    return deployment_record(secret_rows, pods)
+
+
 def _add_bytes(archive: tarfile.TarFile, name: str, content: bytes) -> None:
     info = tarfile.TarInfo(name)
     info.size = len(content)
@@ -84,7 +130,8 @@ def _add_bytes(archive: tarfile.TarFile, name: str, content: bytes) -> None:
 
 
 def write_archive(dump: Path, target: Path, recipient: str,
-                  namespace: str, secrets: list[dict], *, created_at: str) -> dict:
+                  namespace: str, secrets: list[dict], *, created_at: str,
+                  deployment: dict | None = None) -> dict:
     """Stream the dump and Secret values through tar into age; persist ciphertext only."""
     if not dump.is_file() or dump.stat().st_size == 0:
         raise ValueError("PostgreSQL dump is missing or empty")
@@ -103,6 +150,13 @@ def write_archive(dump: Path, target: Path, recipient: str,
         "secrets": {"path": "secrets.json", "sha256": hashlib.sha256(secret_bytes).hexdigest(),
                     "count": len(secrets)},
     }
+    deployment_bytes = None
+    if deployment is not None:
+        deployment_bytes = json.dumps(deployment, sort_keys=True, separators=(",", ":")).encode()
+        manifest["deployment"] = {"path": DEPLOYMENT_MEMBER,
+                                  "sha256": hashlib.sha256(deployment_bytes).hexdigest(),
+                                  "releases": [r["release"] for r in deployment["releases"]],
+                                  "images": len(deployment["images"])}
     target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_name(target.name + ".tmp")
     if target.exists() or temp.exists():
@@ -115,6 +169,8 @@ def write_archive(dump: Path, target: Path, recipient: str,
             _add_bytes(archive, "manifest.json", json.dumps(manifest, sort_keys=True).encode())
             archive.add(dump, arcname="database.sql.gz", recursive=False)
             _add_bytes(archive, "secrets.json", secret_bytes)
+            if deployment_bytes is not None:
+                _add_bytes(archive, DEPLOYMENT_MEMBER, deployment_bytes)
         _, error = process.communicate()
         if process.returncode:
             raise RuntimeError(f"age encryption failed: {error.decode(errors='replace')[:300]}")
@@ -154,11 +210,12 @@ def inspect_archive(encrypted: Path, identity: str) -> dict:
             assert proc.stdout is not None
             with tarfile.open(fileobj=proc.stdout, mode="r|") as archive:
                 for member in archive:
-                    if member.name not in {"manifest.json", "database.sql.gz", "secrets.json"}:
+                    if member.name not in {"manifest.json", "database.sql.gz", "secrets.json",
+                                           DEPLOYMENT_MEMBER}:
                         raise ValueError("archive contains an unexpected file")
                     if member.name in observed or not member.isfile():
                         raise ValueError("archive has duplicate or non-file entries")
-                    if member.size > (512 * 1024 * 1024 if member.name == "database.sql.gz"
+                    if member.size > (MAX_DATABASE_BYTES if member.name == "database.sql.gz"
                                       else 16 * 1024 * 1024):
                         raise ValueError("archive member exceeds its size limit")
                     source = archive.extractfile(member)
@@ -195,7 +252,8 @@ def inspect_archive(encrypted: Path, identity: str) -> dict:
     if (not isinstance(manifest, dict)
             or manifest.get("format") != "agent-platform-recovery"
             or manifest.get("version") != ARCHIVE_VERSION
-            or set(observed) != {"manifest.json", "database.sql.gz", "secrets.json"}):
+            or set(observed) - {DEPLOYMENT_MEMBER} != {"manifest.json", "database.sql.gz", "secrets.json"}
+            or (DEPLOYMENT_MEMBER in observed) != isinstance(manifest.get("deployment"), dict)):
         raise ValueError("not a complete Agent Platform recovery archive")
     if (not isinstance(manifest.get("database"), dict)
             or not isinstance(manifest.get("secrets"), dict)
@@ -208,12 +266,27 @@ def inspect_archive(encrypted: Path, identity: str) -> dict:
         raise ValueError("archive manifest is invalid")  # noqa: TRY004
     if (observed["database.sql.gz"] != manifest["database"]["sha256"]
             or observed["secrets.json"] != manifest["secrets"]["sha256"]
-            or len(secret_names) != manifest["secrets"]["count"]):
+            or len(secret_names) != manifest["secrets"]["count"]
+            or (DEPLOYMENT_MEMBER in observed
+                and observed[DEPLOYMENT_MEMBER] != manifest["deployment"].get("sha256"))):
         raise ValueError("archive checksum or Secret count mismatch")
     return {"format": manifest["format"], "version": manifest["version"],
             "created_at": manifest["created_at"], "namespace": manifest["namespace"],
             "database_bytes": manifest["database"]["bytes"],
-            "secret_count": len(secret_names), "secret_names": sorted(secret_names)}
+            "secret_count": len(secret_names), "secret_names": sorted(secret_names),
+            "deployment": ({"releases": manifest["deployment"].get("releases", []),
+                            "images": manifest["deployment"].get("images", 0)}
+                           if DEPLOYMENT_MEMBER in observed else None)}
+
+
+def check_dump_size(dump: Path) -> None:
+    """Fail the job loudly when the compressed dump is over what inspect/extract
+    accepts, rather than uploading an archive that can never be restored."""
+    size = dump.stat().st_size
+    if size > MAX_DATABASE_BYTES:
+        raise RuntimeError(
+            f"database dump is {size} bytes, over the {MAX_DATABASE_BYTES}-byte restore limit; "
+            "reclaim space (UI Designer versions and assets are the usual cause) before the next backup")
 
 
 def export() -> None:
@@ -246,9 +319,11 @@ def _export_locked(output: Path) -> None:
     name = f"ap-recovery-{stamp}.tar.age"
     target = output / name
     dump = Path(os.environ.get("AP_BACKUP_DUMP_PATH", "/work/database.sql.gz"))
+    check_dump_size(dump)
     secrets = _namespace_secrets(namespace)
+    deployment = _namespace_deployment(namespace)
     manifest = write_archive(dump, target, recipient, namespace, secrets,
-                             created_at=now.isoformat())
+                             created_at=now.isoformat(), deployment=deployment)
     object_name = "/".join(part for part in (prefix.strip("/"), name) if part)
     client = storage.Client.from_service_account_info(credential)
     client.bucket(bucket).blob(object_name).upload_from_filename(
@@ -257,7 +332,8 @@ def _export_locked(output: Path) -> None:
     receipt = {"name": name, "created_at": manifest["created_at"],
                "bytes": target.stat().st_size, "sha256": _sha256(target),
                "gcs_uri": f"gs://{bucket}/{object_name}",
-               "secret_count": manifest["secrets"]["count"]}
+               "secret_count": manifest["secrets"]["count"],
+               "helm_releases": manifest.get("deployment", {}).get("releases", [])}
     receipt_path = target.with_name(name + ".json")
     receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
     os.chmod(receipt_path, 0o640)

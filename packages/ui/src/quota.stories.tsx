@@ -24,7 +24,7 @@ function snapshot(five: number | null, seven: number | null,
 function Frame({ theme, children }: { theme?: "light"; children: ReactNode }) {
   return (
     <div data-theme={theme} style={{ background: "var(--ds-surface)",
-                                     padding: 16, width: 200 }}>
+                                     color: "var(--ds-text)", padding: 16, width: 200 }}>
       <div style={{ fontWeight: 600, paddingBottom: 8 }}>Agent Platform</div>
       {children}
     </div>
@@ -65,4 +65,8 @@ export const BothProviders: StoryObj = {
     status: "allowed", observed_at: iso(-30e3), source: "refresh",
     stale: false, age_seconds: 30,
   } })} /></Frame>,
+};
+
+export const NoSnapshot: StoryObj = {
+  render: () => <Frame><QuotaBars /></Frame>,
 };

@@ -9,10 +9,21 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:ui": "playwright test",
+    "check:site-routes": "node design-capture/check-routes.mjs",
+    "capture:site": "playwright test --config playwright.site-capture.config.ts",
     "walk": "node scripts/walk.mjs",
     "storybook": "storybook dev -p 6006",
     "build:storybook": "storybook build",
-    "check:tokens": "node bin/check-no-raw-hex.mjs"
+    "check:tokens": "node bin/check-no-raw-hex.mjs",
+    "check:design-system": "node bin/check-design-system.mjs",
+    "test:design-system": "node --test bin/ui-adoption.test.mjs bin/ui-story-coverage.test.mjs bin/check-design-system.test.mjs bin/ui-designer-coverage.test.mjs",
+    "test:storybook": "playwright test --config playwright.storybook.config.ts",
+    "test:storybook:visual": "node bin/run-storybook-visual.mjs",
+    "check:ui": "npm run check:tokens && npm run check:designer-tokens && npm run test:design-system && npm run build:storybook && npm run check:design-system && npm run test:storybook:visual",
+    "sync:designer-tokens": "node bin/sync-platform-tokens.mjs --write",
+    "check:designer-tokens": "node bin/sync-platform-tokens.mjs && node --test bin/sync-platform-tokens.test.mjs",
+    "prepare:designer-parity": "node bin/prepare-designer-parity.mjs",
+    "pretest:storybook": "npm run prepare:designer-parity"
   },
   "dependencies": {
     "@ap/ui": "0.1.0",
@@ -31,6 +42,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
+    "postcss": "^8.5.25",
     "storybook": "^10.5.5",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"

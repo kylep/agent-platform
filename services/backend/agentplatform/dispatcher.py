@@ -340,7 +340,8 @@ class Dispatcher:
                 return
             await self._event(run.id, RunState.DISPATCHED)
             try:
-                await self.launcher.launch(run, manifest)
+                if not await self._launch_guarded(run, manifest):
+                    return
             except Exception as e:
                 await self._set_state(run, RunState.DLQ, str(e))
                 await self.producer.publish(TOPIC_RUN_DLQ, run_id,
@@ -348,7 +349,8 @@ class Dispatcher:
                                             type="run.dlq")
             return
         try:
-            await self.launcher.launch(run, manifest)
+            if not await self._launch_guarded(run, manifest):
+                return
         except Exception as e:
             await self._set_state(run, RunState.DLQ, str(e))
             await self.producer.publish(TOPIC_RUN_DLQ, run_id,
@@ -356,6 +358,26 @@ class Dispatcher:
                                         type="run.dlq")
             return
         await self._set_state(run, RunState.DISPATCHED)
+
+    async def _launch_guarded(self, run, manifest) -> bool:
+        if run.trigger != "ui_comment":
+            await self.launcher.launch(run, manifest)
+            return True
+        from agentplatform.ui_designer.comment_wakes import guard_run, signal_run
+        async with self.sf() as session:
+            reason = await guard_run(session, run, self.settings, self.agents)
+            if reason is None:
+                # The source document lock fences sharing/deletion through launch.
+                await self.launcher.launch(run, manifest)
+            await session.commit()
+            try:
+                await signal_run(session, self.producer, run.id)
+            except Exception:
+                log.exception("comment notification signal failed for %s", run.id)
+        if reason is not None:
+            await self._set_state(run, RunState.REJECTED, reason)
+            return False
+        return True
 
     async def run_forever(self) -> None:
         from aiokafka import AIOKafkaConsumer

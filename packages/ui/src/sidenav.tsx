@@ -32,6 +32,8 @@ export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
     { to: "/wiki", label: "Wiki" },
     { to: "/studio", label: "Studio", children: [
       { to: "/artifacts", label: "Artifacts" },
+      { to: "/ui-designer", label: "UI Designer" },
+      { to: "/storybook/", label: "Storybook", external: true },
     ] },
     { to: "/reporting", label: "Reporting", children: [
       { to: "/runs", label: "Runs" },
@@ -42,6 +44,7 @@ export function buildPlatformNav(apps: AppNavInfo[] = []): NavEntry[] {
       { to: "/changes", label: "Changes" },
       { to: "/schedules", label: "Schedules" },
       { to: "/tasks", label: "Tasks" },
+      { to: "/rapid-chats", label: "Rapid Chats" },
     ] },
     { to: "/apps", label: "Apps", children: apps.map((a) => (
       { to: a.to || `/apps/${a.name}/`, label: `${a.icon || "🧩"} ${a.display_name || a.name}`,
@@ -202,6 +205,7 @@ export function SideNav({ entries, activePath, activeSearch = "", badges = {},
               <span className="nav-parent">{renderLink(e, false, true)}</span>
               <button type="button" className={`nav-chevron${expanded ? " open" : ""}`}
                       aria-label={expanded ? `Collapse ${e.label}` : `Expand ${e.label}`}
+                      aria-expanded={expanded}
                       onClick={() => setOpen((o) => ({ ...o, [e.to]: !expanded }))}>
                 ›
               </button>

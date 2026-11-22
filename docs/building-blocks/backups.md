@@ -8,8 +8,12 @@ archive before uploading it to Google Cloud Storage (GCS).
 
 The existing `ap-pg-backup` CronJob still writes a daily local SQL dump to the
 `ap-pg-backups` volume. The new `ap-cloud-backup` CronJob is a separate, opt-in
-path. Its archive contains `manifest.json`, `database.sql.gz`, and
-`secrets.json`. Only the encrypted `.tar.age` file goes to GCS. The backup pod
+path. Its archive contains `manifest.json`, `database.sql.gz`,
+`secrets.json`, and (from 2026-11-16) `deployment.json`: each Helm release's
+user-supplied values, its revision and chart version, and the images the
+running pods use. Helm keeps those values only in its release Secret, which a
+restore must not replay, and the images are local tags, so this is what
+rebuilds the NUC's configuration and names the commits to build. Only the encrypted `.tar.age` file goes to GCS. The backup pod
 holds the public age recipient and an upload-only GCS credential. It never has
 the private recovery identity.
 
@@ -82,7 +86,10 @@ Re-delete them on `/apps/judgment/` after restoring.
 1. Check out the Agent Platform Git revision that produced the backup, or a
    compatible newer version. Deploy its chart to a fresh cluster so PostgreSQL
    and the platform-generated credentials exist. Do not restore old K3s
-   ServiceAccount tokens or Helm release Secrets.
+   ServiceAccount tokens or Helm release Secrets. Take the values from the
+   archive's `deployment.json` instead (step 2): `jq '.releases[] |
+   select(.release=="ap") | .values' deployment.json > values.yaml` and pass
+   it to `helm install -f`. Its `images` list names the tags to rebuild.
 2. Decrypt and verify the archive on the trusted machine. The resulting
    directory contains **plaintext** SQL and Secret values; it is created mode
    0700 and files mode 0600. The extractor appends the restore-mode marker
@@ -150,6 +157,13 @@ memories and messages created after its timestamp. For a destroyed NUC, rebuild
 K3s and the chart from Git first, then follow the fresh-cluster procedure.
 
 ## Failure signals and a restore drill
+
+The health worker checks backups every 15 minutes through
+`metrics(scope="overview").backups`: when the newest uploaded bundle is over
+26 hours old, or under 90% of the size of the one before, it opens the
+`backup-stale` OPS ticket and asks Pai to tell Kyle. Both CronJobs start a
+missed run up to six hours late, wait up to ten minutes for PostgreSQL, retry
+three times, and keep a failed Job's pods and logs for a week.
 
 Inspect `kubectl -n agent-platform get cronjob ap-cloud-backup` and its recent
 Jobs. The export Job fails if `pg_dump`, encryption, Secret capture, or cloud

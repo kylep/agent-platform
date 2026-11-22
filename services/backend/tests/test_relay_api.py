@@ -273,9 +273,9 @@ async def test_channel_name_is_a_slug_and_unique(admin_client):
     assert (await admin_client.post("/api/relay/channels",
                                     json={"kind": "channel"})).status_code == 422
     assert (await admin_client.post("/api/relay/channels",
-                                    json={"kind": "channel", "name": "design"})).status_code == 201
+                                    json={"kind": "channel", "name": "studio"})).status_code == 201
     assert (await admin_client.post("/api/relay/channels",
-                                    json={"kind": "channel", "name": "design"})).status_code == 409
+                                    json={"kind": "channel", "name": "studio"})).status_code == 409
     assert (await admin_client.post("/api/relay/channels",
                                     json={"kind": "nope", "name": "x"})).status_code == 422
     # An open channel has no membership rows, so a participant list there would
@@ -685,9 +685,13 @@ async def test_channel_list_ordering_unread_and_last_message(admin_client, token
 
     listed = (await admin_client.get("/api/relay/channels")).json()
     # Channels by name, then the private rooms by last activity (the DM spoke last).
-    assert [c["name"] for c in listed[:7]] == ["art", "eng", "general", "ops",
+    assert [c["name"] for c in listed[:8]] == ["art", "design", "eng", "general", "ops",
                                                "qa", "standup", "wiki"]
-    assert [c["id"] for c in listed[7:]] == [dm["id"], group["id"]]
+    from agentplatform.db import Team
+    async with sf() as session:
+        design_team = (await session.execute(select(Team).where(Team.slug == "design"))).scalar_one()
+    assert [c["id"] for c in listed[8:]] == [dm["id"], group["id"], design_team.relay_channel_id]
+    assert listed[-1]["message_count"] == 0
 
     by_id = {c["id"]: c for c in listed}
     assert by_id[ops]["unread"] == 2
@@ -809,7 +813,7 @@ async def test_agents_cannot_administer_channels(admin_client, token_client, sf,
     await _seed(seed_agent, agent_store, "news")
     headers = await _agent_token(sf, "news")
     made = (await admin_client.post("/api/relay/channels",
-                                    json={"kind": "channel", "name": "design"})).json()
+                                    json={"kind": "channel", "name": "studio"})).json()
     assert (await token_client.patch(f"/api/relay/channels/{made['id']}",
                                      json={"topic": "mine now"},
                                      headers=headers)).status_code == 403

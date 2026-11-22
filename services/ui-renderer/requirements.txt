@@ -1,0 +1,11 @@
+aiohttp>=3.12
+resvg_py==0.5.0
+uharfbuzz==0.57.0
+fonttools==4.68.0
+Pillow>=10.4
+
+# Native boolean geometry, isolated in renderer workers (BSD-3-Clause).
+skia-pathops==0.9.2
+
+# Native effects compositor, renderer worker only (BSD-3-Clause).
+skia-python==144.1

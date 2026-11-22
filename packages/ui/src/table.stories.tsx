@@ -11,7 +11,7 @@ export default meta;
 export const Overflowing: StoryObj = {
   render: () => (
     <div style={{ maxWidth: 320 }}>
-      <Table>
+      <Table className="min-w-[480px]">
         <thead><tr><TH>ID</TH><TH>Agent</TH><TH>State</TH><TH>Created</TH></tr></thead>
         <tbody>
           <tr>
@@ -45,6 +45,23 @@ export const Runs: StoryObj = {
           <TD><StatusChip status="rejected" /></TD>
           <TD className="text-muted">7/31/2026, 9:00:00 AM</TD>
         </tr>
+      </tbody>
+    </Table>
+  ),
+};
+
+export const Empty: StoryObj = {
+  render: () => (
+    <Table className="max-w-xl">
+      <thead>
+        <tr>
+          <TH scope="col">ID</TH>
+          <TH scope="col">Agent</TH>
+          <TH scope="col">State</TH>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><TD colSpan={3} className="py-4 text-center text-muted">No runs found.</TD></tr>
       </tbody>
     </Table>
   ),

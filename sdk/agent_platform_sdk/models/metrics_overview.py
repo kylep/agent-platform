@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
 if TYPE_CHECKING:
+    from ..models.backup_status import BackupStatus
     from ..models.metrics_overview_by_state import MetricsOverviewByState
 
 
@@ -34,6 +37,7 @@ class MetricsOverview:
         tool_calls (int):
         total (int):
         window (int):
+        backups (BackupStatus | None | Unset):
     """
 
     active: int
@@ -53,9 +57,12 @@ class MetricsOverview:
     tool_calls: int
     total: int
     window: int
+    backups: BackupStatus | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.backup_status import BackupStatus
+
         active = self.active
 
         avg_duration_seconds: float | None
@@ -94,6 +101,14 @@ class MetricsOverview:
 
         window = self.window
 
+        backups: dict[str, Any] | None | Unset
+        if isinstance(self.backups, Unset):
+            backups = UNSET
+        elif isinstance(self.backups, BackupStatus):
+            backups = self.backups.to_dict()
+        else:
+            backups = self.backups
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -117,11 +132,14 @@ class MetricsOverview:
                 "window": window,
             }
         )
+        if backups is not UNSET:
+            field_dict["backups"] = backups
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.backup_status import BackupStatus
         from ..models.metrics_overview_by_state import MetricsOverviewByState
 
         d = dict(src_dict)
@@ -183,6 +201,23 @@ class MetricsOverview:
 
         window = d.pop("window")
 
+        def _parse_backups(data: object) -> BackupStatus | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                backups_type_0 = BackupStatus.from_dict(data)
+
+                return backups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BackupStatus | None | Unset, data)
+
+        backups = _parse_backups(d.pop("backups", UNSET))
+
         metrics_overview = cls(
             active=active,
             avg_duration_seconds=avg_duration_seconds,
@@ -201,6 +236,7 @@ class MetricsOverview:
             tool_calls=tool_calls,
             total=total,
             window=window,
+            backups=backups,
         )
 
         metrics_overview.additional_properties = d

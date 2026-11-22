@@ -1,0 +1,50 @@
+.ud-platform-library {
+  margin-top: 12px;
+  padding: 8px;
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-md);
+  background: var(--ds-surface);
+}
+
+.ud-designer-sidebar:has(.ud-platform-library) .ud-outline {
+  max-height: 20vh;
+}
+
+.ud-platform-fields,
+.ud-platform-field,
+.ud-platform-config,
+.ud-platform-implementation {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ud-platform-config,
+.ud-platform-implementation {
+  margin: 10px 0;
+}
+
+.ud-platform-fields :is(input, select) {
+  min-width: 0;
+  width: 100%;
+}
+
+.ud-platform-results {
+  display: grid;
+  gap: 4px;
+  max-height: 14rem;
+  overflow-y: auto;
+  margin: 8px 0;
+  padding: 2px;
+}
+
+.ud-platform-results button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.ud-platform-implementation code {
+  overflow-wrap: anywhere;
+}

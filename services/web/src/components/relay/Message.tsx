@@ -7,6 +7,7 @@ import { linkChips, splitArtifacts, type BodyPiece } from "../../lib/chips";
 import { ago } from "../../lib/time";
 import { agentName, namespaceOf, participantLabel } from "../../lib/relay";
 import { priorityLabel, stateLabel, type TicketProject } from "../../lib/tickets";
+import { UiDesignChip } from "../ui-designer/UiDesignChip";
 import { ArtifactCard } from "../artifacts/ArtifactCard";
 import { useWikiSlugs } from "../wiki/Prose";
 import { Face } from "./Face";
@@ -246,9 +247,10 @@ function Pieces({ pieces, me, className }: {
 }) {
   // A body with nothing in it is still a body — the row keeps its element.
   if (pieces.length === 0) return <Markdown text="" className={className} />;
+  let designPreviews = 0;
   return (
     <>
-      {pieces.map((piece, i) => (piece.kind === "artifact"
+      {pieces.map((piece, i) => (piece.kind === "ui" ? <UiDesignChip key={`ui-${piece.slug}-${piece.node}-${i}`} slug={piece.slug} node={piece.node} preview={designPreviews++ < 8} /> : piece.kind === "artifact"
         ? <ArtifactCard key={`${piece.id}-${i}`} id={piece.id} me={me} />
         : <Markdown key={i} text={piece.text} className={className} />))}
     </>

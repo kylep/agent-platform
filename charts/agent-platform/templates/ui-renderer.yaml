@@ -1,0 +1,120 @@
+{{- if .Values.uiRenderer.enabled }}
+# UI Designer renderer (docs/design/46 section 5): expand, lay out, paint and
+# rasterize one document per HTTP call, in worker processes that each run
+# under an RLIMIT_DATA cap and a wall clock. It holds no credentials and calls
+# nothing: the API sends it documents and image bytes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ui-renderer
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "ui-renderer") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "ui-renderer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "ui-renderer") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ui-renderer
+          image: "{{ .Values.uiRenderer.image.repository }}:{{ .Values.uiRenderer.image.tag }}"
+          imagePullPolicy: {{ .Values.uiRenderer.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: UI_RENDERER_WORKERS
+              value: {{ .Values.uiRenderer.workers | quote }}
+            - name: UI_RENDERER_JOB_MEMORY_MB
+              value: {{ .Values.uiRenderer.jobMemoryMb | quote }}
+            - name: UI_RENDERER_JOB_TIMEOUT_S
+              value: {{ .Values.uiRenderer.jobTimeoutS | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+          volumeMounts:
+            - name: assets
+              mountPath: /var/cache/ui-renderer
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.uiRenderer.resources | nindent 12 }}
+      volumes:
+        # Pre-downscaled copies of the images documents use; derivable, so an
+        # emptyDir (the API re-sends what a fresh pod lacks).
+        - name: assets
+          emptyDir:
+            sizeLimit: {{ .Values.uiRenderer.assetCacheSize | quote }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-platform-ui-renderer
+  labels:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "ui-renderer") | nindent 4 }}
+spec:
+  selector:
+    {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "ui-renderer") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+# Rendered whatever `networkPolicy.enabled` says, like the views pool: this is
+# the fence around a service that rasterizes agent-written documents.
+# Ingress: the API only. Egress: DNS, nothing else (it has nothing to call).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-ui-renderer
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agent-platform.selectorLabels" (dict "Release" .Release "Chart" .Chart "component" "ui-renderer") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: api
+      ports:
+        - port: 8000
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+{{- end }}

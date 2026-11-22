@@ -1,0 +1,1 @@
+export function presenceColor(participant:string){let hash=0;for(const char of participant)hash=(hash*31+char.charCodeAt(0))|0;return ["var(--ds-accent)","var(--ds-success)","var(--ds-warning)","var(--ds-danger)"][(hash>>>0)%4];}

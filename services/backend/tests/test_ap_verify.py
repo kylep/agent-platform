@@ -55,6 +55,8 @@ def _names(suites):
         ("services/web/src/App.tsx", "web-lint"),
         ("services/web/src/App.tsx", "web-storybook"),
         ("packages/ui/src/sidenav.tsx", "web-playwright"),
+        ("apps/tcms/frontend/src/App.tsx", "web-design-system"),
+        ("package-lock.json", "web-storybook-tests"),
         ("tools/prices/run.py", "tool-prices"),
         ("charts/agent-platform/values.yaml", "helm"),
     ],
@@ -62,6 +64,11 @@ def _names(suites):
 def test_path_maps_to_suite(apv, path, expected):
     table = apv.suite_table(REPO_ROOT)
     assert expected in _names(apv.select(table, [path]))
+
+
+def test_frontend_glob_matches_nested_sources_but_not_app_backends(apv):
+    assert apv._matches("apps/tcms/frontend/src/nested/Page.tsx", "apps/*/frontend/**")
+    assert not apv._matches("apps/tcms/backend/main.py", "apps/*/frontend/**")
 
 
 def test_tool_change_also_runs_executor(apv):
@@ -73,7 +80,8 @@ def test_tool_change_also_runs_executor(apv):
 def test_web_change_runs_the_web_steps_in_ci_order(apv):
     table = apv.suite_table(REPO_ROOT)
     names = _names(apv.select(table, ["services/web/src/api.ts"]))
-    assert names == ["web-lint", "web-tokens", "web-build", "web-storybook", "web-playwright"]
+    assert names == ["web-lint", "web-tokens", "designer-token-parity", "web-design-system-tests", "web-build",
+                     "web-storybook", "web-design-system", "web-playwright", "web-storybook-tests"]
 
 
 def test_runner_suite_runs_the_directory_like_ci(apv):
@@ -109,7 +117,7 @@ def test_docs_map_to_nothing(apv):
 def test_mixed_change_picks_both(apv):
     table = apv.suite_table(REPO_ROOT)
     names = _names(apv.select(table, ["services/backend/x.py", "services/mcp-broker/y.py"]))
-    assert names == ["backend", "persona-postgres", "broker"]
+    assert names == ["backend", "backend-performance", "persona-postgres", "broker"]
 
 
 def test_select_all_returns_whole_table_in_order(apv):
@@ -140,6 +148,9 @@ def test_backend_runs_same_tests_with_reports_under_xdist(apv, tmp_path, monkeyp
     backend = next(s for s in apv.suite_table(REPO_ROOT, out=tmp_path) if s["name"] == "backend")
     assert backend["cmd"][backend["cmd"].index("-n") + 1] == "3"
     assert "tests" in backend["cmd"] and "--timeout=120" in backend["cmd"]
+    assert backend["cmd"][backend["cmd"].index("-m", 3) + 1] == "not performance"
+    perf = next(s for s in apv.suite_table(REPO_ROOT) if s["name"] == "backend-performance")
+    assert "-n" not in perf["cmd"] and "performance" in perf["cmd"]
     assert "--cov=agentplatform" in backend["cmd"]
     assert f"--junitxml={tmp_path / 'junit-backend.xml'}" in backend["cmd"]
     monkeypatch.setattr(apv, "has_module", lambda py, name: name != "xdist")
@@ -185,6 +196,23 @@ def test_backend_gets_junit_and_cov_only_when_pytest_cov_imports(apv, tmp_path, 
     backend = next(s for s in table if s["name"] == "backend")
     cmd = " ".join(backend["cmd"])
     assert "--junitxml" in cmd and "--cov" not in cmd
+
+
+def test_coverage_is_dropped_but_junit_kept_when_asked(apv, tmp_path, monkeypatch):
+    monkeypatch.setattr(apv, "has_module", lambda py, name: True)
+    table = apv.suite_table(REPO_ROOT, out=tmp_path, coverage=False)
+    backend = next(s for s in table if s["name"] == "backend")
+    cmd = " ".join(backend["cmd"])
+    assert f"--junitxml={tmp_path / 'junit-backend.xml'}" in cmd and "--cov" not in cmd
+    assert not any(a.name == "coverage-backend.xml" for a in backend["artifacts"])
+
+
+def test_only_the_full_run_collects_coverage_unless_overridden(apv):
+    # --changed (the everyday loop) skips it; --all (the nightly TCMS upload) keeps it.
+    assert apv.wants_coverage(None, all_mode=False) is False
+    assert apv.wants_coverage(None, all_mode=True) is True
+    assert apv.wants_coverage(True, all_mode=False) is True
+    assert apv.wants_coverage(False, all_mode=True) is False
 
 
 def test_playwright_reporters_point_into_out(apv, tmp_path):
@@ -363,19 +391,19 @@ def test_list_cli_prints_cwd_beside_suite_name():
 
 def test_cli_exit_mirrors_ok(apv, tmp_path, monkeypatch):
     monkeypatch.setattr(apv, "suite_table",
-                        lambda root, out=None: [_fake("bad", "raise SystemExit(3)", globs=["**"])])
+                        lambda root, out=None, coverage=True: [_fake("bad", "raise SystemExit(3)", globs=["**"])])
     out = tmp_path / "verify"
     assert apv.main(["--all", "--out", str(out)]) == 1
     data = json.loads((out / "verify.json").read_text())
     assert data["ok"] is False and data["suites"][0]["exit"] == 3
 
     monkeypatch.setattr(apv, "suite_table",
-                        lambda root, out=None: [_fake("good", "pass", globs=["**"])])
+                        lambda root, out=None, coverage=True: [_fake("good", "pass", globs=["**"])])
     assert apv.main(["--all", "--out", str(out)]) == 0
 
 
 def test_skip_marks_a_suite_skipped_without_failing(apv, tmp_path, monkeypatch):
-    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None, coverage=True: [
         _fake("bad", "raise SystemExit(1)", globs=["**"]),
         _fake("good", "pass", globs=["**"])])
     out = tmp_path / "verify"
@@ -483,7 +511,7 @@ def test_all_writes_junit_all_and_lists_it(apv, tmp_path, monkeypatch):
     coverage) and the TCMS reads one JUnit document."""
     out = tmp_path / "verify"
     files = _junit_fixtures(out)
-    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None, coverage=True: [
         _fake("backend", "pass", globs=["**"], artifacts=[files[0]]),
         _fake("web-playwright", "pass", globs=["**"], artifacts=[files[1]])])
     assert apv.main(["--all", "--out", str(out)]) == 0
@@ -497,7 +525,7 @@ def test_changed_does_not_write_junit_all(apv, tmp_path, monkeypatch):
     per-suite files as before, no merge (nothing ingests a partial run)."""
     out = tmp_path / "verify"
     files = _junit_fixtures(out)
-    monkeypatch.setattr(apv, "suite_table", lambda root, out=None: [
+    monkeypatch.setattr(apv, "suite_table", lambda root, out=None, coverage=True: [
         _fake("backend", "pass", globs=["**"], artifacts=[files[0]])])
     monkeypatch.setattr(apv, "changed_paths", lambda root, base: (["x/y.py"], "abc123abc123"))
     assert apv.main(["--changed", "--out", str(out)]) == 0

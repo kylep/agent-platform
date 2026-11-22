@@ -1,0 +1,21 @@
+{
+  "bytes": 1499305,
+  "catalog_sha256": "0de06ee4f11e59fc752da74a6fa9c43ee29b9dfce4a24be46d56e90e937e1277",
+  "converter": "scripts/ui_designer/generate_icons.py",
+  "count": 2053,
+  "excluded": [
+    "airplay",
+    "blender"
+  ],
+  "fonttools": "4.68.0",
+  "revision": 1,
+  "source": {
+    "commit": "55782beff3a0133df79c417eb68f96e8f19e2404",
+    "license": "ISC AND MIT",
+    "name": "Lucide",
+    "version": "1.73.0"
+  },
+  "source_archive_sha256": "036597a0be49bed61e832d74567fa01f8339645a4582beb565c38c7faeecc90f",
+  "source_tree_sha256": "3b2a1f3993a38e1e0ea2d96382bcd4a838ec741dbeff682975db31e0aed19b99",
+  "source_url": "https://github.com/lucide-icons/lucide/tree/55782beff3a0133df79c417eb68f96e8f19e2404"
+}

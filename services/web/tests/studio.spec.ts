@@ -139,6 +139,9 @@ test("dropping a file uploads it as a reference, and the picker offers the store
   const writes = captureWrites(page);
   await mockApi(page);
   await page.goto("/studio");
+  // The hidden input exists before model capabilities load. A user can only
+  // open it once Upload is enabled; wait for that same ready state.
+  await expect(page.getByRole("button", { name: "Upload", exact: true })).toBeEnabled();
   await page.locator(".reference-strip input[type=file]").setInputFiles({
     name: "ref.png", mimeType: "image/png", buffer: PNG,
   });

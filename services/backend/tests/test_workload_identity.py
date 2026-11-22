@@ -347,3 +347,32 @@ def test_spire_disabled_keeps_plain_path():
     assert spec.init_containers is None
     env = {e.name: e.value for e in spec.containers[0].env}
     assert env["AP_MCP_URL"].startswith("http://agent-platform-mcp-broker")
+
+
+async def test_a_run_less_sa_token_is_fenced_while_its_agent_has_a_live_turn(
+        tool_client, agent_store, seed_agent):
+    """Design 45: a Codex shell can read the pod's SA token and call the API
+    without the run JWT. While the agent has a live rapid-chat turn, that
+    run-less call gets the turn's read-only fence."""
+    from agentplatform.db import RapidChat, RapidChatTurn, Run, RunState
+    await seed_agent("corey", description="t", platform_tools=["mcp__platform__runs_read"])
+    await agent_store.reload()
+    app_state = tool_client._transport.app.state
+    app_state.sa_validator = _fake_validator("system:serviceaccount:ap:agent-corey")
+    tool_client.cookies.clear()
+    assert (await tool_client.get("/api/runs", headers=_auth())).status_code == 200
+    async with app_state.session_factory() as s:
+        s.add(RapidChat(id="c1", title="t", goal="g", created_by="admin", initiated_by="admin",
+                        participants=["corey"], areas=[], sink={"kind": "wiki", "slug": "x"},
+                        limits={}, state="running"))
+        s.add(Run(id="e" * 32, agent="corey", trigger="rapid_chat", requested_by="t",
+                  prompt="p", state=RunState.RUNNING))
+        s.add(RapidChatTurn(chat_id="c1", seq=1, agent="corey", area_key="a", role="author",
+                            run_id="e" * 32, state="running", prompt="p"))
+        await s.commit()
+    assert (await tool_client.get("/api/runs", headers=_auth())).status_code == 403
+    assert (await tool_client.get("/api/whoami", headers=_auth())).status_code == 200
+    async with app_state.session_factory() as s:
+        (await s.get(Run, "e" * 32)).state = RunState.SUCCEEDED
+        await s.commit()
+    assert (await tool_client.get("/api/runs", headers=_auth())).status_code == 200

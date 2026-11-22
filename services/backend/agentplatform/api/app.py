@@ -43,6 +43,7 @@ from agentplatform.api import dreaming as dreaming_api
 from agentplatform.api import metrics as metrics_api
 from agentplatform.api import pulls as pulls_api
 from agentplatform.api import quota as quota_api
+from agentplatform.api import rapid_chats as rapid_chats_api
 from agentplatform.api import relay as relay_api
 from agentplatform.api import reports as reports_api
 from agentplatform.api import scopes as scopes_api
@@ -58,6 +59,7 @@ from agentplatform.api import tasks as tasks_api
 from agentplatform.api import tool_calls as tool_calls_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
+from agentplatform.api import ui_designer as ui_designer_api
 from agentplatform.api import wiki as wiki_api
 from agentplatform.api import workbench_feed as workbench_feed_api
 from agentplatform import quota_store
@@ -212,6 +214,26 @@ def artifacts_events_consumer_factory(settings):
     return factory
 
 
+def ui_designer_events_consumer_factory(settings):
+    """Production factory for the designer's live refresh: `ui_designer.events`,
+    a fresh group per pod from `latest`, the artifacts feed's shape."""
+
+    def factory():
+        import socket
+        import uuid
+        from aiokafka import AIOKafkaConsumer
+        from agentplatform.events import TOPIC_UI_DESIGNER_EVENTS
+
+        return AIOKafkaConsumer(
+            TOPIC_UI_DESIGNER_EVENTS,
+            bootstrap_servers=settings.kafka_bootstrap,
+            group_id=f"api-ui-designer-{socket.gethostname() or uuid.uuid4().hex[:8]}",
+            auto_offset_reset="latest",
+        )
+
+    return factory
+
+
 def workbench_events_consumer_factory(settings):
     """Production factory for the Changes page's live rows: `workbench.events`,
     a fresh group per pod from `latest`. Its own consumer for the reason the
@@ -240,7 +262,8 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                 wiki_feed_consumer_factory=None,
                 quota_feed_consumer_factory=None,
                 artifacts_feed_consumer_factory=None,
-                workbench_feed_consumer_factory=None) -> FastAPI:
+                workbench_feed_consumer_factory=None,
+                ui_designer_feed_consumer_factory=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         st = app.state
@@ -285,6 +308,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
         st.quota_feed.session_factory = st.session_factory
         st.artifacts_feed.session_factory = st.session_factory
         st.workbench_feed.session_factory = st.session_factory
+        st.ui_designer_feed.session_factory = st.session_factory
         # Agent definitions are rows (docs/design/15): prime the cache once the
         # session factory exists, so the first request reads real agents rather
         # than an empty store waiting on its TTL refresh.
@@ -349,7 +373,9 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
                        ("artifacts", st.artifacts_feed,
                         st.artifacts_feed_consumer_factory),
                        ("workbench", st.workbench_feed,
-                        st.workbench_feed_consumer_factory))
+                        st.workbench_feed_consumer_factory),
+                       ("ui_designer", st.ui_designer_feed,
+                        st.ui_designer_feed_consumer_factory))
                       if factory is not None]
         try:
             yield
@@ -471,6 +497,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.quota_feed_consumer_factory = quota_feed_consumer_factory
     st.artifacts_feed_consumer_factory = artifacts_feed_consumer_factory
     st.workbench_feed_consumer_factory = workbench_feed_consumer_factory
+    st.ui_designer_feed_consumer_factory = ui_designer_feed_consumer_factory
     secret_store = secret_store or InMemorySecretStore()
     agent_store = agent_store or AgentStore(session_factory)
     st.secret_store, st.agent_store = secret_store, agent_store
@@ -483,6 +510,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     st.quota_feed = quota_store.quota_feed(session_factory)
     st.artifacts_feed = artifacts_feed_api.artifacts_feed(session_factory)
     st.workbench_feed = workbench_feed_api.workbench_feed(session_factory)
+    st.ui_designer_feed = ui_designer_api.ui_designer_feed(session_factory)
     # The quota probe's HTTP client and its coalescing lock are made on
     # first use (api/quota.py). Named here because this is the seam a test
     # replaces with a MockTransport so the suite never dials Anthropic.
@@ -538,6 +566,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     # No auth dependency anywhere on this one: the shared secret IS the
     # credential (docs/design/22), because nginx presents nothing else.
     app.include_router(quota_api.internal_router)
+    app.include_router(rapid_chats_api.router)
     app.include_router(relay_api.router)
     app.include_router(reports_api.router)
     app.include_router(scopes_api.router)
@@ -555,6 +584,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(tool_calls_api.router)
     app.include_router(tools_api.router)
     app.include_router(tail_api.router)
+    app.include_router(ui_designer_api.router)
     app.include_router(wiki_api.router)
     app.include_router(workbench_feed_api.router)
     return app

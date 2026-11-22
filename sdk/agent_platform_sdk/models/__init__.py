@@ -32,6 +32,7 @@ from .artifact_view import ArtifactView
 from .artifact_view_meta import ArtifactViewMeta
 from .backlog import Backlog
 from .backup_connection_in import BackupConnectionIn
+from .backup_status import BackupStatus
 from .body_inspect_import import BodyInspectImport
 from .call_in import CallIn
 from .capture_in import CaptureIn
@@ -87,6 +88,11 @@ from .empty import Empty
 from .endpoint_in import EndpointIn
 from .entrypoints_in import EntrypointsIn
 from .fallback_in import FallbackIn
+from .figma_import_in import FigmaImportIn
+from .figma_import_out import FigmaImportOut
+from .figma_import_out_pages import FigmaImportOutPages
+from .figma_import_out_report import FigmaImportOutReport
+from .figma_import_out_state import FigmaImportOutState
 from .generate_in import GenerateIn
 from .grant_in import GrantIn
 from .group_in import GroupIn
@@ -111,8 +117,12 @@ from .job_patch_run_when_type_0 import JobPatchRunWhenType0
 from .job_run_accepted import JobRunAccepted
 from .job_view import JobView
 from .kafka_health import KafkaHealth
+from .lint_ui_document_severity_type_0 import LintUiDocumentSeverityType0
 from .list_artifacts_kind_type_0 import ListArtifactsKindType0
 from .list_artifacts_source_type_0 import ListArtifactsSourceType0
+from .list_ui_platform_components_detail_type_0 import (
+    ListUiPlatformComponentsDetailType0,
+)
 from .me_out import MeOut
 from .me_out_kind import MeOutKind
 from .memory_in import MemoryIn
@@ -171,6 +181,21 @@ from .quota_in_limits import QuotaInLimits
 from .quota_ok import QuotaOk
 from .quota_reading import QuotaReading
 from .quota_window import QuotaWindow
+from .rapid_chat_area_in import RapidChatAreaIn
+from .rapid_chat_in import RapidChatIn
+from .rapid_chat_limits_in import RapidChatLimitsIn
+from .rapid_chat_sink_in import RapidChatSinkIn
+from .rapid_chat_sink_in_kind import RapidChatSinkInKind
+from .rapid_chat_sink_in_mode import RapidChatSinkInMode
+from .rapid_chat_turn_view import RapidChatTurnView
+from .rapid_chat_turn_view_parsed_type_0 import RapidChatTurnViewParsedType0
+from .rapid_chat_view import RapidChatView
+from .rapid_chat_view_areas_item import RapidChatViewAreasItem
+from .rapid_chat_view_last_quota_type_0 import RapidChatViewLastQuotaType0
+from .rapid_chat_view_limits import RapidChatViewLimits
+from .rapid_chat_view_output_ref_type_0 import RapidChatViewOutputRefType0
+from .rapid_chat_view_sink import RapidChatViewSink
+from .rapid_chat_view_turn_counts import RapidChatViewTurnCounts
 from .read_binding import ReadBinding
 from .receipt_in import ReceiptIn
 from .record_create_in import RecordCreateIn
@@ -313,6 +338,127 @@ from .tool_wizard_secret import ToolWizardSecret
 from .typed_block import TypedBlock
 from .typed_block_kind import TypedBlockKind
 from .typed_definition import TypedDefinition
+from .ui_access_in import UiAccessIn
+from .ui_access_in_visibility import UiAccessInVisibility
+from .ui_access_out import UiAccessOut
+from .ui_access_out_visibility import UiAccessOutVisibility
+from .ui_asset_gc_out import UiAssetGcOut
+from .ui_comment import UiComment
+from .ui_comment_in import UiCommentIn
+from .ui_comment_list import UiCommentList
+from .ui_comment_notification import UiCommentNotification
+from .ui_comment_notification_status import UiCommentNotificationStatus
+from .ui_comment_out import UiCommentOut
+from .ui_designer_reference_out import UiDesignerReferenceOut
+from .ui_doc_create_in import UiDocCreateIn
+from .ui_doc_create_in_doc_type_0 import UiDocCreateInDocType0
+from .ui_doc_delete_out import UiDocDeleteOut
+from .ui_doc_diff_out import UiDocDiffOut
+from .ui_doc_diff_out_chunks_item import UiDocDiffOutChunksItem
+from .ui_doc_edit_in import UiDocEditIn
+from .ui_doc_edit_in_ops_item import UiDocEditInOpsItem
+from .ui_doc_export_in import UiDocExportIn
+from .ui_doc_export_in_format import UiDocExportInFormat
+from .ui_doc_export_out import UiDocExportOut
+from .ui_doc_get_out import UiDocGetOut
+from .ui_doc_get_out_cursor_type_0 import UiDocGetOutCursorType0
+from .ui_doc_inspect_out import UiDocInspectOut
+from .ui_doc_inspect_out_component_set_type_0 import UiDocInspectOutComponentSetType0
+from .ui_doc_inspect_out_modes import UiDocInspectOutModes
+from .ui_doc_inspect_out_modes_additional_property import (
+    UiDocInspectOutModesAdditionalProperty,
+)
+from .ui_doc_inspect_out_warnings_item import UiDocInspectOutWarningsItem
+from .ui_doc_label_in import UiDocLabelIn
+from .ui_doc_label_out import UiDocLabelOut
+from .ui_doc_list import UiDocList
+from .ui_doc_outline import UiDocOutline
+from .ui_doc_place_in import UiDocPlaceIn
+from .ui_doc_place_out import UiDocPlaceOut
+from .ui_doc_prune_in import UiDocPruneIn
+from .ui_doc_prune_out import UiDocPruneOut
+from .ui_doc_restore_in import UiDocRestoreIn
+from .ui_doc_snapshot import UiDocSnapshot
+from .ui_doc_snapshot_boxes_type_0 import UiDocSnapshotBoxesType0
+from .ui_doc_summary import UiDocSummary
+from .ui_doc_write_out import UiDocWriteOut
+from .ui_doc_write_out_undo_ops_type_0_item import UiDocWriteOutUndoOpsType0Item
+from .ui_doc_write_out_warnings_item import UiDocWriteOutWarningsItem
+from .ui_font_info import UiFontInfo
+from .ui_font_info_font_format import UiFontInfoFontFormat
+from .ui_font_ref import UiFontRef
+from .ui_font_upload_in import UiFontUploadIn
+from .ui_font_write_out import UiFontWriteOut
+from .ui_font_write_out_undo_ops_type_0_item import UiFontWriteOutUndoOpsType0Item
+from .ui_font_write_out_warnings_item import UiFontWriteOutWarningsItem
+from .ui_fonts_out import UiFontsOut
+from .ui_icon_out import UiIconOut
+from .ui_icon_path import UiIconPath
+from .ui_icon_source import UiIconSource
+from .ui_icon_summary import UiIconSummary
+from .ui_icons_out import UiIconsOut
+from .ui_library_apply_in import UiLibraryApplyIn
+from .ui_library_conflict import UiLibraryConflict
+from .ui_library_import_in import UiLibraryImportIn
+from .ui_library_list_out import UiLibraryListOut
+from .ui_library_preview_in import UiLibraryPreviewIn
+from .ui_library_preview_out import UiLibraryPreviewOut
+from .ui_library_preview_out_counts import UiLibraryPreviewOutCounts
+from .ui_library_spec import UiLibrarySpec
+from .ui_library_summary import UiLibrarySummary
+from .ui_library_summary_counts import UiLibrarySummaryCounts
+from .ui_library_write_out import UiLibraryWriteOut
+from .ui_library_write_out_undo_ops_type_0_item import UiLibraryWriteOutUndoOpsType0Item
+from .ui_library_write_out_warnings_item import UiLibraryWriteOutWarningsItem
+from .ui_lint_finding import UiLintFinding
+from .ui_lint_finding_severity import UiLintFindingSeverity
+from .ui_lint_out import UiLintOut
+from .ui_lint_out_by_severity import UiLintOutBySeverity
+from .ui_motion_export_in import UiMotionExportIn
+from .ui_motion_export_in_easing import UiMotionExportInEasing
+from .ui_motion_export_in_format import UiMotionExportInFormat
+from .ui_motion_export_in_fps import UiMotionExportInFps
+from .ui_motion_export_out import UiMotionExportOut
+from .ui_motion_in import UiMotionIn
+from .ui_motion_in_easing import UiMotionInEasing
+from .ui_motion_in_fps import UiMotionInFps
+from .ui_motion_layer import UiMotionLayer
+from .ui_motion_pose import UiMotionPose
+from .ui_motion_preview_out import UiMotionPreviewOut
+from .ui_motion_preview_out_assets import UiMotionPreviewOutAssets
+from .ui_motion_preview_out_easing import UiMotionPreviewOutEasing
+from .ui_motion_preview_out_fps import UiMotionPreviewOutFps
+from .ui_placed_asset import UiPlacedAsset
+from .ui_placed_assets_out import UiPlacedAssetsOut
+from .ui_platform_component import UiPlatformComponent
+from .ui_platform_component_index import UiPlatformComponentIndex
+from .ui_platform_component_library_out import UiPlatformComponentLibraryOut
+from .ui_platform_component_property import UiPlatformComponentProperty
+from .ui_platform_component_variant import UiPlatformComponentVariant
+from .ui_platform_component_variant_fixture import UiPlatformComponentVariantFixture
+from .ui_platform_component_variant_props import UiPlatformComponentVariantProps
+from .ui_platform_component_variant_selection import UiPlatformComponentVariantSelection
+from .ui_platform_implementation import UiPlatformImplementation
+from .ui_platform_implementation_fixture import UiPlatformImplementationFixture
+from .ui_platform_implementation_props import UiPlatformImplementationProps
+from .ui_platform_implementation_status import UiPlatformImplementationStatus
+from .ui_presence_cursor import UiPresenceCursor
+from .ui_presence_in import UiPresenceIn
+from .ui_presence_in_state import UiPresenceInState
+from .ui_presence_out import UiPresenceOut
+from .ui_presence_session import UiPresenceSession
+from .ui_presence_session_state import UiPresenceSessionState
+from .ui_sharing_choices import UiSharingChoices
+from .ui_sharing_principal import UiSharingPrincipal
+from .ui_sharing_principal_kind import UiSharingPrincipalKind
+from .ui_sharing_team import UiSharingTeam
+from .ui_template_summary import UiTemplateSummary
+from .ui_templates_out import UiTemplatesOut
+from .ui_version_list import UiVersionList
+from .ui_version_row import UiVersionRow
+from .ui_visual_diff_in import UiVisualDiffIn
+from .ui_visual_diff_out import UiVisualDiffOut
+from .ui_visual_diff_region import UiVisualDiffRegion
 from .user_group_in import UserGroupIn
 from .user_out import UserOut
 from .user_out_kind import UserOutKind
@@ -380,6 +526,7 @@ __all__ = (
     "ArtifactViewMeta",
     "Backlog",
     "BackupConnectionIn",
+    "BackupStatus",
     "BodyInspectImport",
     "CallIn",
     "CaptureIn",
@@ -431,6 +578,11 @@ __all__ = (
     "EndpointIn",
     "EntrypointsIn",
     "FallbackIn",
+    "FigmaImportIn",
+    "FigmaImportOut",
+    "FigmaImportOutPages",
+    "FigmaImportOutReport",
+    "FigmaImportOutState",
     "GenerateIn",
     "GrantIn",
     "GroupIn",
@@ -455,8 +607,10 @@ __all__ = (
     "JobRunAccepted",
     "JobView",
     "KafkaHealth",
+    "LintUiDocumentSeverityType0",
     "ListArtifactsKindType0",
     "ListArtifactsSourceType0",
+    "ListUiPlatformComponentsDetailType0",
     "MemoryIn",
     "MemoryPatch",
     "MemoryView",
@@ -513,6 +667,21 @@ __all__ = (
     "QuotaOk",
     "QuotaReading",
     "QuotaWindow",
+    "RapidChatAreaIn",
+    "RapidChatIn",
+    "RapidChatLimitsIn",
+    "RapidChatSinkIn",
+    "RapidChatSinkInKind",
+    "RapidChatSinkInMode",
+    "RapidChatTurnView",
+    "RapidChatTurnViewParsedType0",
+    "RapidChatView",
+    "RapidChatViewAreasItem",
+    "RapidChatViewLastQuotaType0",
+    "RapidChatViewLimits",
+    "RapidChatViewOutputRefType0",
+    "RapidChatViewSink",
+    "RapidChatViewTurnCounts",
     "ReadBinding",
     "ReceiptIn",
     "RecordCreateIn",
@@ -655,6 +824,125 @@ __all__ = (
     "TypedBlock",
     "TypedBlockKind",
     "TypedDefinition",
+    "UiAccessIn",
+    "UiAccessInVisibility",
+    "UiAccessOut",
+    "UiAccessOutVisibility",
+    "UiAssetGcOut",
+    "UiComment",
+    "UiCommentIn",
+    "UiCommentList",
+    "UiCommentNotification",
+    "UiCommentNotificationStatus",
+    "UiCommentOut",
+    "UiDesignerReferenceOut",
+    "UiDocCreateIn",
+    "UiDocCreateInDocType0",
+    "UiDocDeleteOut",
+    "UiDocDiffOut",
+    "UiDocDiffOutChunksItem",
+    "UiDocEditIn",
+    "UiDocEditInOpsItem",
+    "UiDocExportIn",
+    "UiDocExportInFormat",
+    "UiDocExportOut",
+    "UiDocGetOut",
+    "UiDocGetOutCursorType0",
+    "UiDocInspectOut",
+    "UiDocInspectOutComponentSetType0",
+    "UiDocInspectOutModes",
+    "UiDocInspectOutModesAdditionalProperty",
+    "UiDocInspectOutWarningsItem",
+    "UiDocLabelIn",
+    "UiDocLabelOut",
+    "UiDocList",
+    "UiDocOutline",
+    "UiDocPlaceIn",
+    "UiDocPlaceOut",
+    "UiDocPruneIn",
+    "UiDocPruneOut",
+    "UiDocRestoreIn",
+    "UiDocSnapshot",
+    "UiDocSnapshotBoxesType0",
+    "UiDocSummary",
+    "UiDocWriteOut",
+    "UiDocWriteOutUndoOpsType0Item",
+    "UiDocWriteOutWarningsItem",
+    "UiFontInfo",
+    "UiFontInfoFontFormat",
+    "UiFontRef",
+    "UiFontsOut",
+    "UiFontUploadIn",
+    "UiFontWriteOut",
+    "UiFontWriteOutUndoOpsType0Item",
+    "UiFontWriteOutWarningsItem",
+    "UiIconOut",
+    "UiIconPath",
+    "UiIconSource",
+    "UiIconsOut",
+    "UiIconSummary",
+    "UiLibraryApplyIn",
+    "UiLibraryConflict",
+    "UiLibraryImportIn",
+    "UiLibraryListOut",
+    "UiLibraryPreviewIn",
+    "UiLibraryPreviewOut",
+    "UiLibraryPreviewOutCounts",
+    "UiLibrarySpec",
+    "UiLibrarySummary",
+    "UiLibrarySummaryCounts",
+    "UiLibraryWriteOut",
+    "UiLibraryWriteOutUndoOpsType0Item",
+    "UiLibraryWriteOutWarningsItem",
+    "UiLintFinding",
+    "UiLintFindingSeverity",
+    "UiLintOut",
+    "UiLintOutBySeverity",
+    "UiMotionExportIn",
+    "UiMotionExportInEasing",
+    "UiMotionExportInFormat",
+    "UiMotionExportInFps",
+    "UiMotionExportOut",
+    "UiMotionIn",
+    "UiMotionInEasing",
+    "UiMotionInFps",
+    "UiMotionLayer",
+    "UiMotionPose",
+    "UiMotionPreviewOut",
+    "UiMotionPreviewOutAssets",
+    "UiMotionPreviewOutEasing",
+    "UiMotionPreviewOutFps",
+    "UiPlacedAsset",
+    "UiPlacedAssetsOut",
+    "UiPlatformComponent",
+    "UiPlatformComponentIndex",
+    "UiPlatformComponentLibraryOut",
+    "UiPlatformComponentProperty",
+    "UiPlatformComponentVariant",
+    "UiPlatformComponentVariantFixture",
+    "UiPlatformComponentVariantProps",
+    "UiPlatformComponentVariantSelection",
+    "UiPlatformImplementation",
+    "UiPlatformImplementationFixture",
+    "UiPlatformImplementationProps",
+    "UiPlatformImplementationStatus",
+    "UiPresenceCursor",
+    "UiPresenceIn",
+    "UiPresenceInState",
+    "UiPresenceOut",
+    "UiPresenceSession",
+    "UiPresenceSessionState",
+    "UiSharingChoices",
+    "UiSharingPrincipal",
+    "UiSharingPrincipalKind",
+    "UiSharingTeam",
+    "UiTemplatesOut",
+    "UiTemplateSummary",
+    "UiVersionList",
+    "UiVersionRow",
+    "UiVisualDiffIn",
+    "UiVisualDiffOut",
+    "UiVisualDiffRegion",
     "UserGroupIn",
     "UserOut",
     "UserOutKind",

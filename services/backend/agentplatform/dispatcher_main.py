@@ -21,10 +21,11 @@ from agentplatform.ingest import Ingestor, ToolAuditIngestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
 from agentplatform.github import GitHubClient
 from agentplatform.pruning import (AppDataPruner, ArtifactPruner, LiveDataPruner, ReportPruner,
-                                   SessionPruner,
+                                   SessionPruner, UiDesignerAssetSweeper, UiDesignerPruner,
                                    TranscriptPruner, sweep_orphaned_keys_forever)
 from agentplatform.mergedtickets import MergedTicketCloser
 from agentplatform.prsummarizer import PrSummarizer
+from agentplatform import rapid_chat
 from agentplatform.relay_router import RelayRouter
 from agentplatform.reportregistry import ReportTypeRegistry
 from agentplatform.scheduler import Scheduler
@@ -114,6 +115,8 @@ async def main() -> None:
     pruner = TranscriptPruner(session_factory, agent_store, settings)
     report_pruner = ReportPruner(session_factory, ReportTypeRegistry(settings.reports_root))
     artifact_pruner = ArtifactPruner(session_factory, settings, producer)
+    ui_designer_pruner = UiDesignerPruner(session_factory, settings.ui_designer_prune_days)
+    ui_designer_sweeper = UiDesignerAssetSweeper(session_factory)
     live_data_pruner = LiveDataPruner(session_factory)
     app_data_pruner = AppDataPruner(session_factory)
     session_pruner = SessionPruner(session_factory)
@@ -142,11 +145,19 @@ async def main() -> None:
     merged_tickets = MergedTicketCloser(_gh_client, session_factory, producer,
                                         base=settings.default_branch)
 
+    from agentplatform.ui_designer.figma_import_job import FigmaImportWorker
+    figma_imports = FigmaImportWorker(session_factory, settings, producer)
+    from agentplatform.ui_designer.comment_wakes import CommentWakeWorker
+    comment_wakes = CommentWakeWorker(settings, session_factory, producer, agent_store)
+
     try:
-        await asyncio.gather(dispatcher.run_forever(), watcher.run_forever(),
+        await asyncio.gather(figma_imports.run_forever(), comment_wakes.run_forever(),
+                             dispatcher.run_forever(), watcher.run_forever(),
                              dispatcher.sweep_forever(), scheduler.run_forever(),
                              pruner.run_forever(), report_pruner.run_forever(),
                              artifact_pruner.run_forever(),
+                             ui_designer_pruner.run_forever(),
+                             ui_designer_sweeper.run_forever(),
                              live_data_pruner.run_forever(),
                              app_data_pruner.run_forever(),
                              session_pruner.run_forever(),
@@ -156,7 +167,8 @@ async def main() -> None:
                              relay_router.run_forever(),
                              verifier.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
-                             pr_summarizer.run_forever(), merged_tickets.run_forever())
+                             pr_summarizer.run_forever(), merged_tickets.run_forever(),
+                             rapid_chat.run_forever(session_factory, producer, settings))
     finally:
         await producer.stop()
         await engine.dispose()

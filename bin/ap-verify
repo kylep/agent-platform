@@ -123,16 +123,25 @@ def _sh(*steps: str) -> list[str]:
     return ["sh", "-c", " && ".join(steps)]
 
 
-def suite_table(root: Path, out: Path | None = None) -> list[dict]:
+def wants_coverage(flag: bool | None, all_mode: bool) -> bool:
+    """Whether the backend suite collects coverage. Only the nightly (`--all`)
+    feeds the TCMS coverage report (the QA agent uploads coverage-backend.xml),
+    and `--cov` costs ~30s of an 8-core run, so `--changed` skips it by default.
+    `--coverage` / `--no-coverage` override either way."""
+    return all_mode if flag is None else flag
+
+
+def suite_table(root: Path, out: Path | None = None, coverage: bool = True) -> list[dict]:
     """Every suite CI runs, in the order it should run here. `out` is where
-    the junit/coverage/json reports land; None means no report flags."""
+    the junit/coverage/json reports land; None means no report flags.
+    `coverage=False` drops the backend suite's `--cov` flags (JUnit stays)."""
     root = Path(root)
     out = Path(out) if out is not None else None
     py = python_for_suites()
     pp = _pythonpath(root)
     pytest_q = [py, "-m", "pytest", "-q"]
 
-    backend_cmd = pytest_q + ["--timeout=120", "tests"]
+    backend_cmd = pytest_q + ["--timeout=120", "-m", "not performance", "tests"]
     if has_module(py, "xdist"):
         backend_cmd += ["-n", str(backend_workers())]
     backend_artifacts = []
@@ -140,7 +149,7 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
         junit = out / "junit-backend.xml"
         backend_cmd.append(f"--junitxml={junit}")
         backend_artifacts.append(junit)
-        if has_module(py, "pytest_cov"):
+        if coverage and has_module(py, "pytest_cov"):
             cov = out / "coverage-backend.xml"
             backend_cmd += ["--cov=agentplatform", f"--cov-report=xml:{cov}"]
             backend_artifacts.append(cov)
@@ -151,11 +160,14 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
                   "PLAYWRIGHT_JSON_OUTPUT_NAME": str(out / "playwright-web.json")}
         pw_artifacts = [out / "junit-web.xml", out / "playwright-web.json"]
 
-    web_globs = ["services/web/**", "packages/ui/**"]
+    web_globs = ["services/web/**", "packages/ui/**", "apps/*/frontend/**", "package.json", "package-lock.json", "bin/build-designer-parity",
+                 "services/backend/agentplatform/ui_designer/**"]
     api_globs = ["services/backend/agentplatform/api/**"]
     suites = [
         _suite("backend", ["services/backend/**", "sdk/**", "bin/ap-verify", "bin/ap_verify*"],
                "services/backend", backend_cmd, env=pp, artifacts=backend_artifacts),
+        _suite("backend-performance", ["services/backend/**", "sdk/**", "bin/ap-verify", "bin/ap_verify*"],
+               "services/backend", pytest_q + ["-m", "performance", "tests/test_ui_designer_layout.py"], env=pp),
         # The SDK is generated from the API's OpenAPI document; CI fails on
         # drift. A clean run leaves the tree untouched; a drifted one leaves
         # the regenerated files in place, and the tail says so.
@@ -180,13 +192,21 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
                requires=["npm"]),
         _suite("web-tokens", web_globs, "services/web", ["npm", "run", "-s", "check:tokens"],
                requires=["npm"]),
+        _suite("designer-token-parity", web_globs,
+               "services/web", ["npm", "run", "-s", "check:designer-tokens"], requires=["npm"]),
+        _suite("web-design-system-tests", web_globs, "services/web", ["npm", "run", "-s", "test:design-system"],
+               requires=["npm"]),
         _suite("web-build", web_globs, "services/web", ["npm", "run", "-s", "build"],
                requires=["npm"]),
         _suite("web-storybook", web_globs, "services/web", ["npm", "run", "-s", "build:storybook"],
                requires=["npm"]),
+        _suite("web-design-system", web_globs, "services/web", ["npm", "run", "-s", "check:design-system"],
+               requires=["npm"]),
         _suite("web-playwright", web_globs, "services/web",
                ["npx", "playwright", "test", "--reporter=line,junit,json"],
                env=pw_env, requires=["npx"], artifacts=pw_artifacts),
+        _suite("web-storybook-tests", web_globs, "services/web", ["npm", "run", "-s", "test:storybook:visual"],
+               env={"AP_VERIFY_PYTHON": py}, requires=["npm", "docker"]),
     ]
 
     for app_dir in sorted((root / "apps").glob("*")):
@@ -225,7 +245,7 @@ def suite_table(root: Path, out: Path | None = None) -> list[dict]:
 def _matches(path: str, glob: str) -> bool:
     # fnmatch's `*` already crosses `/`, so `a/**` is "anything under a/".
     if glob.endswith("/**"):
-        return path == glob[:-3] or path.startswith(glob[:-2])
+        return fnmatchcase(path, glob[:-3]) or fnmatchcase(path, glob)
     return fnmatchcase(path, glob)
 
 
@@ -469,6 +489,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="run every suite, and merge the per-suite JUnit files into <out>/junit-all.xml")
     ap.add_argument("--base", default=DEFAULT_BASE, help=f"ref to diff against (default {DEFAULT_BASE})")
     ap.add_argument("--out", default=None, help="report directory (default <repo>/.ap/verify)")
+    ap.add_argument("--coverage", action=argparse.BooleanOptionalAction, default=None,
+                    help="collect backend coverage (coverage-backend.xml). Default: on for --all "
+                         "(the nightly TCMS upload), off for --changed, where it only slows the run")
     ap.add_argument("--list", action="store_true", help="print the suite table and what would run; run nothing")
     ap.add_argument("--timeout", type=int, default=default_timeout(),
                     help=f"seconds per suite (default $AP_VERIFY_TIMEOUT, else {DEFAULT_TIMEOUT})")
@@ -490,7 +513,7 @@ def main(argv: list[str] | None = None) -> int:
             base_error = str(exc)
             print(f"ap-verify: {exc}; running every suite", file=sys.stderr)
 
-    table = suite_table(root, out=out)
+    table = suite_table(root, out=out, coverage=wants_coverage(args.coverage, args.all))
     selected = select(table, changed)
     mode_name = "all" if changed is None else f"changed vs {args.base}"
 

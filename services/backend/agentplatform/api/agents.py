@@ -904,9 +904,9 @@ async def set_agent_image(request: Request, name: str, body: AgentImageIn):
         view = None
         if body.artifact_id is not None:
             art = await artifact_store.get(s, body.artifact_id)
-            # A face is shown to everyone; an App-owned picture is its field's
-            # readers' alone, so it's never one (docs/design/39).
-            if art is None or await app_artifacts.ownership(s, art.id) is not None:
+            # A face is shared globally. App-owned and document-scoped images
+            # retain their source permissions and cannot become portraits.
+            if art is None or art.ui_provenance or await app_artifacts.ownership(s, art.id) is not None:
                 raise HTTPException(404, "unknown artifact")
             if art.kind != "image":
                 raise HTTPException(422, "an agent's image must be an image artifact")

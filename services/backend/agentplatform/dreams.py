@@ -46,7 +46,9 @@ Tool works in this run.
 1. Gather. Read everything, to the last page, before changing anything:
    - memory(action="review", section="conversations") — what you said and heard
      since your last dream, in time order: Relay messages from rooms you can
-     read, plus your runs that had no conversation (crons, tasks).
+     read, plus your runs that had no conversation (crons, tasks), and one
+     item per rapid-chat sprint you took part in (your own turn summaries,
+     in order, and the sprint's outcome).
    - memory(action="review", section="memories") — every memory you hold, with
      its revision.
    - memory(action="review", section="commitments") — your promises, open first.
@@ -369,7 +371,8 @@ async def _conversation_items(s, dream: Dream, since: datetime, until: datetime)
     dream_runs = select(Dream.run_id).where(Dream.agent == dream.agent, Dream.run_id.is_not(None))
     runs = (await s.execute(select(Run).where(
         Run.agent == dream.agent, Run.conversation_id.is_(None), Run.execution_location == "cluster",
-        Run.finished_at >= since, Run.finished_at < until, Run.id.not_in(dream_runs))
+        Run.finished_at >= since, Run.finished_at < until, Run.id.not_in(dream_runs),
+        Run.trigger != "rapid_chat")
         .order_by(Run.finished_at, Run.id))).scalars()
     for r in runs:
         items.append({"type": "run", "at": _iso(r.finished_at), "run_id": r.id,
@@ -377,8 +380,38 @@ async def _conversation_items(s, dream: Dream, since: datetime, until: datetime)
                       **({"user_message": _clip(r.user_message, 2000)} if r.user_message else {}),
                       "result": _clip(r.result, 4000),
                       **({"summary": r.summary} if r.summary else {})})
+    items.extend(await _rapid_chat_items(s, dream.agent, since, until))
     items.sort(key=lambda i: i["at"] or "")
     return items
+
+
+async def _rapid_chat_items(s, agent: str, since: datetime, until: datetime) -> list[dict]:
+    """A rapid-chat (docs/design/45) is one experience, not a turn log: one item
+    per sprint the agent took part in, with its own turn summaries in order.
+    The raw turn runs are left out of the run list above."""
+    from agentplatform.db import RapidChat, RapidChatTurn
+    chats = (await s.execute(select(RapidChat).where(
+        RapidChat.state == "done", RapidChat.ended_at >= since, RapidChat.ended_at < until)
+        .order_by(RapidChat.ended_at, RapidChat.id))).scalars().all()
+    out = []
+    for chat in chats:
+        if agent not in (chat.participants or []):
+            continue
+        turns = (await s.execute(select(RapidChatTurn).where(
+            RapidChatTurn.chat_id == chat.id, RapidChatTurn.agent == agent,
+            RapidChatTurn.run_id.is_not(None)).order_by(RapidChatTurn.seq))).scalars().all()
+        mine = [f"{t.role}{' on ' + t.area_key if t.area_key else ''}: "
+                f"{_clip((t.parsed or {}).get('summary') or t.outcome or '', 400)}"
+                for t in turns if t.outcome == "ok" and (t.parsed or {}).get("summary")]
+        if not turns:
+            continue
+        out.append({"type": "rapid_chat", "at": _iso(chat.ended_at), "rapid_chat_id": chat.id,
+                    "title": chat.title, "goal": _clip(chat.goal, 1500),
+                    "participants": chat.participants, "end_reason": chat.end_reason,
+                    "output": chat.output_ref, "your_turns": len(turns),
+                    "your_turn_summaries": _clip("\n".join(mine), 12000),
+                    "session_summary": _clip(chat.summary, 4000)})
+    return out
 
 
 async def _memory_items(s, agent: str) -> list[dict]:

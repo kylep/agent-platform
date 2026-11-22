@@ -34,6 +34,7 @@ import json
 from typing import Any, Literal
 from datetime import timezone
 from sqlalchemy import select
+from sqlalchemy.orm import defer
 from agentplatform.db import Artifact, Run
 from agentplatform.authority import assert_readable_run
 
@@ -41,6 +42,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ValidationError, model_validator
 from starlette.datastructures import UploadFile
 
+from agentplatform.ui_designer import artifact_access
 from agentplatform import artifact_store as store
 from agentplatform import image_gen_service as image_gen
 from agentplatform.agentspec import TOOL_ARTIFACTS, TOOL_IMAGE_GEN
@@ -214,6 +216,7 @@ async def _authorize_read(s, request: Request, row) -> None:
     """An App-owned artifact through its owning field, as a 404 when that
     refuses (it's no business of a stranger's that the id exists); anything
     else behind the grant and its run's visibility, as before."""
+    await artifact_access.require_artifact_read(s,request,row)
     granted = getattr(request.state, "artifacts_granted", True)
     own = await app_artifacts.ownership(s, row.id)
     if own is not None:
@@ -366,20 +369,20 @@ def _form_tags(raw) -> list[str] | None:
     return [t for t in text.split(",")]
 
 
-def _bytes_response(data: bytes, *, mime: str, filename: str, inline: bool) -> Response:
+def _bytes_response(data: bytes, *, mime: str, filename: str, inline: bool, design=False) -> Response:
     """Every byte-serving answer: the row's mime, the flattened name, and the
     three headers that make the boundary — see the module docstring."""
     disposition = "inline" if inline else "attachment"
     return Response(content=data, media_type=mime, headers={
         "X-Content-Type-Options": "nosniff",
-        "Cache-Control": CACHE,
+        "Cache-Control": "private, no-store" if design else CACHE,
         "Content-Disposition": f'{disposition}; filename="{filename}"'})
 
 
 # --- reads ----------------------------------------------------------------------
 
 @router.get("/api/artifacts", response_model=list[ArtifactView])
-async def list_artifacts(request: Request,
+async def list_artifacts(request: Request, response: Response,
                          kind: Literal["image", "file"] | None = None,
                          owner: str | None = None,
                          source: Literal["upload", "generated", "derived", "tool"] | None = None,
@@ -390,38 +393,35 @@ async def list_artifacts(request: Request,
                          caller: Caller = Depends(require_artifacts_access(*READ))):
     """Metadata only, newest first, keyset-paged from `before` (an artifact
     id). Never the bytes and never the thumb: those are the two routes below."""
+    response.headers['Cache-Control']='private, no-store'
     async with request.app.state.session_factory() as s:
         try:
+            visible=await artifact_access.visible_clause(s,request,caller)
             rows = await store.list_artifacts(s, kind=kind, owner=owner, source=source,
-                                              q=q, tag=tag, limit=limit, before=before)
+                                              q=q, tag=tag, limit=limit, before=before,visible=visible)
         except ArtifactRuleError as e:
             raise _rule(e)
-        return [store.artifact_view(r) for r in await _visible_artifacts(s, request, rows)]
+        return [store.artifact_view(r) for r in rows]
 
 
 @router.get("/api/artifacts/stats", response_model=ArtifactStats)
-async def artifact_stats(request: Request,
+async def artifact_stats(request: Request, response: Response,
                          caller: Caller = Depends(require_artifacts_access(*READ))):
     st = request.app.state
+    response.headers['Cache-Control']='private, no-store'
     async with st.session_factory() as s:
-        if caller.agent is None:
-            count, used = await store.usage(s)
-            spend = await image_gen.spend_stats(s, st.settings)
-        else:
-            rows = await _visible_artifacts(s, request, (await s.execute(
-                select(Artifact).where(store.not_app_owned()))).scalars().all())
-            live = [row for row in rows if row.deleted_at is None]
-            count, used = len(live), sum(row.size for row in live)
-            month = image_gen.month_start(st.settings)
-            day = image_gen.day_start(st.settings)
-            generated = [row for row in rows if row.source == "generated" and row.created_at.replace(tzinfo=timezone.utc) >= month]
-            def cost(row):
-                value = (row.meta or {}).get("cost_usd")
-                return float(value) if isinstance(value, (int, float)) else 0.0
-            spend = {"generated_this_month": len(generated),
-                     "spend_this_month_usd": round(sum(cost(row) for row in generated), 4),
-                     "spend_today_usd": round(sum(cost(row) for row in generated if row.created_at.replace(tzinfo=timezone.utc) >= day), 4),
-                     "daily_cap_usd": float(st.settings.image_gen_daily_usd)}
+        visible=await artifact_access.visible_clause(s,request,caller)
+        rows=(await s.execute(select(Artifact).options(defer(Artifact.thumb)).where(store.not_app_owned(),visible))).scalars().all()
+        live=[r for r in rows if r.deleted_at is None]
+        count,used=len(live),sum(r.size for r in live)
+        month=image_gen.month_start(st.settings);day=image_gen.day_start(st.settings)
+        generated=[r for r in rows if r.source=='generated' and r.created_at.replace(tzinfo=timezone.utc)>=month]
+        def cost(row):
+            value=(row.meta or {}).get('cost_usd')
+            return float(value) if isinstance(value,(int,float)) else 0.0
+        spend={'generated_this_month':len(generated),'spend_this_month_usd':round(sum(cost(r) for r in generated),4),
+            'spend_today_usd':round(sum(cost(r) for r in generated if r.created_at.replace(tzinfo=timezone.utc)>=day),4),
+            'daily_cap_usd':float(st.settings.image_gen_daily_usd)}
     return {"count": count, "bytes": used, "total_cap": st.settings.artifacts_total_max_bytes,
             **spend}
 
@@ -443,11 +443,13 @@ async def image_models(request: Request,
 
 
 @router.get("/api/artifacts/{artifact_id}", response_model=ArtifactView)
-async def get_artifact(request: Request, artifact_id: str,
+async def get_artifact(request: Request, artifact_id: str, response: Response,
                        caller: Caller = Depends(require_artifacts_access(
                            *READ, app_owned=True))):
     async with request.app.state.session_factory() as s:
-        return store.artifact_view(await _row_or_404(s, artifact_id, request))
+        row=await _row_or_404(s,artifact_id,request)
+        if artifact_access.is_design(row):response.headers['Cache-Control']='private, no-store'
+        return store.artifact_view(row)
 
 
 @router.get("/api/artifacts/{artifact_id}/content", response_class=Response)
@@ -463,7 +465,7 @@ async def artifact_content(request: Request, artifact_id: str,
     if data is None:
         raise HTTPException(404, "unknown artifact")
     return _bytes_response(data, mime=row.mime, filename=row.name,
-                           inline=row.mime in store.RASTERS)
+                           inline=row.mime in store.RASTERS,design=artifact_access.is_design(row))
 
 
 @router.get("/api/artifacts/{artifact_id}/resource", response_class=Response)
@@ -483,7 +485,9 @@ async def artifact_resource(request: Request, artifact_id: str,
     if data is None:
         raise HTTPException(404, "unknown artifact")
     return Response(content=data, media_type=row.mime, headers={
-        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store",
+        **({"Content-Disposition": f'attachment; filename="{row.name}"'}
+           if row.mime not in store.RASTERS else {})})
 
 
 @router.get("/api/artifacts/{artifact_id}/thumb", response_class=Response)
@@ -499,7 +503,7 @@ async def artifact_thumb(request: Request, artifact_id: str,
         raise HTTPException(404, "no thumb for this artifact")
     png = thumb.startswith(b"\x89PNG")
     return _bytes_response(thumb, mime="image/png" if png else "image/jpeg",
-                           filename="thumb.png" if png else "thumb.jpg", inline=True)
+                           filename="thumb.png" if png else "thumb.jpg", inline=True,design=artifact_access.is_design(row))
 
 
 # --- writes -----------------------------------------------------------------------
@@ -513,7 +517,7 @@ async def artifact_thumb(request: Request, artifact_id: str,
                            "name": {"type": "string"},
                            "tags": {"type": "string", "description": "JSON list or comma-separated"},
                            "meta": {"type": "string", "description": "JSON object"}}}}}}})
-async def create_artifact(request: Request,
+async def create_artifact(request: Request, response: Response,
                           caller: Caller = Depends(require_artifacts_access(*WRITE))):
     """Save bytes as a new artifact, as multipart (`file`, `name?`, `tags?`,
     `meta?`) or JSON (`ArtifactIn`). The owner is the caller; an agent's
@@ -537,11 +541,13 @@ async def create_artifact(request: Request,
         except ArtifactRuleError as e:
             await s.rollback()
             raise _rule(e)
+        await _authorize_read(s,request,row)
+        if artifact_access.is_design(row):response.headers["Cache-Control"]="private, no-store"
         return store.artifact_view(row)
 
 
 @router.post("/api/artifacts/generate", status_code=201, response_model=ArtifactView)
-async def generate_artifact(request: Request, body: GenerateIn,
+async def generate_artifact(request: Request, body: GenerateIn, response: Response,
                             caller: Caller = Depends(require_artifacts_access(*WRITE))):
     """Generate one image and keep it (docs/design/23): the ONE place a
     generation happens is `image_gen_service.generate`; this is its door.
@@ -577,9 +583,10 @@ async def generate_artifact(request: Request, body: GenerateIn,
                 session_factory=st.session_factory, producer=st.producer,
                 settings=st.settings, agent_store=st.agent_store,
                 owner=caller.participant, principal=caller.principal,
-                parent_run=run, **body.model_dump(exclude={"model", "size", "quality", "seed"}))
+                parent_run=run, source_subject=await artifact_access.access.subject(request,caller), **body.model_dump(exclude={"model", "size", "quality", "seed"}))
         except (ImageGenError, ArtifactRuleError) as e:
             raise _rule(e)
+        if artifact_access.is_design(row):response.headers["Cache-Control"]="private, no-store"
         return store.artifact_view(row)
 
     async with st.session_factory() as s:
@@ -589,15 +596,18 @@ async def generate_artifact(request: Request, body: GenerateIn,
                 s, settings=st.settings, tool_registry=st.tool_registry, producer=st.producer,
                 owner=caller.participant, agent=caller.agent,
                 run_id=run.id if run is not None else None,
+                source_subject=await artifact_access.access.subject(request,caller),
                 **body.model_dump())
         except (ImageGenError, ArtifactRuleError) as e:
             await s.rollback()
             raise _rule(e)
+        await _authorize_read(s,request,row)
+        if artifact_access.is_design(row):response.headers["Cache-Control"]="private, no-store"
         return store.artifact_view(row)
 
 
 @router.patch("/api/artifacts/{artifact_id}", response_model=ArtifactView)
-async def patch_artifact(request: Request, artifact_id: str, body: ArtifactPatch,
+async def patch_artifact(request: Request, artifact_id: str, body: ArtifactPatch, response: Response,
                          caller: Caller = Depends(require_artifacts_access(*WRITE))):
     async with request.app.state.session_factory() as s:
         row = await _row_or_404(s, artifact_id, request)
@@ -608,6 +618,7 @@ async def patch_artifact(request: Request, artifact_id: str, body: ArtifactPatch
         except ArtifactRuleError as e:
             await s.rollback()
             raise _rule(e)
+        if artifact_access.is_design(row):response.headers["Cache-Control"]="private, no-store"
         return store.artifact_view(row)
 
 

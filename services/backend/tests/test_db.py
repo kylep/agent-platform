@@ -52,6 +52,15 @@ class _FakeConn:
         self.calls.append(fn.__name__)
 
 
+def _record_artifact_migration(monkeypatch):
+    # This test records startup ordering; the migration itself has SQLite and
+    # PostgreSQL upgrade tests in test_ui_designer_artifact_migration.py.
+    from agentplatform.ui_designer import artifact_migration
+    async def record(conn):
+        conn.calls.append("migrate_design_artifacts")
+    monkeypatch.setattr(artifact_migration, "migrate_design_artifacts", record)
+
+
 class _FakeEngine:
     def __init__(self, conn):
         self._conn = conn
@@ -69,23 +78,26 @@ class _FakeEngine:
         return _Ctx()
 
 
-async def test_init_db_takes_an_advisory_lock_on_postgres():
+async def test_init_db_takes_an_advisory_lock_on_postgres(monkeypatch):
     """Every service runs init_db at boot, and the one-shot backfills are
     check-then-write — so the lock must be held before ANY of them, for the
     whole transaction."""
     from agentplatform.db import INIT_DB_LOCK_KEY, init_db
+    _record_artifact_migration(monkeypatch)
     conn = _FakeConn("postgresql")
     await init_db(_FakeEngine(conn))
     assert conn.calls[0] == "SELECT pg_advisory_xact_lock(:k)"
     assert "_ensure_relay_default_grant" in conn.calls
+    assert conn.calls.index("migrate_design_artifacts") > conn.calls.index("create_all")
     # The key is a fixed constant: changing it later is the same as no lock.
     assert INIT_DB_LOCK_KEY == -7077053083107605676
 
 
-async def test_init_db_does_not_try_to_lock_on_sqlite():
+async def test_init_db_does_not_try_to_lock_on_sqlite(monkeypatch):
     """sqlite has no advisory locks — and one writer at a time is the whole
     story there, so there is nothing to serialize."""
     from agentplatform.db import init_db
+    _record_artifact_migration(monkeypatch)
     conn = _FakeConn("sqlite")
     await init_db(_FakeEngine(conn))
     assert not any("advisory" in c for c in conn.calls)

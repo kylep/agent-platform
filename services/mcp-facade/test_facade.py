@@ -13,7 +13,9 @@ Run in CI (the `mcp-facade` job) with the backend importable:
     cd services/mcp-facade && python -m pytest -q
 """
 import asyncio
+import base64
 import contextvars
+import json
 import re
 
 import httpx
@@ -33,23 +35,31 @@ def spec():
 
 
 def build_tools(spec, admin_tools):
-    """The generated tool surface for one admin-flag value: the list of tools.
-    Every test passes admin_tools explicitly so ambient AP_MCP_ADMIN_TOOLS
-    never leaks in."""
+    """The GENERATED tool surface for one admin-flag value: the list of
+    OpenAPI tools (the hand-written ones are pinned by
+    `test_handwritten_tools_are_pinned`). Every test passes admin_tools
+    explicitly so ambient AP_MCP_ADMIN_TOOLS never leaks in."""
+    return [t for t in all_tools(spec, admin_tools) if hasattr(t, "_route")]
+
+
+def all_tools(spec, admin_tools):
     mcp = facade.build(spec, client=httpx.AsyncClient(base_url="http://itest"),
                        admin_tools=admin_tools)
     return asyncio.run(mcp.list_tools())
 
 
+HANDWRITTEN = {"snapshot_ui_document"}
+
+
 @pytest.fixture(scope="module")
 def tools(spec):
-    """The DEFAULT (admin-off) tool surface — the 137-tool KEEP set."""
+    """The DEFAULT (admin-off) tool surface — the 195-tool KEEP set."""
     return build_tools(spec, admin_tools=False)
 
 
 @pytest.fixture(scope="module")
 def admin_tools(spec):
-    """The admin-on surface — KEEP + GATE (187 tools)."""
+    """The admin-on surface — KEEP + GATE (253 tools)."""
     return build_tools(spec, admin_tools=True)
 
 
@@ -175,11 +185,11 @@ async def test_backup_resource_forwards_admin_and_returns_only_ciphertext(spec, 
 
 def test_everything_else_is_a_tool(spec, tools):
     """The default surface, by construction: exactly the operations that are
-    not design-17-excluded, not curated out, and not gated. Pinned at 159."""
+    not design-17-excluded, not curated out, and not gated. Pinned at 195."""
     hidden = {(m, p) for m, p in operations(spec) if matches(ALL_RULES, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in tools} == expected
-    assert len(tools) == len(expected) == 159, \
+    assert len(tools) == len(expected) == 195, \
         sorted({(t._route.method, t._route.path) for t in tools})
     assert {("GET", "/api/backups"), ("POST", "/api/backups/run"),
             ("GET", "/api/backups/jobs/{name}")} <= {
@@ -187,14 +197,14 @@ def test_everything_else_is_a_tool(spec, tools):
 
 
 def test_admin_flag_restores_gated(spec, admin_tools):
-    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (212 total) but the
+    """With AP_MCP_ADMIN_TOOLS on, the gated set returns (253 total) but the
     design-17 exclusions and CURATED_OUT never come back."""
     still_hidden = facade.EXCLUDED_PATHS + facade.CURATED_OUT
     hidden = {(m, p) for m, p in operations(spec)
               if matches(still_hidden, m, p)}
     expected = set(operations(spec)) - hidden
     assert {(t._route.method, t._route.path) for t in admin_tools} == expected
-    assert len(admin_tools) == len(expected) == 212, \
+    assert len(admin_tools) == len(expected) == 253, \
         sorted({(t._route.method, t._route.path) for t in admin_tools})
     names = {t.name for t in admin_tools}
     for gated in ("mint_api_key", "put_secret", "delete_agent", "import_agents",
@@ -681,3 +691,152 @@ def test_persona_credentials_never_enter_management_discovery(spec):
                               "Cookie":"ap_session=admin"}, auth_client=client)
         assert response.status_code == 401 and response.text == ""
     assert calls == []
+
+
+def test_rapid_chat_tools_exposed(tools):
+    """Design 45: Kyle's session launches and reads rapid-chats over MCP."""
+    default = {t.name for t in tools}
+    for name in ("create_rapid_chat", "list_rapid_chats", "get_rapid_chat",
+                 "list_rapid_chat_turns", "stop_rapid_chat"):
+        assert name in default, f"{name} not exposed"
+
+
+def test_ui_designer_text_routes_are_tools_and_pictures_are_not(spec, tools, admin_tools):
+    """design/46 §6: facade callers get the text routes as generated tools;
+    render/svg/resolved, the asset bytes and `place` are never GENERATED tools
+    (pictures come through `snapshot_ui_document` and the edit receipt
+    rewrite), and delete/prune/GC are gated."""
+    default = {t.name for t in tools}
+    for name in ("list_ui_documents", "create_ui_document", "get_ui_document", "edit_ui_document",
+                 "ui_document_outline", "ui_document_versions", "restore_ui_document",
+                 "inspect_ui_document", "export_ui_document", "diff_ui_document",
+                 "list_ui_comments", "add_ui_comment", "resolve_ui_comment", "label_ui_document", "lint_ui_document", "list_ui_libraries", "import_ui_library",
+                 "preview_ui_library", "apply_ui_library", "list_ui_templates", "list_ui_placed_assets", "list_ui_icons", "get_ui_icon", "export_ui_motion", "list_ui_fonts", "get_ui_access", "set_ui_access", "ui_sharing_choices"):
+        assert name in default, name
+    P = "/api/ui-designer"
+    hidden = {("GET", f"{P}/docs/{{slug}}/render"), ("GET", f"{P}/docs/{{slug}}/svg"),
+              ("GET", f"{P}/docs/{{slug}}/resolved"), ("GET", f"{P}/assets/{{sha256}}"),
+              ("GET", f"{P}/events"), ("POST", f"{P}/docs/{{slug}}/place"),
+              ("POST", f"{P}/docs/{{slug}}/motion/preview"), ("POST", f"{P}/docs/{{slug}}/fonts")}
+    gated = {("DELETE", f"{P}/docs/{{slug}}"), ("POST", f"{P}/docs/{{slug}}/prune"),
+             ("POST", f"{P}/assets/gc"), ("POST", f"{P}/imports"),
+             ("GET", f"{P}/imports/{{import_id}}")}
+    hidden |= {("GET", f"{P}/docs/{{slug}}/presence"),
+               ("GET", f"{P}/docs/{{slug}}/presence/events"),
+               ("PUT", f"{P}/docs/{{slug}}/presence/{{client_session}}"),
+               ("DELETE", f"{P}/docs/{{slug}}/presence/{{client_session}}")}
+    ops = operations(spec)
+    assert hidden | gated <= set(ops)
+    for surface in ({(t._route.method, t._route.path) for t in tools},
+                    {(t._route.method, t._route.path) for t in admin_tools}):
+        assert not hidden & surface
+    assert not gated & {(t._route.method, t._route.path) for t in tools}
+    assert gated <= {(t._route.method, t._route.path) for t in admin_tools}
+
+
+def test_visual_diff_images_are_not_exposed_as_base64_text(tools, admin_tools):
+    for surface in (tools, admin_tools):
+        assert all(t._route.path != "/api/ui-designer/docs/{slug}/visual-diff" for t in surface)
+
+
+def test_handwritten_tools_are_pinned(spec):
+    """One hand-written tool on both surfaces (design/46 §6): 196 and 254."""
+    for admin, total in ((False, 196), (True, 254)):
+        surface = all_tools(spec, admin)
+        assert {t.name for t in surface if not hasattr(t, "_route")} == HANDWRITTEN
+        assert len(surface) == total
+
+
+PNG = b"\x89PNG\r\n\x1a\nfake"
+
+
+def _as_caller(monkeypatch, bearer="Bearer ap_kyle"):
+    monkeypatch.setattr(facade, "current_request", lambda: type("Request", (), {
+        "headers": {"authorization": bearer}})())
+
+
+@pytest.mark.asyncio
+async def test_snapshot_tool_returns_image_content_and_forwards_args(spec, monkeypatch):
+    """design/46 §6: a facade caller re-renders without editing and gets MCP
+    image blocks, one `render` call per node, with the caller's bearer."""
+    seen = []
+
+    async def upstream(request):
+        seen.append((request.url.path, dict(request.url.params), request.headers.get("authorization")))
+        if request.url.params.get("node") == "slow":
+            raise httpx.ReadTimeout("timed out", request=request)
+        if request.url.params.get("node") == "gone":
+            return httpx.Response(404, json={"detail": {"code": "UD-NOT-FOUND", "message": "no node"}})
+        return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream), base_url="http://api") as client:
+        mcp = facade.build(spec, client=client, admin_tools=False)
+        _as_caller(monkeypatch)
+        result = await mcp.call_tool("snapshot_ui_document", {
+            "slug": "hud", "nodes": ["frame1", "slow", "gone"], "scale": 2, "annotate": True,
+            "mode": "dark", "max_edge": 384, "version": 3})
+    kinds = [c.type for c in result.content]
+    assert kinds == ["text", "text", "image"], kinds
+    assert "slow: render request failed (ReadTimeout)" in result.content[0].text
+    assert "gone: error 404 UD-NOT-FOUND" in result.content[0].text
+    image = result.content[2]
+    assert image.mimeType == "image/png" and base64.b64decode(image.data) == PNG
+    assert seen[0] == ("/api/ui-designer/docs/hud/render",
+                       {"node": "frame1", "mode": "dark", "scale": "2.0", "annotate": "true",
+                        "max_edge": "384", "version": "3"},
+                       "Bearer ap_kyle")
+    assert all(PNG.hex() not in c.text for c in result.content if c.type == "text")
+
+
+@pytest.mark.asyncio
+async def test_snapshot_tool_relays_a_refusal_without_pictures(spec, monkeypatch):
+    async def upstream(request):
+        return httpx.Response(403, json={"detail": {"code": "UD-NO-IMAGES-HERE",
+                                                    "message": "an agent key without a run gets no images"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream), base_url="http://api") as client:
+        mcp = facade.build(spec, client=client, admin_tools=False)
+        _as_caller(monkeypatch, "Bearer ap_agent_norun")
+        result = await mcp.call_tool("snapshot_ui_document", {"slug": "hud"})
+    assert [c.type for c in result.content] == ["text"]
+    assert "page: error 403 UD-NO-IMAGES-HERE" in result.content[0].text
+    with pytest.raises(Exception, match="invalid slug"):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream), base_url="http://api") as c2:
+            await facade.build(spec, client=c2, admin_tools=False).call_tool(
+                "snapshot_ui_document", {"slug": "../etc"})
+
+
+@pytest.mark.asyncio
+async def test_edit_snapshots_arrive_as_images_not_base64_text(spec, monkeypatch):
+    """`edit_ui_document` with `snapshot` keeps its JSON receipt but lifts each
+    picture into an ImageContent block; the base64 never sits in the text."""
+    b64 = base64.b64encode(PNG).decode()
+    sent = []
+
+    async def upstream(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "ok": True, "slug": "hud", "version": 3, "text": "edited", "warnings": [],
+            "replayed": False, "folded": False, "undo_ops": None,
+            "snapshots": [{"node": "frame1", "format": "png", "mime": "image/png", "width": 4,
+                           "height": 2, "data": b64, "cached": False, "boxes": None}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream), base_url="http://api") as client:
+        mcp = facade.build(spec, client=client, admin_tools=False)
+        _as_caller(monkeypatch)
+        result = await mcp.call_tool("edit_ui_document", {
+            "slug": "hud", "ops": [{"op": "set", "id": "frame1"}], "expected_version": 2,
+            "snapshot": ["frame1"], "scale": 2, "annotate": True})
+    assert sent[0]["snapshot"] == ["frame1"] and sent[0]["scale"] == 2 and sent[0]["annotate"] is True
+    assert [c.type for c in result.content] == ["text", "text", "image"]
+    assert base64.b64decode(result.content[2].data) == PNG
+    assert all(b64 not in c.text for c in result.content if c.type == "text")
+    assert b64 not in json.dumps(result.structured_content)
+    assert result.structured_content["version"] == 3
+    assert result.structured_content["snapshots"][0]["width"] == 4
+
+
+def test_a_receipt_without_snapshots_is_untouched():
+    from fastmcp.tools.base import ToolResult
+    plain = ToolResult(structured_content={"ok": True, "slug": "hud", "version": 2, "snapshots": []})
+    assert facade.edit_receipt_with_pictures(plain) is plain
