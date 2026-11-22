@@ -137,3 +137,22 @@ async def test_freshness_gates_and_story_dedup(sf, monkeypatch):
     assert len((await ingest_digest(sf, digest("2026-10-04", weather)))["new"]) == 1
     weather["published"] = "2026-10-05"
     assert len((await ingest_digest(sf, digest("2026-10-05", weather)))["new"]) == 1
+
+
+async def test_a_digest_that_keeps_failing_is_rejected_not_retried_forever(sf):
+    from agentplatform.appdata.news_ingest import NewsStateIngestor
+    from agentplatform.events import FakeProducer
+
+    producer = FakeProducer()
+    ingestor = NewsStateIngestor(sf, "unused", producer)
+    calls = []
+
+    async def boom(raw):
+        calls.append(raw)
+        raise RuntimeError("quota")
+
+    ingestor.handle = boom
+    await ingestor.deliver(json.dumps({"run_id": "r" * 32}).encode(), attempts=2, delay=0)
+    assert len(calls) == 2
+    assert producer.published == [("app.news.item.rejected", "r" * 32,
+        {"day": "", "reason": "ingest-error", "run_id": "r" * 32})]

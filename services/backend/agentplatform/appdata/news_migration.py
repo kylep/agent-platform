@@ -71,7 +71,7 @@ def bundle() -> dict:
             {"view": "topic_count", "collection": "topics",
              "aggregates": [{"fn": "count", "as": "n"}]},
             {"view": "daily_counts", "collection": "items",
-             "filter": [{"field": "day", "op": "within_last", "value": "26w"}],
+             "filter": [{"field": "day", "op": "within_last", "value": "13w"}],
              "group_by": {"field": "day", "bucket": "day"},
              "aggregates": [{"fn": "count", "as": "n"}], "limit": 200},
             {"view": "items_recent", "collection": "items",

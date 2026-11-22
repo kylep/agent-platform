@@ -210,6 +210,24 @@ class NewsStateIngestor:
                 type="news.item.ingested")
         return result
 
+    async def deliver(self, raw: bytes, *, attempts: int = 3, delay: float = 10) -> None:
+        """Ingest one digest, retrying transient failures. A digest that still
+        fails is published as rejected and skipped: retrying the same offset
+        forever blocked every later digest (OPS-52: one item stored in 12 days)."""
+        for attempt in range(1, attempts + 1):
+            try:
+                await self.handle(raw)
+                return
+            except Exception:
+                log.exception("News digest failed (attempt %d/%d)", attempt, attempts)
+                if attempt < attempts:
+                    await asyncio.sleep(delay)
+        data = unwrap(raw)
+        run_id = data.get("run_id")
+        await self.producer.publish(REJECTED, run_id or "unknown",
+                                    {"day": "", "reason": "ingest-error", "run_id": run_id},
+                                    type="news.digest.rejected")
+
     async def run_forever(self) -> None:
         from aiokafka import AIOKafkaConsumer
         while True:
@@ -223,12 +241,7 @@ class NewsStateIngestor:
                 await consumer.start()
                 try:
                     async for message in consumer:
-                        try:
-                            await self.handle(message.value)
-                        except Exception:
-                            log.exception("News digest failed; retrying the same offset")
-                            await asyncio.sleep(10)
-                            break
+                        await self.deliver(message.value)
                         await consumer.commit()
                 finally:
                     await consumer.stop()
