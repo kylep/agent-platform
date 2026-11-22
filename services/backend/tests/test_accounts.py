@@ -244,7 +244,17 @@ async def test_an_sse_feed_closes_after_its_session_is_revoked(admin_client, sf,
         await admin_client.post("/api/logout")
         await asyncio.wait_for(task, 3)     # the stream ended on its own
     finally:
+        # Await the cancel, bounded, while the engine is still open: a stream
+        # left unwinding past this point meets `sf`'s engine.dispose() on the
+        # shared aiosqlite connection, and a call there never resolves — the
+        # worker then hangs in event-loop close, out of pytest-timeout's
+        # reach (QA-29). A task that refuses to cancel fails here instead;
+        # asyncio.wait, not wait_for, because wait_for itself waits out the
+        # inner cancellation and would hang on exactly that task.
         task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=5)
+        if not done:
+            pytest.fail("the SSE stream task did not finish within 5s of being cancelled")
 
 
 def _tail_app(producer, consumer):
