@@ -549,3 +549,28 @@ def test_cross_provider_backup_gets_both_proxy_urls_without_oauth_secrets():
     assert job.spec.template.metadata.labels['agent-platform/codex-access'] == 'true'
     assert not any('credentials' in mount.name for mount in container.volume_mounts)
     assert not container.env_from
+
+
+async def test_launch_treats_409_on_the_runs_own_job_as_already_dispatched(sf, seed_agent):
+    """A redelivered dispatch (or a create that timed out but landed) hits the
+    run's existing Job; that must not raise, which would DLQ a live run."""
+    await seed_agent("hello-world")
+
+    class _ConflictBatch:
+        calls = 0
+        def create_namespaced_job(self, ns, job):
+            self.calls += 1
+            raise ApiException(status=409, reason="Conflict")
+
+    async with sf() as s:
+        run = Run(agent="hello-world", trigger="manual", requested_by="t", prompt="x")
+        s.add(run); await s.commit(); run_id = run.id
+
+    batch = _ConflictBatch()
+    launcher = K8sJobLauncher(batch=batch, settings=Settings(
+        runner_image="r:1", k8s_namespace="ap", api_internal_url="http://api:8090"),
+        session_factory=sf)
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+    await launcher.launch(run, Manifest())
+    assert batch.calls == 1

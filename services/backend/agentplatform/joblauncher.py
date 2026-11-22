@@ -521,10 +521,13 @@ class K8sJobLauncher(Launcher):
         try:
             await asyncio.to_thread(self.batch.create_namespaced_job, self.settings.k8s_namespace, job)
         except ApiException as e:
-            # A recovered Task may race the original create request. Its Job
-            # name is deterministic, so AlreadyExists means this Run launched.
-            if not (run.task_id and e.status == 409):
+            # The Job name is deterministic per run, so AlreadyExists means this
+            # Run's Job is already there (a redelivered dispatch, a recovered
+            # Task, or a create that timed out but landed). JobWatcher follows
+            # the existing Job; failing here would DLQ a run that is running.
+            if e.status != 409:
                 raise
+            log.info("job for run %s already exists; treating the launch as done", run.id)
 
     async def _audit_secret_access(self, run: Run, manifest: Manifest) -> None:
         """Record the k8s secrets this run's pod is granted: the base claude
