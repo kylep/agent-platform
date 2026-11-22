@@ -99,7 +99,9 @@ async def test_another_persona_cannot_see_or_close_it(token_client, sf, seed_age
 async def test_workers_runs_without_frozen_memory_and_another_runs_token_are_refused(token_client, sf, seed_agent):
     await seed_agent("news", agent_type="worker", platform_tools=MEM)
     worker = await _run(sf, "news")
-    assert (await _commit(token_client, sf, "news", worker)).status_code == 403
+    refused = await _commit(token_client, sf, "news", worker)
+    assert refused.status_code == 403
+    assert "persona agents only" in refused.json()["detail"]  # says why, so workers stop retrying (OPS-39)
     await _persona(seed_agent)
     unfrozen = await _run(sf, "pai", tools=[])
     assert (await _commit(token_client, sf, "pai", unfrozen)).status_code == 403

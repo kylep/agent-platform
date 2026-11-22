@@ -67,8 +67,10 @@ async def _memory_run(s, request: Request, *, persona: bool) -> tuple[str, Run]:
         raise HTTPException(403, "verified agent namespace required")
     await authority_lock(s)
     row = await s.get(AgentDef, agent, with_for_update=True)
-    if (not row or not row.enabled or D.MEMORY_TOOL not in (row.platform_tools or [])
-            or (persona and row.agent_type != "persona")):
+    if persona and row and row.enabled and row.agent_type != "persona":
+        raise HTTPException(403, f"commitments are for persona agents only; {agent} is not a persona. "
+                                 "Track the promise in a ticket comment or a memory note instead")
+    if not row or not row.enabled or D.MEMORY_TOOL not in (row.platform_tools or []):
         raise HTTPException(403, "current persona memory grant required" if persona
                             else "current memory grant required")
     frozen = getattr(request.state, "frozen_tools", None)
