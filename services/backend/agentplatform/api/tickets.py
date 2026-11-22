@@ -24,11 +24,12 @@ The `relay` role is the per-run role a ticket-writing agent carries. It means
 "participant" now: its scope is `/api/relay/*` AND `/api/tickets/*`, always as
 the agent the token names, and it still promotes nothing."""
 import asyncio
+import re
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import cast, func, or_, select
+from sqlalchemy import case, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 
 from agentplatform import ticket_store as store
@@ -80,6 +81,9 @@ LINKED_RUNS = 10
 # one ticket, and the unbounded read (~1 MB, plus a run per edit) killed every
 # Codex run that opened it (OPS-34). `events_omitted` says what was cut.
 DETAIL_EVENTS = 50
+# `GEN-9` as somebody types it into a search box. Matched against the key
+# itself, because a ticket's own key is rarely in its title or body.
+_KEY_QUERY = re.compile(r"[A-Za-z][A-Za-z0-9]{1,5}-\d+")
 
 
 # --- resolving what the caller named -----------------------------------------
@@ -252,7 +256,8 @@ async def list_tickets(request: Request, channel: str | None = None,
     the tsvector Relay's search uses: a ticket title is a headline, not a
     document, and `weather` must match `weather-dedup`, which a stemmed index
     would not. The GIN index in the design is there if a body search ever needs
-    it."""
+    it. A `q` that is itself a key (`gen-9`) also matches that ticket by key,
+    listed first."""
     agents = relay_api._agent_set(request)
     async with request.app.state.session_factory() as s:
         stmt = select(Ticket)
@@ -275,8 +280,14 @@ async def list_tickets(request: Request, channel: str | None = None,
             # Escaped, as Relay's search escapes its own: a `%` somebody typed
             # is a percent sign, not "match anything".
             needle = q.lower()
-            stmt = stmt.where(or_(func.lower(Ticket.title).contains(needle, autoescape=True),
-                                  func.lower(Ticket.body).contains(needle, autoescape=True)))
+            by_text = or_(func.lower(Ticket.title).contains(needle, autoescape=True),
+                          func.lower(Ticket.body).contains(needle, autoescape=True))
+            if _KEY_QUERY.fullmatch(q.strip()):
+                by_key = func.lower(Ticket.key) == q.strip().lower()
+                stmt = stmt.where(or_(by_text, by_key)).order_by(
+                    case((by_key, 0), else_=1))
+            else:
+                stmt = stmt.where(by_text)
         if label:
             stmt = stmt.where(_labelled(s.get_bind(), label))
         rows = list((await s.execute(stmt.order_by(
@@ -444,23 +455,28 @@ async def ticket_stream(request: Request,
 
 @router.get("/api/tickets/{key}", response_model=S.TicketDetail)
 async def get_ticket(request: Request, key: str,
+                     limit: int = Query(DETAIL_EVENTS, ge=1, le=500),
+                     offset: int = Query(0, ge=0),
                      caller: Caller = Depends(require_relay_access(*READ))):
     """One ticket: the row, its structured history, the id of the thread its
     discussion lives in, the runs it produced, and whoever is working on it
     right now. The messages themselves are Relay's to serve — the client asks
     for the thread under `root_message_id`, so a ticket's conversation has one
-    endpoint and not two."""
+    endpoint and not two.
+
+    History is a window of the newest `limit` events, `offset` of them back; the
+    opening event is kept on the first window only."""
     agents = relay_api._agent_set(request)
     async with request.app.state.session_factory() as s:
         ticket = await _ticket_or_404(s, key, caller, agents)
         history = select(TicketEvent).where(TicketEvent.ticket_id == ticket.id)
         newest = list((await s.execute(history.order_by(
             TicketEvent.created_at.desc(), TicketEvent.id.desc())
-            .limit(DETAIL_EVENTS))).scalars())
+            .limit(limit).offset(offset))).scalars())
         total = (await s.execute(select(func.count()).select_from(
             history.subquery()))).scalar_one()
         events = newest[::-1]
-        if total > len(events):
+        if offset == 0 and total > len(events):
             opener = (await s.execute(history.order_by(
                 TicketEvent.created_at, TicketEvent.id).limit(1))).scalars().first()
             events = [opener, *events[1:]]

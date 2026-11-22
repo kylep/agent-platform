@@ -426,6 +426,40 @@ async def test_the_detail_pages_a_long_history(admin_client, sf):
     assert events[-1]["reason"] == f"edit {DETAIL_EVENTS + 19}"
 
 
+async def test_the_detail_history_pages_back_with_limit_and_offset(admin_client, sf):
+    t = await _open(admin_client)
+    async with sf() as s:
+        for i in range(10):
+            s.add(TicketEvent(ticket_id=t["id"], actor="user:admin", kind="edited",
+                              to_value="body", reason=f"edit {i}",
+                              created_at=utcnow() + timedelta(minutes=i + 1)))
+        await s.commit()
+
+    async def page(**params):
+        r = await admin_client.get(f"/api/tickets/{t['key']}", params=params)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        return [e["reason"] for e in body["events"]], body["events_omitted"]
+
+    # 11 events in all: the opener, then edit 0..9.
+    assert await page(limit=3) == ([None, "edit 8", "edit 9"], 8)
+    assert await page(limit=3, offset=3) == (["edit 4", "edit 5", "edit 6"], 8)
+    assert await page(limit=3, offset=9) == ([None, "edit 0"], 9)
+
+
+async def test_search_by_ticket_key_matches_exactly_and_ranks_first(admin_client):
+    other = await _open(admin_client, title="nothing special")
+    target = await _open(admin_client, title="unrelated words")
+    key = target["key"]
+    for q in (key, key.lower()):
+        rows = (await admin_client.get("/api/tickets", params={"q": q})).json()
+        assert [r["key"] for r in rows] == [key]
+    # A key quoted in another ticket's text still matches, behind the ticket it names.
+    await admin_client.patch(f"/api/tickets/{other['key']}", json={"body": f"see {key}"})
+    rows = (await admin_client.get("/api/tickets", params={"q": key})).json()
+    assert [r["key"] for r in rows] == [key, other["key"]]
+
+
 async def test_an_agent_token_with_no_run_may_not_write(token_client, sf, seed_agent,
                                                         agent_store):
     """The store refuses an agent actor that brings no run — its posts would

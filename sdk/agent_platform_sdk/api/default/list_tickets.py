@@ -129,7 +129,8 @@ def sync_detailed(
     the tsvector Relay's search uses: a ticket title is a headline, not a
     document, and `weather` must match `weather-dedup`, which a stemmed index
     would not. The GIN index in the design is there if a body search ever needs
-    it.
+    it. A `q` that is itself a key (`gen-9`) also matches that ticket by key,
+    listed first.
 
     Args:
         channel (None | str | Unset):
@@ -186,7 +187,8 @@ def sync(
     the tsvector Relay's search uses: a ticket title is a headline, not a
     document, and `weather` must match `weather-dedup`, which a stemmed index
     would not. The GIN index in the design is there if a body search ever needs
-    it.
+    it. A `q` that is itself a key (`gen-9`) also matches that ticket by key,
+    listed first.
 
     Args:
         channel (None | str | Unset):
@@ -238,7 +240,8 @@ async def asyncio_detailed(
     the tsvector Relay's search uses: a ticket title is a headline, not a
     document, and `weather` must match `weather-dedup`, which a stemmed index
     would not. The GIN index in the design is there if a body search ever needs
-    it.
+    it. A `q` that is itself a key (`gen-9`) also matches that ticket by key,
+    listed first.
 
     Args:
         channel (None | str | Unset):
@@ -293,7 +296,8 @@ async def asyncio(
     the tsvector Relay's search uses: a ticket title is a headline, not a
     document, and `weather` must match `weather-dedup`, which a stemmed index
     would not. The GIN index in the design is there if a body search ever needs
-    it.
+    it. A `q` that is itself a key (`gen-9`) also matches that ticket by key,
+    listed first.
 
     Args:
         channel (None | str | Unset):

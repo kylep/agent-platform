@@ -1216,7 +1216,12 @@ TICKET_CLOSED = ("done", "cancelled")
 # `settings.tickets_thread_context_messages`, hard-coded: the broker holds no
 # settings, and asking the API for its own configuration would be a round trip
 # per read to learn a number that changes about never.
-TICKET_THREAD_MESSAGES = 40
+# A bare `get` is the ticket plus its newest page of history and discussion,
+# not all of it: a ticket that collected a long thread read back at ~67k
+# characters, which an agent with no shell to open a spilled file cannot use
+# (OPS-55). `limit`/`offset`/`before` page back from there.
+TICKET_GET_ITEMS = 20
+TICKET_GET_CHARS = 20000
 # The board's own page cap (`api/tickets.LIST_LIMIT`).
 TICKET_LIST_LIMIT = 500
 # `OPS-12` as a model types it. An id has no dash, so the two never collide.
@@ -1350,13 +1355,30 @@ def _ticket_lines(out: str, *, drop_closed: bool, limit: int) -> str:
     return "\n".join(lines)
 
 
-async def _ticket_detail(key: str) -> str:
+def _within(items: list, budget: int) -> list:
+    """The leading items that fit `budget` characters of JSON. Always at least
+    one, so a single huge item is shown rather than hiding everything."""
+    kept, used = [], 0
+    for item in items:
+        used += len(_json.dumps(item))
+        if kept and used > budget:
+            break
+        kept.append(item)
+    return kept
+
+
+async def _ticket_detail(key: str, *, limit: int, offset: int,
+                         before: str | None) -> str:
     """One ticket with everything around it in a single answer: the row, its
     history, the discussion and the runs it produced. The thread is Relay's to
     serve — the API deliberately hands back a `root_message_id` instead of
     duplicating the messages — so reading a ticket is two calls here rather than
-    two tool calls the agent has to know to make."""
-    out = await _call("GET", f"/api/tickets/{key}")
+    two tool calls the agent has to know to make.
+
+    Bounded: the newest `limit` events and thread messages, cut again to a total
+    size. `note` says what was left out and which argument reads it."""
+    out = await _call("GET", f"/api/tickets/{key}",
+                      {"limit": limit, "offset": offset or None})
     try:
         detail = _json.loads(out)
     except ValueError:
@@ -1366,19 +1388,37 @@ async def _ticket_detail(key: str) -> str:
     thread: object = []
     if root and channel_id:
         raw = await _call("GET", f"/api/relay/channels/{channel_id}/messages",
-                          {"thread": root, "limit": TICKET_THREAD_MESSAGES})
+                          {"thread": root, "limit": limit, "before": before})
         try:
             thread = _json.loads(raw)
         except ValueError:
             # The ticket is the answer and the thread is context: a room that
             # refuses is reported in place rather than losing the whole read.
             thread = raw
-    return _json.dumps({"ticket": detail.get("ticket"),
-                        "events": detail.get("events") or [],
-                        "events_omitted": detail.get("events_omitted") or 0,
-                        "thread": thread,
-                        "runs": detail.get("runs") or [],
-                        "thinking": detail.get("thinking")})
+    events = detail.get("events") or []
+    omitted = detail.get("events_omitted") or 0
+    notes = []
+    budget = TICKET_GET_CHARS
+    if isinstance(thread, list) and thread:
+        fetched = len(thread)
+        thread = _within(thread, budget)
+        budget = max(budget - len(_json.dumps(thread)), 0)
+        if fetched == limit or len(thread) < fetched:
+            notes.append(f"thread shows the newest {len(thread)} messages, newest "
+                         f"first; older ones may exist, pass before={thread[-1]['id']}")
+    shown = _within(events[::-1], budget)[::-1]
+    omitted += len(events) - len(shown)
+    if omitted:
+        notes.append(f"showing {len(shown)} of {len(shown) + omitted} history events "
+                     f"(oldest first); pass offset={offset + limit} for older ones, "
+                     f"or a smaller limit if the page was cut for size")
+    result = {"ticket": detail.get("ticket"), "events": shown,
+              "events_omitted": omitted, "thread": thread,
+              "runs": detail.get("runs") or [],
+              "thinking": detail.get("thinking")}
+    if notes:
+        result["note"] = "; ".join(notes)
+    return _json.dumps(result)
 
 
 @mcp.tool
@@ -1390,7 +1430,8 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
                   parent: str | None = None, due: str | None = None,
                   to: str | None = None, reason: str | None = None,
                   notify: bool | None = None, q: str | None = None,
-                  limit: int = 50) -> str:
+                  limit: int | None = None, offset: int = 0,
+                  before: str | None = None) -> str:
     """Tickets — the board your work is tracked on; you act as yourself, from your
     token. Actions: create · get · list · update · move · assign · comment ·
     search. `key` is `OPS-12` or an id, `channel` a `#name` or an id. Move a
@@ -1400,7 +1441,8 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
     ask a question, `comment` instead, and `to='none'` unassigns. An assignee
     is `agent:<name>`, `user:<name>` or `discord:<id>`; a bare name is an
     agent. `list` is yours and unfinished by default: `state` shows closed
-    work, `assignee='any'` the whole board."""
+    work, `assignee='any'` the whole board. `get` shows the newest `limit` (20)
+    events and messages; `offset` and `before=<message id>` page older ones."""
     if action not in TICKET_ACTIONS:
         return "error: action must be one of " + "|".join(TICKET_ACTIONS)
     guessed_assignee, guessed_to = _is_bare_name(assignee), _is_bare_name(to)
@@ -1435,14 +1477,16 @@ async def tickets(action: str, key: str | None = None, channel: str | None = Non
                      due_at=None if _is_none(due) else due, notify=notify)}),
             guessed_assignee)
     if action == "get":
-        return await _ticket_detail(ref)
+        return await _ticket_detail(
+            ref, limit=_clamp(limit, 200, default=TICKET_GET_ITEMS),
+            offset=max(int(offset or 0), 0), before=before or None)
     if action in ("list", "search"):
         if action == "search" and not q:
             return "error: action='search' requires q, the text to look for"
         channel_id, error = await _relay_channel(channel) if channel else ("", None)
         if error:
             return error
-        page = _clamp(limit, TICKET_LIST_LIMIT)
+        page = _clamp(limit, TICKET_LIST_LIMIT, default=50)
         if action == "search":
             return _ticket_lines(await _call("GET", "/api/tickets", {
                 "q": q, "channel": channel_id or None, "limit": page}),

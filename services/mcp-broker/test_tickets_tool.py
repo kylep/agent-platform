@@ -112,12 +112,41 @@ def test_get_returns_the_ticket_its_events_the_thread_and_the_runs(calls):
     calls.replies[f"/api/relay/channels/{GENERAL}/messages"] = json.dumps(THREAD)
     out = json.loads(tickets(action="get", key=KEY))
     assert calls == [
-        ("GET", f"/api/tickets/{KEY}", None, None),
+        ("GET", f"/api/tickets/{KEY}", {"limit": 20, "offset": None}, None),
         ("GET", f"/api/relay/channels/{GENERAL}/messages",
-         {"thread": "m1", "limit": 40}, None),
+         {"thread": "m1", "limit": 20, "before": None}, None),
     ]
     assert out == {"ticket": DETAIL["ticket"], "events": DETAIL["events"],
                    "events_omitted": 0, "thread": THREAD, "runs": DETAIL["runs"], "thinking": None}
+
+
+def test_get_caps_a_huge_thread_and_says_how_to_read_more(calls):
+    big = [{"id": f"m{i}", "body": "x" * 1000} for i in range(20)]
+    calls.replies[f"/api/tickets/{KEY}"] = json.dumps(DETAIL)
+    calls.replies[f"/api/relay/channels/{GENERAL}/messages"] = json.dumps(big)
+    raw = tickets(action="get", key=KEY)
+    out = json.loads(raw)
+    assert len(raw) < broker.TICKET_GET_CHARS + 2000
+    assert 0 < len(out["thread"]) < 20
+    assert out["thread"][0]["id"] == "m0"           # the newest are the ones kept
+    assert f"before={out['thread'][-1]['id']}" in out["note"]
+
+
+def test_get_paging_arguments_reach_the_api_and_the_room(calls):
+    calls.replies[f"/api/tickets/{KEY}"] = json.dumps(
+        {**DETAIL, "events_omitted": 30})
+    calls.replies[f"/api/relay/channels/{GENERAL}/messages"] = json.dumps(THREAD)
+    out = json.loads(tickets(action="get", key=KEY, limit=5, offset=10, before="m9"))
+    assert calls[0][2] == {"limit": 5, "offset": 10}
+    assert calls[1][2] == {"thread": "m1", "limit": 5, "before": "m9"}
+    assert "showing 1 of 31 history events" in out["note"]
+    assert "offset=15" in out["note"]
+
+
+def test_a_small_ticket_has_no_note(calls):
+    calls.replies[f"/api/tickets/{KEY}"] = json.dumps(DETAIL)
+    calls.replies[f"/api/relay/channels/{GENERAL}/messages"] = json.dumps(THREAD)
+    assert "note" not in json.loads(tickets(action="get", key=KEY))
 
 
 def test_get_skips_the_thread_when_there_is_no_card(calls):
@@ -391,7 +420,7 @@ def test_the_docstring_teaches_the_rules_briefly():
     ticket, that it must not close what it did not do, and that an assign wakes
     somebody."""
     doc = broker.tickets.__doc__
-    assert len([line for line in doc.splitlines() if line.strip()]) <= 10
+    assert len([line for line in doc.splitlines() if line.strip()]) <= 11
     lowered = doc.lower()
     for phrase in ("ops-12", "#name", "blocked", "never close", "assign", "hop",
                    "comment", "user:<name>", "discord:<id>"):
@@ -540,5 +569,5 @@ def test_a_failing_audit_publish_does_not_change_the_answer(calls, monkeypatch):
 def test_metering_keeps_the_signature_fastmcp_turns_into_a_schema():
     params = inspect.signature(broker.tickets).parameters
     assert ["action", "key", "channel"] == list(params)[:3]
-    assert params["limit"].default == 50
+    assert {"limit", "offset", "before"} <= set(params)
     assert broker.tickets.__name__ == "tickets"

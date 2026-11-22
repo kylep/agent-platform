@@ -8,18 +8,30 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.http_validation_error import HTTPValidationError
 from ...models.ticket_detail import TicketDetail
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     key: str,
+    *,
+    limit: int | Unset = 50,
+    offset: int | Unset = 0,
 ) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    params["limit"] = limit
+
+    params["offset"] = offset
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/api/tickets/{key}".format(
             key=quote(str(key), safe=""),
         ),
+        "params": params,
     }
 
     return _kwargs
@@ -59,6 +71,8 @@ def sync_detailed(
     key: str,
     *,
     client: AuthenticatedClient | Client,
+    limit: int | Unset = 50,
+    offset: int | Unset = 0,
 ) -> Response[HTTPValidationError | TicketDetail]:
     """Get Ticket
 
@@ -68,8 +82,13 @@ def sync_detailed(
     for the thread under `root_message_id`, so a ticket's conversation has one
     endpoint and not two.
 
+    History is a window of the newest `limit` events, `offset` of them back; the
+    opening event is kept on the first window only.
+
     Args:
         key (str):
+        limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -81,6 +100,8 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         key=key,
+        limit=limit,
+        offset=offset,
     )
 
     response = client.get_httpx_client().request(
@@ -94,6 +115,8 @@ def sync(
     key: str,
     *,
     client: AuthenticatedClient | Client,
+    limit: int | Unset = 50,
+    offset: int | Unset = 0,
 ) -> HTTPValidationError | TicketDetail | None:
     """Get Ticket
 
@@ -103,8 +126,13 @@ def sync(
     for the thread under `root_message_id`, so a ticket's conversation has one
     endpoint and not two.
 
+    History is a window of the newest `limit` events, `offset` of them back; the
+    opening event is kept on the first window only.
+
     Args:
         key (str):
+        limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -117,6 +145,8 @@ def sync(
     return sync_detailed(
         key=key,
         client=client,
+        limit=limit,
+        offset=offset,
     ).parsed
 
 
@@ -124,6 +154,8 @@ async def asyncio_detailed(
     key: str,
     *,
     client: AuthenticatedClient | Client,
+    limit: int | Unset = 50,
+    offset: int | Unset = 0,
 ) -> Response[HTTPValidationError | TicketDetail]:
     """Get Ticket
 
@@ -133,8 +165,13 @@ async def asyncio_detailed(
     for the thread under `root_message_id`, so a ticket's conversation has one
     endpoint and not two.
 
+    History is a window of the newest `limit` events, `offset` of them back; the
+    opening event is kept on the first window only.
+
     Args:
         key (str):
+        limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -146,6 +183,8 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         key=key,
+        limit=limit,
+        offset=offset,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -157,6 +196,8 @@ async def asyncio(
     key: str,
     *,
     client: AuthenticatedClient | Client,
+    limit: int | Unset = 50,
+    offset: int | Unset = 0,
 ) -> HTTPValidationError | TicketDetail | None:
     """Get Ticket
 
@@ -166,8 +207,13 @@ async def asyncio(
     for the thread under `root_message_id`, so a ticket's conversation has one
     endpoint and not two.
 
+    History is a window of the newest `limit` events, `offset` of them back; the
+    opening event is kept on the first window only.
+
     Args:
         key (str):
+        limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -181,5 +227,7 @@ async def asyncio(
         await asyncio_detailed(
             key=key,
             client=client,
+            limit=limit,
+            offset=offset,
         )
     ).parsed
