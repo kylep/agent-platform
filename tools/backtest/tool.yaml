@@ -15,6 +15,21 @@ description: >-
   the base currency, ratios as fractions), caveats and a link;
   (4) action=rerun with experiment_id repeats an experiment on its pinned data
   (the same id proves it reproduces) or, with refresh=true, on today's data.
+  Strategies are either allocations (money in, allocate, holdings) or `bet`
+  strategies: one paper position at a time, long OR short, from closes. A bet
+  strategy is how to test a stock-bets rule idea before it reaches the pet's
+  playbook: universe "stock_bets" (its 25 symbols), side long|short, pick
+  {top|bottom: signal}, enter {signal, op, threshold}, hold 1d (the pet's
+  close-to-next-close bet) or open (until an exit condition, stop_pct or
+  target_pct), funded by lump_sum, USD base. It costs the same 0.05% per bet
+  and reports metrics.bets: win_rate, direction_rate, avg_net_pct, and
+  spy_avg_net_pct / edge_vs_spy_pct for always-long SPY over the same days,
+  the same numbers as the stock_bets scoreboard. Signals include rsi (Wilder
+  by default) and conditions can cross (crosses_above / crosses_below), so
+  "short TSLA when RSI is above 70" is expressible. Limits: closes only (no
+  intraday stops or next-open exits), shorts are paper (no borrow fee, margin
+  or dividends owed), and ~150 settled bets are needed to tell a 60% hit rate
+  from 50%.
   State only numbers this tool or query_app returned; never estimate one. If a
   question cannot be expressed in the grammar, say so rather than answering a
   different question.

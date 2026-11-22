@@ -17,6 +17,17 @@ TEMPLATES = {
     "whole": "in whole shares, leaving the remainder as cash",
     "withholding": ", less {pct} withholding,",
     "strategy": "Strategy {label}{id}: {allocation}; {holdings}.",
+    "bet_strategy": "Strategy {label}{id}: {bet}.",
+    "side_long": "go long on",
+    "side_short": "go short on (paper only: no borrow fee, margin or dividends owed)",
+    "stock_bets": "the stock-bets symbols",
+    "pick": ", picking the one with the {direction} {signal}",
+    "enter": ", only when {condition}",
+    "hold_1d": "each position is closed at the next trading day's close",
+    "hold_open": "a position is held until {closers}, whichever comes first, and "
+                 "closed at that day's close",
+    "stop": "it has lost {pct}%",
+    "target": "it has gained {pct}%",
     "ties": "Ties in any ranking break alphabetically by symbol.",
     "benchmark": "Benchmark: {label}.",
     "risk_free": "Sharpe ratios use a {rate} annual risk-free rate.",
@@ -37,7 +48,8 @@ REBALANCE_SCHEDULE = {
 }
 WEEKDAYS = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday"}
 LOOKBACK_WORDS = {"d": "trading-day", "w": "week", "mo": "month", "y": "year"}
-OP_WORDS = {">": "above", ">=": "at or above", "<": "below", "<=": "at or below"}
+OP_WORDS = {">": "above", ">=": "at or above", "<": "below", "<=": "at or below",
+            "crosses_above": "crosses above", "crosses_below": "crosses below"}
 DIRECTION = {"top": "highest", "bottom": "lowest"}
 
 
@@ -54,6 +66,10 @@ def _pct(fraction):
 def _and(items):
     items = list(items)
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _or(items):
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " or " + items[-1]
 
 
 def _quote(text):
@@ -83,12 +99,45 @@ def _allocation(alloc):
         return P.BY_NAME["rank"].template.format(
             count=count, direction=DIRECTION[alloc.pick], signal=_signal(alloc.signal),
             universe=_and(alloc.universe))
-    unit = P.BY_NAME[alloc.signal.name].unit
-    threshold = _pct(alloc.threshold) if unit == "fraction" else decimal_str(alloc.threshold)
     return P.BY_NAME["when"].template.format(**{
         "then": _allocation(alloc.then), "symbol": alloc.symbol,
         "signal": _signal(alloc.signal), "op": OP_WORDS[alloc.op],
-        "threshold": threshold, "else": _allocation(alloc.else_)})
+        "threshold": _threshold(alloc.signal, alloc.threshold),
+        "else": _allocation(alloc.else_)})
+
+
+def _threshold(sig, value):
+    unit = P.BY_NAME[sig.name].unit
+    return _pct(value) if unit == "fraction" else decimal_str(value)
+
+
+def _condition(cond, owner="its"):
+    return (f"{owner} {_signal(cond.signal)} {OP_WORDS[cond.op]} "
+            f"{_threshold(cond.signal, cond.threshold)}")
+
+
+def _bet(bet, currency):
+    universe = TEMPLATES["stock_bets"] if bet.universe == P.STOCK_BETS_SYMBOLS \
+        else _and(bet.universe)
+    pick = "" if bet.pick is None else TEMPLATES["pick"].format(
+        direction=DIRECTION[bet.pick], signal=_signal(bet.pick_signal))
+    enter = "" if bet.enter is None else TEMPLATES["enter"].format(
+        condition=_condition(bet.enter))
+    if bet.hold == "1d":
+        hold = TEMPLATES["hold_1d"]
+    else:
+        closers = []
+        if bet.exit:
+            closers.append(_condition(bet.exit, "the held symbol's"))
+        if bet.stop_pct is not None:
+            closers.append(TEMPLATES["stop"].format(pct=decimal_str(bet.stop_pct)))
+        if bet.target_pct is not None:
+            closers.append(TEMPLATES["target"].format(pct=decimal_str(bet.target_pct)))
+        hold = TEMPLATES["hold_open"].format(closers=_or(closers))
+    return P.BY_NAME["bet"].template.format(
+        side=TEMPLATES["side_" + bet.side], universe=universe, pick=pick, enter=enter,
+        hold=hold, stake=_money(bet.stake), currency=currency,
+        cost_pct=decimal_str(bet.cost_pct))
 
 
 def _holdings(h):
@@ -132,9 +181,12 @@ def describe(spec):
     labels = {}
     for s in spec.strategies:
         labels[s.id] = s.label
-        lines.append(TEMPLATES["strategy"].format(
-            label=_quote(s.label), id="" if s.label == s.id else f" ({s.id})",
-            allocation=_allocation(s.allocate), holdings=_holdings(s.holdings)))
+        ident = {"label": _quote(s.label), "id": "" if s.label == s.id else f" ({s.id})"}
+        if s.bet:
+            lines.append(TEMPLATES["bet_strategy"].format(bet=_bet(s.bet, cur), **ident))
+        else:
+            lines.append(TEMPLATES["strategy"].format(
+                allocation=_allocation(s.allocate), holdings=_holdings(s.holdings), **ident))
     if "rank" in spec.primitives_used():
         lines.append(TEMPLATES["ties"])
     lines.append(TEMPLATES["benchmark"].format(label=_quote(labels[spec.benchmark])))

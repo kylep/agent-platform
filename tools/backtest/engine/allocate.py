@@ -22,6 +22,24 @@ _OPS = {">": lambda a, b: a > b, ">=": lambda a, b: a >= b,
         "<": lambda a, b: a < b, "<=": lambda a, b: a <= b}
 
 
+def condition_holds(cond, past):
+    """Whether a bet's {signal op threshold} holds on `past`. A signal that
+    lacks history never holds. A cross compares the signal one bar earlier
+    with the current one: above means earlier <= threshold < now."""
+    with localcontext(DECIMAL_CONTEXT):
+        now = signals.compute(cond.signal, past)
+        if now is None:
+            return False
+        if cond.op in _OPS:
+            return _OPS[cond.op](now, cond.threshold)
+        before = signals.compute(cond.signal, past.one_day_earlier())
+        if before is None:
+            return False
+        if cond.op == "crosses_above":
+            return before <= cond.threshold < now
+        return before >= cond.threshold > now
+
+
 def evaluate(alloc, past):
     with localcontext(DECIMAL_CONTEXT):
         return _evaluate(alloc, past)

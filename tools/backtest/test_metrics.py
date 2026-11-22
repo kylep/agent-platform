@@ -395,7 +395,7 @@ def test_run_backtest_end_to_end():
     sha = dataset_sha(raw)
     res = run_backtest(FIXTURE_SPECS["cad_dca_rank_vs_etf"], Dataset.from_dict(raw), sha)
     spec = parse_spec(FIXTURE_SPECS["cad_dca_rank_vs_etf"])
-    assert res.engine_version == ENGINE_VERSION == "1.0.1"
+    assert res.engine_version == ENGINE_VERSION == "1.1.0"
     assert res.experiment_id == experiment_id(spec, sha, ENGINE_VERSION)
     assert [a.path for a in res.assumed][-1] == "calendar"
     assert {c.code for c in res.caveats} >= {"data", "taxes", "hindsight", "concentration"}

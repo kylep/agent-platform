@@ -43,13 +43,32 @@ def _drawdown_from_high(closes):
     return closes[-1] / max(closes) - 1
 
 
-def _rsi(closes):
+def _rsi_value(avg_gain, avg_loss):
+    if avg_loss == 0:
+        return Decimal(100) if avg_gain > 0 else Decimal(50)
+    return 100 - 100 / (1 + avg_gain / avg_loss)
+
+
+def _rsi_simple(closes):
+    """Cutler's RSI: plain averages of every change in `closes`."""
     changes = [b - a for a, b in zip(closes, closes[1:])]
     gain = sum((c for c in changes if c > 0), Decimal(0))
     loss = sum((-c for c in changes if c < 0), Decimal(0))
-    if loss == 0:
-        return Decimal(100) if gain > 0 else Decimal(50)
-    return 100 - 100 / (1 + gain / loss)
+    return _rsi_value(gain, loss)
+
+
+def _rsi_wilder(closes, n):
+    """Wilder's RSI over all of `closes`: the first n changes seed the
+    averages (simple mean), every later change smooths them in with weight 1/n."""
+    changes = [b - a for a, b in zip(closes, closes[1:])]
+    gains = [max(c, Decimal(0)) for c in changes]
+    losses = [max(-c, Decimal(0)) for c in changes]
+    avg_gain = sum(gains[:n], Decimal(0)) / n
+    avg_loss = sum(losses[:n], Decimal(0)) / n
+    for gain, loss in zip(gains[n:], losses[n:]):
+        avg_gain = (avg_gain * (n - 1) + gain) / n
+        avg_loss = (avg_loss * (n - 1) + loss) / n
+    return _rsi_value(avg_gain, avg_loss)
 
 
 _FUNCS = {
@@ -58,7 +77,6 @@ _FUNCS = {
     "price_vs_sma": _price_vs_sma,
     "volatility": _volatility,
     "drawdown_from_high": _drawdown_from_high,
-    "rsi": _rsi,
 }
 
 
@@ -68,4 +86,9 @@ def compute(signal, past):
     if closes is None:
         return None
     with localcontext(DECIMAL_CONTEXT):
+        if signal.name == "rsi":
+            args = dict(signal.params)
+            if args["smoothing"] == "wilder":
+                return +_rsi_wilder(closes, args["n"])
+            return +_rsi_simple(closes)
         return +_FUNCS[signal.name](closes)

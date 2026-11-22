@@ -74,6 +74,10 @@ class Past:
     def last(self):
         return self._bars[self._stop - 1] if self._stop else None
 
+    def one_day_earlier(self):
+        """The same view as of one bar before: what was known the day before."""
+        return Past(self._bars, max(self._stop - 1, 0))
+
     def closes(self, n):
         """The last n closes (oldest first), or None if fewer than n are visible."""
         if n > self._stop:

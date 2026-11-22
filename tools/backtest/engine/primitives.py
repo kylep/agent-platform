@@ -18,6 +18,19 @@ MAX_DAILY_PERIOD_YEARS = 5
 MAX_LOOKBACK_DAYS = 400
 MAX_AMOUNT = Decimal(10) ** 9
 MAX_WHEN_DEPTH = 3
+# Wilder's RSI is recursive, so its value needs warm-up history beyond the
+# period: this many periods of changes keep the seed's weight under 1%.
+WILDER_WARMUP_PERIODS = 5
+STOCK_BETS = "stock_bets"
+# The stock-bets pet's symbol list, flat round-trip cost (percent of the
+# stake) and stake. tools/stock_bets/engine.py owns them; test_bets.py fails
+# if these copies drift, which keeps this engine free of cross-tool imports.
+STOCK_BETS_SYMBOLS = tuple(sorted(
+    "SPY QQQ IWM DIA XLK XLF XLE XLV XLY XLI XLU XLP SMH TLT GLD USO "
+    "AAPL MSFT NVDA AMZN GOOGL META TSLA AVGO AMD".split()))
+STOCK_BETS_COST_PCT = Decimal("0.05")
+STOCK_BETS_STAKE = Decimal("1000")
+BET_BENCHMARK = "SPY"
 
 # Lookbacks are counted in the symbol's own trading days, so "1mo" means the
 # same number of bars on every market and every date.
@@ -26,6 +39,7 @@ LOOKBACK_UNITS = {"d": 1, "w": 5, "mo": 21, "y": 252}
 FREQUENCIES = ("day", "week", "month", "quarter", "year")
 ANCHORS = ("first_trading_day", "last_trading_day")
 OPS = (">", ">=", "<", "<=")
+CROSS_OPS = ("crosses_above", "crosses_below")
 CURRENCIES = ("CAD", "USD")
 
 
@@ -141,13 +155,69 @@ REGISTRY = (
         {"drawdown_from_high": {"n": 252}}, unit="fraction"),
     Primitive(
         "rsi", "signal",
-        "Relative strength index over the last n daily price changes, 0-100: "
-        "100 - 100 / (1 + average gain / average loss), using simple averages "
-        "(Cutler's form, so the value depends only on the window). 100 when "
-        "there were no losses; 70+ is conventionally overbought, 30- oversold.",
-        (_window("n", "number of daily price changes", minimum=2),),
-        "{n}-day RSI",
-        {"rsi": {"n": 14}}, unit="index"),
+        "Relative strength index over daily price changes, 0-100: 100 - 100 / "
+        "(1 + average gain / average loss); 100 when there were no losses; 70+ "
+        "is conventionally overbought, 30- oversold. smoothing wilder (the "
+        "default, what charting packages show): the first average is the simple "
+        "mean of n changes, then avg = (previous avg * (n - 1) + change) / n, "
+        f"run over {WILDER_WARMUP_PERIODS} * n changes of history, so n is at "
+        f"most {MAX_LOOKBACK_DAYS // WILDER_WARMUP_PERIODS}. smoothing simple "
+        "(Cutler): plain averages of the last n changes only.",
+        (_window("n", "RSI period in trading days (14 is customary)", minimum=2),
+         Param("smoothing", "enum", "wilder or simple", required=False,
+               default="wilder", choices=("wilder", "simple"))),
+        "{n}-day {smoothing} RSI",
+        {"rsi": {"n": 14, "smoothing": "wilder"}}, unit="index"),
+    # -- strategies built on one position instead of an allocation ----------
+    Primitive(
+        "bet", "strategy",
+        "A strategy written as `bet` instead of allocate/holdings: at most one "
+        "position at a time, long or short, in one symbol of `universe` (a list, "
+        f"or \"{STOCK_BETS}\" for the stock-bets pet's 25 symbols). Each day "
+        "while flat, a decision from closes before that day picks the symbol "
+        "(`pick`: {top: signal} or {bottom: signal}; required for more than one "
+        "symbol) and, if `enter` holds on it (or is absent), opens the position "
+        "at that day's close. A condition is {signal, op, threshold} with op "
+        "one of > >= < <= crosses_above crosses_below (a cross compares the "
+        "signal one day earlier with today's). hold 1d (default): close at the "
+        "next trading day's close, the stock-bets bet; the day's close then "
+        "also opens the next bet. hold open: stay in until `exit` holds, or "
+        "stop_pct / target_pct (percent lost / gained) is reached, whichever "
+        "comes first, and close at the first close that does (closes only: no "
+        "intraday fills); open needs at least one of the three and 1d takes "
+        "none. A short earns (entry - exit) / entry with no borrow fee, "
+        "margin, dividend owed or interest: paper only. Each bet costs "
+        f"cost_pct percent of the stake (default {STOCK_BETS_COST_PCT}, the "
+        "stock-bets cost) and is scored on close-to-close price only. Needs "
+        "lump_sum (the capital) at least as large as stake, no contributions, "
+        "zero `costs`, and symbols in the base currency. metrics.bets "
+        "reports win_rate (net > 0), direction_rate, avg_net_pct and the "
+        f"always-long {BET_BENCHMARK} comparison over the same days, as the "
+        "stock-bets scoreboard does.",
+        (Param("universe", "symbols", f"a list of symbols or \"{STOCK_BETS}\""),
+         Param("side", "enum", "long or short", choices=("long", "short")),
+         Param("pick", "pick", "{top: signal} or {bottom: signal}", required=False),
+         Param("enter", "condition", "{signal, op, threshold}", required=False),
+         Param("hold", "enum", "1d or open", required=False, default="1d",
+               choices=("1d", "open")),
+         Param("exit", "condition", "{signal, op, threshold}, on the held symbol",
+               required=False),
+         Param("stop_pct", "decimal", "percent loss that closes the position",
+               required=False, minimum=Decimal("0.01"), maximum=Decimal(100)),
+         Param("target_pct", "decimal", "percent gain that closes the position",
+               required=False, minimum=Decimal("0.01"), maximum=Decimal(1000)),
+         Param("stake", "decimal", "money per bet in base_currency", required=False,
+               default=STOCK_BETS_STAKE),
+         Param("cost_pct", "decimal", "percent of the stake per bet", required=False,
+               default=STOCK_BETS_COST_PCT, minimum=Decimal(0), maximum=Decimal(5))),
+        "{side} {universe}{pick}{enter}; {hold}; stake {stake} {currency} per "
+        "bet, costing {cost_pct}% of it",
+        {"bet": {"universe": ["TSLA"], "side": "short",
+                 "enter": {"signal": {"rsi": {"n": 14}}, "op": "crosses_above",
+                           "threshold": 70},
+                 "hold": "open",
+                 "exit": {"signal": {"rsi": {"n": 14}}, "op": "<", "threshold": 50},
+                 "stop_pct": 15}}),
     # -- allocators: where the money of an event goes -----------------------
     Primitive(
         "fixed", "allocator",
@@ -276,8 +346,9 @@ SPEC_FIELDS = (
     Param("ties", "enum", "how equal signal values are ordered", required=False,
           default="alphabetical", choices=("alphabetical",)),
     Param("strategies", "strategies", f"1-{MAX_STRATEGIES} of {{id, label, "
-          "allocate, holdings}}: id matches [a-z0-9][a-z0-9_-]{0,31}; label "
-          "defaults to id; allocate is an allocator; holdings defaults to keep"),
+          "allocate, holdings} or {id, label, bet}: id matches "
+          "[a-z0-9][a-z0-9_-]{0,31}; label defaults to id; allocate is an "
+          "allocator; holdings defaults to keep; bet is the `bet` strategy"),
     Param("benchmark", "string", "a strategy id; defaults to the first strategy",
           required=False, default="strategies[0].id"),
 )
@@ -292,6 +363,8 @@ RULES = (
     "A decision on day t sees only closes strictly before t; trades fill at "
     "t's close plus slippage. Events fall on the base currency's market "
     "calendar (TSX for CAD, US for USD).",
+    "Prices are closes only: a bet's stop_pct and target_pct act at the first "
+    "close past them, never intraday.",
     "A question that does not compose from these primitives is not supported: "
     "say so instead of approximating it.",
 )
@@ -344,11 +417,37 @@ EXAMPLES = (
      "contributions": {"amount": 500, "every": "month"},
      "strategies": [
          {"id": "rsi-filter", "allocate": {"when": {
-             "symbol": "TSLA", "signal": {"rsi": {"n": 14}},
+             "symbol": "TSLA", "signal": {"rsi": {"n": 14, "smoothing": "wilder"}},
              "op": "<=", "threshold": 70, "then": {"fixed": {"TSLA": 1}},
              "else": "cash"}}, "holdings": "rotate"},
          {"id": "tsla", "allocate": {"fixed": {"TSLA": 1}}}],
      "benchmark": "tsla"},
+    {"name": "tsla-short-overbought",
+     "period": {"start": "2016-01-04", "end": "2026-01-02"},
+     "base_currency": "USD",
+     "lump_sum": {"amount": 10000},
+     "strategies": [
+         {"id": "short-rsi", "bet": {
+             "universe": ["TSLA"], "side": "short",
+             "enter": {"signal": {"rsi": {"n": 14}}, "op": "crosses_above",
+                       "threshold": 70},
+             "hold": "open",
+             "exit": {"signal": {"rsi": {"n": 14}}, "op": "<", "threshold": 50},
+             "stop_pct": 15}},
+         {"id": "tsla", "allocate": {"fixed": {"TSLA": 1}}}],
+     "benchmark": "tsla"},
+    {"name": "stock-bets-fade-the-winner",
+     "period": {"start": "2024-01-02", "end": "2026-01-02"},
+     "base_currency": "USD",
+     "lump_sum": {"amount": 1000},
+     "strategies": [
+         {"id": "fade-winner", "bet": {
+             "universe": "stock_bets", "side": "short",
+             "pick": {"top": {"trailing_return": {"lookback": "5d"}}},
+             "enter": {"signal": {"rsi": {"n": 3, "smoothing": "simple"}},
+                       "op": ">", "threshold": 80}}},
+         {"id": "long-spy", "bet": {"universe": ["SPY"], "side": "long"}}],
+     "benchmark": "long-spy"},
 )
 
 

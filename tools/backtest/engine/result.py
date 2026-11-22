@@ -14,6 +14,8 @@ from .spec import jsonable
 EVENT_KINDS = (
     "contribution",  # money arrived (detail: amount)
     "buy", "sell",   # detail: shares, price, amount, commission, slippage
+    "short", "cover",  # a bet strategy's short position opened / closed (same detail)
+    "bet",           # a bet strategy's settled bet (detail: side, entry, exit, reason, net_pct, spy_pct)
     "fx",            # a conversion (detail: from, to, rate, amount, fee; fx_fallback_day)
     "dividend",      # detail: per_share, gross, withheld, net, reinvested
     "split",         # logged only: prices are split-adjusted, share counts unchanged

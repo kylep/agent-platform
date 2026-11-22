@@ -211,7 +211,7 @@ def event_metrics(events, base):
     with localcontext(DECIMAL_CONTEXT):
         for e in events:
             det = e.detail
-            if e.kind in ("buy", "sell"):
+            if e.kind in ("buy", "sell", "short", "cover"):
                 # DRIP is bookkeeping, not a decision to trade.
                 if det.get("source") != "dividend":
                     out["trades"] += 1
@@ -223,12 +223,45 @@ def event_metrics(events, base):
                                                 rates.get(e.day))
                 if e.kind == "sell":
                     out["sold"] += det["proceeds_base"] + det["commission"]
+                elif e.kind == "cover":
+                    out["sold"] += det["amount"]
             elif e.kind == "fx":
                 out["fx_paid"] += det["fee"]
             elif e.kind == "dividend":
                 out["dividends"] += det["net_base"]
         out["slippage"] = _q_cash(out["slippage"])
         out["costs"] = out["commissions"] + out["slippage"]
+    return out
+
+
+def bet_metrics(events, cost_pct):
+    """The stock-bets scoreboard numbers for a bet strategy's settled bets:
+    win = net % > 0 after the cost, direction hit = the position's price
+    moved the right way (gross % > 0), and the always-long SPY comparison
+    over the same entry and exit days with the same cost. Percentages are
+    percent points; rates are fractions."""
+    bets = [e.detail for e in events if e.kind == "bet"]
+    opened = sum(1 for e in events if e.kind in ("buy", "short"))
+    out = {"settled": len(bets), "open_at_end": opened - len(bets)}
+    if not bets:
+        return out
+    n = Decimal(len(bets))
+    spy = [b["spy_pct"] - cost_pct for b in bets if b["spy_pct"] is not None]
+    edges = [b["net_pct"] - (b["spy_pct"] - cost_pct) for b in bets if b["spy_pct"] is not None]
+    reasons = {}
+    for b in bets:
+        reasons[b["reason"]] = reasons.get(b["reason"], 0) + 1
+    with localcontext(DECIMAL_CONTEXT):
+        wins = sum(1 for b in bets if b["net_pct"] > 0)
+        hits = sum(1 for b in bets if b["gross_pct"] > 0)
+        out.update(
+            wins=wins, win_rate=_q(Decimal(wins) / n),
+            direction_hits=hits, direction_rate=_q(Decimal(hits) / n),
+            avg_net_pct=_q(sum((b["net_pct"] for b in bets), Decimal(0)) / n),
+            pnl=sum((b["pnl"] for b in bets), Decimal(0)),
+            spy_avg_net_pct=_q(sum(spy, Decimal(0)) / len(spy)) if spy else None,
+            edge_vs_spy_pct=_q(sum(edges, Decimal(0)) / len(edges)) if edges else None,
+            exit_reasons=dict(sorted(reasons.items())))
     return out
 
 
@@ -299,4 +332,7 @@ def strategy_metrics(spec, run):
          "pick_timeline": pick_timeline(run.result.events)}
     m.update(series_metrics(s, spec.risk_free))
     m.update(agg)
+    bet = next(st.bet for st in spec.strategies if st.id == run.result.strategy_id)
+    if bet:
+        m["bets"] = bet_metrics(run.result.events, bet.cost_pct)
     return m, reason

@@ -38,7 +38,11 @@ CONCENTRATION_PICK = ('Strategy "{label}" picks only the {pick} {n}; its largest
 CONCENTRATION_STOCK = ('Strategy "{label}" held a single stock above 40%; its largest '
                        "single-stock weight was {pct}% ({symbol} on {day}). See its pick "
                        "timeline beside the returns.")
-XIRR = 'Strategy "{label}": the money-weighted return (XIRR) is not shown: {reason}.'
+BET = ('Strategy "{label}" settled {n} bets on close-to-close prices only: shorts are paper '
+       "(no borrow fee, margin, dividends owed or intraday stops) and about {enough} settled "
+       "bets are needed to tell a 60% hit rate from 50%.")
+ENOUGH_BETS = 150
+XIRR ='Strategy "{label}": the money-weighted return (XIRR) is not shown: {reason}.'
 
 
 def is_individual_stock(symbol):
@@ -52,8 +56,10 @@ def _traded(strategy):
             out |= {s for s, _ in a.weights}
         elif isinstance(a, Rank):
             out |= set(a.universe)
-    if strategy.holdings.to:
+    if strategy.holdings and strategy.holdings.to:
         out |= {s for s, _ in strategy.holdings.to}
+    if strategy.bet:
+        out |= set(strategy.bet.universe)
     return out
 
 
@@ -112,6 +118,10 @@ def build(spec, dataset, dataset_sha, runs, xirr_reasons, fetched=None):
         text = _concentration(strategy, run)
         if text:
             out.append(Caveat("concentration", text))
+        if strategy.bet:
+            settled = sum(1 for e in run.result.events if e.kind == "bet")
+            out.append(Caveat("bets", BET.format(
+                label=strategy.label, n=settled, enough=ENOUGH_BETS)))
         if strategy.id in xirr_reasons:
             out.append(Caveat("xirr", XIRR.format(label=strategy.label,
                                                   reason=xirr_reasons[strategy.id])))

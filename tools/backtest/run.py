@@ -69,6 +69,9 @@ REQUIRED_COLUMNS = {
 }
 HEADLINE = ("final_value", "contributed", "xirr", "twr_annualized", "max_drawdown_depth")
 SUMMARY_METRICS = HEADLINE + ("volatility", "sharpe", "trades", "costs")
+# metrics.bets keys echoed in the reply, named as the stock-bets scoreboard does.
+BET_SUMMARY = ("settled", "win_rate", "direction_rate", "avg_net_pct", "spy_avg_net_pct",
+               "edge_vs_spy_pct")
 
 
 class ToolError(Exception):
@@ -373,6 +376,11 @@ def summary(result, stored, **extra):
            "metrics": {"columns": ["id", "label", *SUMMARY_METRICS], "rows": rows},
            "caveats": [f"{c.code}: {_short(c.text, CAVEAT_CHARS)}" for c in result.caveats],
            "exclusions": len(result.exclusions), "url": URL.format(eid), **extra}
+    bets = {s.strategy_id: {k: s.metrics["bets"].get(k) for k in BET_SUMMARY
+                            if k in s.metrics["bets"]}
+            for s in result.strategies if "bets" in s.metrics}
+    if bets:   # the stock-bets scoreboard numbers, one object per bet strategy
+        out["bets"] = json.loads(engine.canonical_json(bets))
 
     def over():
         return len(render(out).encode()) - SUMMARY_CAP

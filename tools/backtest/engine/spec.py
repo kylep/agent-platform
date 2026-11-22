@@ -139,11 +139,76 @@ class Holdings:
 
 
 @dataclass(frozen=True)
+class Condition:
+    signal: Signal
+    op: str
+    threshold: Decimal
+
+    def to_json(self):
+        return {"signal": self.signal.to_json(), "op": self.op, "threshold": self.threshold}
+
+
+@dataclass(frozen=True)
+class Bet:
+    """One position at a time, long or short; see the `bet` primitive."""
+    universe: tuple              # sorted symbols
+    side: str                    # long | short
+    pick: str | None             # top | bottom (None: a one-symbol universe)
+    pick_signal: Signal | None
+    enter: Condition | None
+    hold: str                    # 1d | open
+    exit: Condition | None
+    stop_pct: Decimal | None
+    target_pct: Decimal | None
+    stake: Decimal
+    cost_pct: Decimal
+
+    def conditions(self):
+        return [c for c in (self.enter, self.exit) if c is not None]
+
+    def signals(self):
+        sigs = [c.signal for c in self.conditions()]
+        return sigs + ([self.pick_signal] if self.pick_signal else [])
+
+    def to_json(self):
+        out = {"universe": list(self.universe), "side": self.side, "hold": self.hold,
+               "stake": self.stake, "cost_pct": self.cost_pct}
+        if self.pick:
+            out["pick"] = {self.pick: self.pick_signal.to_json()}
+        for key in ("enter", "exit"):
+            if getattr(self, key):
+                out[key] = getattr(self, key).to_json()
+        for key in ("stop_pct", "target_pct"):
+            if getattr(self, key) is not None:
+                out[key] = getattr(self, key)
+        return out
+
+
+@dataclass(frozen=True)
 class Strategy:
     id: str
     label: str
-    allocate: "Fixed | Rank | When"
-    holdings: Holdings
+    allocate: "Fixed | Rank | When | None"
+    holdings: Holdings | None
+    bet: Bet | None = None
+
+    def to_dict(self):
+        out = {"id": self.id, "label": self.label}
+        if self.bet:
+            return out | {"bet": self.bet.to_json()}
+        return out | {"allocate": self.allocate.to_json(),
+                      "holdings": self.holdings.to_json()}
+
+    def signals(self):
+        return list(_signals(self.allocate)) + (self.bet.signals() if self.bet else [])
+
+    def symbols(self):
+        out = set(_alloc_symbols(self.allocate))
+        if self.holdings and self.holdings.to:
+            out |= {sym for sym, _ in self.holdings.to}
+        if self.bet:
+            out |= set(self.bet.universe) | {P.BET_BENCHMARK}
+        return out
 
 
 @dataclass(frozen=True)
@@ -176,8 +241,7 @@ class Spec:
             "costs": dataclasses.asdict(self.costs),
             "risk_free": self.risk_free,
             "ties": self.ties,
-            "strategies": [{"id": s.id, "label": s.label, "allocate": s.allocate.to_json(),
-                            "holdings": s.holdings.to_json()} for s in self.strategies],
+            "strategies": [s.to_dict() for s in self.strategies],
             "benchmark": self.benchmark,
         })
 
@@ -185,15 +249,17 @@ class Spec:
         """Every symbol the engine needs bars for (traded or signal-only), sorted."""
         out = set()
         for s in self.strategies:
-            out |= _alloc_symbols(s.allocate)
-            if s.holdings.to:
-                out |= {sym for sym, _ in s.holdings.to}
+            out |= s.symbols()
         return tuple(sorted(out))
 
     def max_window(self):
-        """Longest signal history (trading days before the first event) needed."""
-        return max((sig.window for s in self.strategies for sig in _signals(s.allocate)),
-                   default=0)
+        """Longest signal history (trading days before the first event) needed;
+        a crossing also looks one day further back."""
+        widest = max((sig.window for s in self.strategies for sig in s.signals()),
+                     default=0)
+        crossing = any(c.op in P.CROSS_OPS for s in self.strategies if s.bet
+                       for c in s.bet.conditions())
+        return widest + crossing
 
     def primitives_used(self):
         used = {"costs", self.dividends.mode}
@@ -202,12 +268,19 @@ class Spec:
         if self.lump_sum:
             used.add("lump_sum")
         for s in self.strategies:
+            if s.bet:
+                used.add("bet")
+                used |= {sig.name for sig in s.bet.signals()}
+                continue
             used.add(s.holdings.mode)
             used |= _alloc_names(s.allocate)
         return used
 
 
 def _walk(alloc):
+    """Every allocator node under `alloc`; nothing for a bet strategy (None)."""
+    if alloc is None:
+        return
     yield alloc
     if isinstance(alloc, When):
         yield from _walk(alloc.then)
@@ -515,6 +588,7 @@ class _Parser:
             if benchmark not in ids:
                 benchmark = self.err("benchmark", f"must be a strategy id: {', '.join(ids)}")
 
+        self.check_bets(strategies, raw, lump, costs)
         if len(self.symbols) > P.MAX_SYMBOLS:
             self.err("strategies", f"uses {len(self.symbols)} distinct symbols; "
                                    f"the limit is {P.MAX_SYMBOLS}")
@@ -529,6 +603,19 @@ class _Parser:
         spec = Spec(name, period, cur, contrib, lump, execution, dividends, costs,
                     risk_free, ties, tuple(strategies), benchmark)
         return Validation(spec, (), tuple(self.assumed))
+
+    def check_bets(self, strategies, raw, lump, costs):
+        """What a `bet` strategy needs from the rest of the spec."""
+        bets = [s.bet for s in strategies or () if s.bet]
+        if not bets:
+            return
+        if raw.get("contributions") is not None:
+            self.err("contributions", "a bet strategy is funded by lump_sum, not contributions")
+        if lump is not None and any(b.stake > lump.amount for b in bets):
+            self.err("lump_sum.amount", "must be at least every bet's stake")
+        if costs is not None and (costs.commission or costs.slippage_bps or costs.fx_bps):
+            self.err("costs", "do not apply to bet strategies, which pay their own "
+                              "cost_pct; leave costs out")
 
     def period(self, v):
         if v is None:
@@ -646,7 +733,7 @@ class _Parser:
         out, seen = [], set()
         for i, s in enumerate(v):
             path = f"strategies[{i}]"
-            if self.obj(s, path, ("id", "label", "allocate", "holdings")) is None:
+            if self.obj(s, path, ("id", "label", "allocate", "holdings", "bet")) is None:
                 continue
             sid = self.get(s, "id", path)
             if sid is not _MISSING:
@@ -661,6 +748,14 @@ class _Parser:
                 label = self.assume(path + ".label", sid) if isinstance(sid, str) else None
             else:
                 label = self.text(label, path + ".label", 60)
+            if "bet" in s:
+                if "allocate" in s or "holdings" in s:
+                    self.err(path, "a strategy is either `bet` or allocate/holdings, not both")
+                    continue
+                bet = self.bet(s["bet"], path + ".bet")
+                if None not in (sid, label, bet) and sid is not _MISSING:
+                    out.append(Strategy(sid, label, None, None, bet))
+                continue
             alloc = self.get(s, "allocate", path)
             alloc = None if alloc is _MISSING else self.allocator(alloc, path + ".allocate")
             holdings = self.holdings(self.get(s, "holdings", path, "keep"),
@@ -668,6 +763,82 @@ class _Parser:
             if None not in (sid, label, alloc, holdings) and sid is not _MISSING:
                 out.append(Strategy(sid, label, alloc, holdings))
         return out if len(out) == len(v) else None
+
+    def bet(self, body, path):
+        prim = P.BY_NAME["bet"]
+        if self.obj(body, path, tuple(p.name for p in prim.params)) is None:
+            return None
+        before = len(self.errors)
+        side = self.get(body, "side", path)
+        if side is not _MISSING:
+            self.enum(side, path + ".side", ("long", "short"))
+        universe = self.bet_universe(self.get(body, "universe", path), path + ".universe")
+        self.symbols.add(P.BET_BENCHMARK)
+        pick, pick_signal = self.bet_pick(body.get("pick"), path + ".pick")
+        if universe and (body.get("pick") is None) != (len(universe) == 1):
+            self.err(path + ".pick", "is required for a universe of several symbols "
+                                     "and not allowed for one symbol")
+        enter = self.condition(body["enter"], path + ".enter") if "enter" in body else None
+        hold = self.enum(self.get(body, "hold", path, "1d"), path + ".hold", ("1d", "open"))
+        exit_ = self.condition(body["exit"], path + ".exit") if "exit" in body else None
+        levels = {}
+        for key in ("stop_pct", "target_pct"):
+            if key in body:
+                p = prim.param(key)
+                levels[key] = self.decimal(body[key], f"{path}.{key}", p.minimum, p.maximum,
+                                           positive=True)
+        stake = self.decimal(self.get(body, "stake", path, P.STOCK_BETS_STAKE),
+                             path + ".stake", hi=P.MAX_AMOUNT, positive=True, places=2)
+        cp = prim.param("cost_pct")
+        cost = self.decimal(self.get(body, "cost_pct", path, cp.default), path + ".cost_pct",
+                            cp.minimum, cp.maximum)
+        closers = [k for k in ("exit", "stop_pct", "target_pct") if body.get(k) is not None]
+        if hold == "1d" and closers:
+            self.err(path + ".hold", "1d closes at the next trading day's close; "
+                                     f"{', '.join(closers)} need hold: open")
+        if hold == "open" and not closers:
+            self.err(path + ".hold", "open needs at least one of exit, stop_pct, target_pct")
+        if len(self.errors) > before:
+            return None
+        return Bet(universe, side, pick, pick_signal, enter, hold, exit_,
+                   levels.get("stop_pct"), levels.get("target_pct"), stake, cost)
+
+    def bet_universe(self, v, path):
+        if v is _MISSING:
+            return None
+        if v == P.STOCK_BETS:
+            v = list(P.STOCK_BETS_SYMBOLS)
+        if not isinstance(v, list) or not v:
+            return self.err(path, f"must be a non-empty list of symbols or "
+                                  f"\"{P.STOCK_BETS}\"")
+        if len(set(map(str, v))) != len(v):
+            return self.err(path, "lists a symbol twice")
+        syms = [self.symbol(s, f"{path}[{i}]") for i, s in enumerate(v)]
+        return None if None in syms else tuple(sorted(syms))
+
+    def bet_pick(self, v, path):
+        """(top | bottom, Signal) or (None, None) when absent or invalid."""
+        if v is None:
+            return None, None
+        if not isinstance(v, dict) or len(v) != 1 or next(iter(v)) not in ("top", "bottom"):
+            self.err(path, "must be {top: signal} or {bottom: signal}")
+            return None, None
+        (direction, sig), = v.items()
+        return direction, self.signal(sig, f"{path}.{direction}")
+
+    def condition(self, v, path):
+        if self.obj(v, path, ("signal", "op", "threshold")) is None:
+            return None
+        sig = self.get(v, "signal", path)
+        signal = None if sig is _MISSING else self.signal(sig, path + ".signal")
+        op = self.get(v, "op", path)
+        op = None if op is _MISSING else self.enum(op, path + ".op", P.OPS + P.CROSS_OPS)
+        th = self.get(v, "threshold", path)
+        threshold = None if th is _MISSING else self.decimal(
+            th, path + ".threshold", -P.MAX_AMOUNT, P.MAX_AMOUNT)
+        if None in (signal, op, threshold):
+            return None
+        return Condition(signal, op, threshold)
 
     def allocator(self, v, path, depth=0):
         found = self.primitive(v, path, "allocator", "allocator")
@@ -746,9 +917,14 @@ class _Parser:
             return None
         params, window = [], 0
         for p in prim.params:
-            raw = self.get(body, p.name, ppath)
+            raw = self.get(body, p.name, ppath, _MISSING if p.required else p.default)
             if raw is _MISSING:
                 return None
+            if p.type == "enum":
+                if self.enum(raw, _join(ppath, p.name), p.choices) is None:
+                    return None
+                params.append((p.name, raw))
+                continue
             if p.type == "lookback":
                 m = LOOKBACK_RE.match(raw) if isinstance(raw, str) else None
                 if m is None:
@@ -770,6 +946,13 @@ class _Parser:
                                 f"lookback limit is {P.MAX_LOOKBACK_DAYS} trading days")
             params.append((p.name, val))
             window = max(window, days)
+        if prim.name == "rsi" and dict(params)["smoothing"] == "wilder":
+            window *= P.WILDER_WARMUP_PERIODS
+            if window > P.MAX_LOOKBACK_DAYS:
+                return self.err(_join(ppath, "n"), f"Wilder smoothing needs "
+                                f"{P.WILDER_WARMUP_PERIODS} x n days of history, over the "
+                                f"{P.MAX_LOOKBACK_DAYS} trading days limit; use n up to "
+                                f"{P.MAX_LOOKBACK_DAYS // P.WILDER_WARMUP_PERIODS}")
         return Signal(prim.name, tuple(params), window)
 
     def holdings(self, v, path):

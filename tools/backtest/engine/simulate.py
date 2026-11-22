@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from decimal import ROUND_FLOOR, Decimal, localcontext
 
 from . import allocate, calendar
+from . import primitives as P
+from .bets import BetBook
 from .data import FX_SYMBOL, ONE_DAY, DataIntegrityError, EngineError, check_total_return
 from .result import Event, Exclusion, SeriesPoint, StrategyResult
 from .spec import CASH_Q, DECIMAL_CONTEXT, SHARES_Q, Assumption, Fixed, Rank, When, _walk
@@ -62,10 +64,14 @@ def simulate(spec, dataset):
 
         runs, exclusions = [], []
         for strat in spec.strategies:
-            book = _Book(spec, strat, dataset, days, money)
+            if strat.bet:
+                book = BetBook(spec, strat, _Market(dataset), days, money)
+            else:
+                book = _Book(spec, strat, dataset, days, money)
             for d in all_days:
                 book.step(d)
-            book.finish(all_days[-1])
+            if not strat.bet:
+                book.finish(all_days[-1])
             runs.append(StrategyRun(
                 StrategyResult(strat.id, strat.label, tuple(book.series), tuple(book.events)),
                 book.max_weight, book.max_weights))
@@ -91,15 +97,22 @@ def _check_inputs(spec, dataset):
     missing = [s for s in spec.symbols() if not dataset.has(s)]
     if missing:
         raise EngineError(f"symbols missing from the dataset: {', '.join(missing)}")
-    traded = set()
+    traded, bet_symbols = set(), set()
     for s in spec.strategies:
         traded |= _traded(s.allocate)
-        if s.holdings.to:
+        if s.holdings and s.holdings.to:
             traded |= {sym for sym, _ in s.holdings.to}
+        if s.bet:
+            traded |= set(s.bet.universe)
+            bet_symbols |= set(s.bet.universe) | {P.BET_BENCHMARK}
     traded = sorted(traded)
-    for sym in traded:
+    for sym in sorted(set(traded) | bet_symbols):
         if dataset.currency(sym) is None:
             raise DataIntegrityError(sym, None, "currency unknown; refetch it with prices")
+    foreign = sorted(s for s in bet_symbols if dataset.currency(s) != spec.base_currency)
+    if foreign:
+        raise EngineError(f"bet strategies need symbols in the base currency "
+                          f"({spec.base_currency}); {', '.join(foreign)} trade in another")
     if any(dataset.currency(s) != spec.base_currency for s in traded) \
             and not dataset.has(FX_SYMBOL):
         raise EngineError(f"{FX_SYMBOL} is needed to convert between CAD and USD but is "
@@ -154,6 +167,9 @@ class _Market:
     def last(self, sym):
         """The last bar on or before today (today's close if it traded)."""
         return self._ds.before(sym, self.today + ONE_DAY).last()
+
+    def currency(self, sym):
+        return self._ds.currency(sym)
 
     def bar_today(self, sym):
         bar = self.last(sym)
