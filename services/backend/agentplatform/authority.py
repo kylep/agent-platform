@@ -110,6 +110,18 @@ def migrate_authority(conn):
     conn.execute(SchemaMark.__table__.insert().values(name=mark))
 
 
+async def assert_summarizable_run(session, request, run):
+    """run-summarizer must see every run to give it a summary: pilot runs and
+    runs in rooms it isn't a member of fail `assert_readable_run`, so they were
+    silently never summarized. Only its list/get/annotate routes call this; the
+    summary stays on the run and is as private as the run itself."""
+    summarizer = getattr(request.state, 'api_key_agent', None) == 'run-summarizer'
+    agent = await session.get(AgentDef, 'run-summarizer') if summarizer else None
+    if agent and agent.enabled and agent.system:
+        return
+    await assert_readable_run(session, request, run)
+
+
 async def assert_readable_run(session, request, run):
     from fastapi import HTTPException
     caller = getattr(request.state, 'api_key_agent', None)

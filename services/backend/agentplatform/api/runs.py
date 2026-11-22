@@ -24,7 +24,7 @@ from agentplatform.api.gitedit import _github_app_token
 from agentplatform.db import (ACTIVE_STATES, AgentDef, Conversation, Project, Run,
                               SecretAccess, Team, Ticket, TranscriptEvent, utcnow)
 from agentplatform.db import AuthorizedRelaySession as RelaySession
-from agentplatform.authority import ensure_run_authority, assert_readable_run
+from agentplatform.authority import ensure_run_authority, assert_readable_run, assert_summarizable_run
 from agentplatform.events import TOPIC_RUN_REQUESTS
 from agentplatform.github import GitHubClient
 from agentplatform.secrets import CODEX_CREDENTIAL
@@ -163,9 +163,10 @@ async def list_runs(request: Request, limit: int = Query(50, ge=1, le=500),
     async with request.app.state.session_factory() as s:
         rows = list((await s.execute(stmt)).scalars())
         visible = []
+        check = assert_summarizable_run if needs_summary else assert_readable_run
         for run in rows:
             try:
-                await assert_readable_run(s, request, run)
+                await check(s, request, run)
                 visible.append(run)
             except HTTPException as exc:
                 if exc.status_code not in (403, 404):
@@ -209,7 +210,7 @@ async def get_run(request: Request, run_id: str):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
         if run is None: raise HTTPException(404)
-        await assert_readable_run(s, request, run)
+        await assert_summarizable_run(s, request, run)
         d = _summary(run)
         team = await s.get(Team, run.team_id) if run.team_id else None
         project = await s.get(Project, run.project_id) if run.project_id else None
@@ -241,7 +242,7 @@ async def annotate_run(request: Request, run_id: str, body: AnnotateIn):
     async with request.app.state.session_factory() as s:
         run = await s.get(Run, run_id)
         if run is None: raise HTTPException(404)
-        await assert_readable_run(s, request, run)
+        await assert_summarizable_run(s, request, run)
         if body.summary is not None:
             run.summary = body.summary
         if body.tags is not None:

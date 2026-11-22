@@ -10,7 +10,7 @@ from agentplatform.dispatcher import Dispatcher, FakeLauncher
 from agentplatform.events import FakeProducer
 from agentplatform.persona_memory import candidates, select_memory, digest
 from agentplatform.startup_memory import envelope
-from agentplatform.authority import assert_readable_run
+from agentplatform.authority import assert_readable_run, assert_summarizable_run
 
 
 async def pilot(sf, seed_agent, agent_store, **fields):
@@ -142,6 +142,21 @@ async def test_private_output_uses_actual_role(sf, seed_agent, agent_store, call
             with pytest.raises(HTTPException) as exc:
                 await assert_readable_run(s, request, run)
             assert exc.value.status_code == 403
+
+
+async def test_run_summarizer_reads_private_pilot_runs_but_other_agents_cannot(sf, seed_agent, agent_store):
+    disp, run = await pilot(sf, seed_agent, agent_store)
+    await disp._freeze_definition(run)
+    await seed_agent('run-summarizer', system=True)
+
+    def request(caller):
+        return SimpleNamespace(state=SimpleNamespace(api_key_agent=caller, resolved_role='operator'))
+
+    async with sf() as s:
+        await assert_summarizable_run(s, request('run-summarizer'), run)
+        with pytest.raises(HTTPException) as exc:
+            await assert_summarizable_run(s, request('other'), run)
+        assert exc.value.status_code == 403
 
 
 async def test_legacy_snapshot_and_cancellation_before_freeze(sf, seed_agent, agent_store):
