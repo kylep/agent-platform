@@ -98,22 +98,41 @@ def test_revision_writes_the_belief_and_its_version_together(monkeypatch):
     assert tx["guards"] == [{"collection": "beliefs", "id": "b" * 32, "version": 7}]
 
 
-def test_feedback_names_its_belief_and_what_kyle_shared(monkeypatch):
+def _describe(upgraded: bool) -> dict:
+    """The live App's shape before or after judgment_upgrade --apply."""
+    fields = {"prediction": {}, "belief_version": {}, "kyle_words": {}, "outcome": {}}
+    views = ["predictions_recent", "feedback_recent", "versions_for_belief",
+             "feedback_for_prediction", "belief_search", "version_by_number"]
+    if upgraded:
+        fields["shared_as"] = {}
+        views += sorted(state.NEW_VIEWS)
+    return {"collections": [{"collection": "feedback", "fields": fields}],
+            "views": [{"view": v} for v in views]}
+
+
+@pytest.mark.parametrize("upgraded", [True, False])
+def test_feedback_keeps_what_kyle_shared_once_the_app_can(monkeypatch, upgraded):
     calls = []
 
     def fake(base, action, **body):
         calls.append((action, copy.deepcopy(body)))
+        if action == "describe":
+            return _describe(upgraded)
         if action == "query":
             return {"rows": [{"id": "v" * 32, "values": {"version": 1}}]}
         return {"results": []}
 
     monkeypatch.setattr(state, "_call", fake)
-    state._feedback("proxy/", {"belief_id": "b" * 32, "belief_version": 2,
-                                "kyle_words": "I'd rather build it", "source_ref": REF,
-                                "outcome": "contradicted", "shared_as": "preference"})
+    receipt = state._feedback("proxy/", {
+        "belief_id": "b" * 32, "belief_version": 2, "kyle_words": "I'd rather build it",
+        "source_ref": REF, "outcome": "contradicted", "shared_as": "preference"})
     values = calls[-1][1]["operations"][0]["values"]
-    assert values["belief"] == "b" * 32 and values["belief_version"] == "v" * 32
-    assert values["shared_as"] == "preference"
+    assert values["belief_version"] == "v" * 32
+    if upgraded:
+        assert values["shared_as"] == "preference" and "note" not in receipt
+    else:
+        # The old definition would refuse an unknown field; the write still lands.
+        assert "shared_as" not in values and "upgrade" in receipt["note"]
     with pytest.raises(ValueError, match="shared_as"):
         state._feedback("proxy/", {"belief_id": "b" * 32, "belief_version": 2,
                                     "kyle_words": "x", "source_ref": REF,
@@ -125,8 +144,8 @@ P = {"id": "p" * 32, "created_at": T0, "scenario": "build or buy",
      "predicted_choice": "buy", "confidence": "medium", "timing": "prospective"}
 RETRO = {**P, "id": "r" * 32, "timing": "retrospective"}
 WAITING = {**P, "id": "w" * 32}
-FB = {"id": "f" * 32, "created_at": T1, "prediction": "p" * 32, "belief": "b" * 32,
-      "kyle_words": "build: learning is the point", "outcome": "contradicted",
+FB = {"id": "f" * 32, "created_at": T1, "prediction": "p" * 32,
+      "belief_version": "2" * 32, "kyle_words": "build: learning is the point", "outcome": "contradicted",
       "shared_as": "choice", "confirmed_at": None}
 V1 = {"id": "1" * 32, "belief": "b" * 32, "number": 1, "claim": "Kyle buys",
       "provenance": "kyle_confirmed"}
@@ -136,19 +155,25 @@ BELIEF = {"id": "b" * 32, "version": 3, "number": 2, "claim": "Kyle buys chores"
           "status": "active"}
 
 
-def _store(monkeypatch, paged=False):
+def _store(monkeypatch, paged=False, upgraded=True):
     """A fake App-data proxy over one belief, three predictions and one reply."""
     views = {
         "predictions_recent": [P, RETRO, WAITING], "feedback_recent": [FB],
-        "versions_for_belief": [V1, V2], "feedback_for_belief": [FB],
+        "versions_for_belief": [V1, V2],
         "links_for_belief": [{"id": "l" * 32, "prediction": "p" * 32}],
         "feedback_for_prediction": [FB], "belief_search": [BELIEF],
         "versions_for_feedback": [V2]}
 
     def fake(base, action, **body):
+        if action == "describe":
+            return _describe(upgraded)
         assert action == "query"
-        rows = [{"id": r["id"], "values": {"version": 1, **r}}
-                for r in views[body["view"]]]
+        assert upgraded or body["view"] not in state.NEW_VIEWS
+        if body["view"] == "feedback_for_version":
+            found = [f for f in [FB] if f["belief_version"] == body["params"]["version"]]
+        else:
+            found = views[body["view"]]
+        rows = [{"id": r["id"], "values": {"version": 1, **r}} for r in found]
         if paged and body.get("cursor") is None and len(rows) > 1:
             return {"rows": rows[:1], "next_cursor": "next"}
         if paged and body.get("cursor"):
@@ -163,15 +188,28 @@ def test_recall_returns_the_claim_with_its_correction_and_counterevidence(monkey
     [belief] = state._read("proxy/", {"action": "recall", "query": "buys"})["beliefs"]
     assert belief["latest_kyle_confirmed"] == {"version": 1, "claim": "Kyle buys",
                                                "scope": None}
-    assert [(f["id"], f["on"]) for f in belief["feedback"]] == [("f" * 32, "belief")]
+    assert [(f["id"], f["on"], f["belief_version"]) for f in belief["feedback"]] == [
+        ("f" * 32, "belief", 2)]
     # Counterevidence reached only through a prediction that relied on the belief.
-    FB2 = {**FB, "id": "g" * 32, "belief": None, "outcome": "mixed"}
+    FB2 = {**FB, "id": "g" * 32, "belief_version": None, "outcome": "mixed"}
     monkeypatch.setattr(state, "_query_all", lambda base, view, params=None: {
-        "versions_for_belief": [], "feedback_for_belief": [],
-        "links_for_belief": [{"prediction": "p" * 32}],
+        "versions_for_belief": [], "links_for_belief": [{"prediction": "p" * 32}],
         "feedback_for_prediction": [FB2]}[view])
     [belief] = state._read("proxy/", {"action": "recall", "query": "buys"})["beliefs"]
     assert [(f["id"], f["on"]) for f in belief["feedback"]] == [("g" * 32, "prediction")]
+
+
+def test_reads_work_against_the_definition_before_the_upgrade(monkeypatch):
+    _store(monkeypatch, upgraded=False)
+    recall = state._read("proxy/", {"action": "recall", "query": "buys"})
+    assert recall["beliefs"][0]["latest_kyle_confirmed"]["version"] == 1
+    assert recall["upgrade_pending"] == sorted(state.NEW_VIEWS)
+    review = state._read("proxy/", {"action": "review"})
+    assert review["counts"]["prospective_resolved"]["contradicted"] == 1
+    assert review["resolved_prospective"][0]["feedback"][0]["revisions"] == []
+    pending = state._read("proxy/", {"action": "pending"})
+    assert [f["id"] for f in pending["contradicting_feedback_no_version_cites"]] == [
+        "f" * 32]
 
 
 def test_review_counts_samples_and_keeps_the_original_prediction(monkeypatch):

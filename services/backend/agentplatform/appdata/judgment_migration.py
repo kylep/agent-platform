@@ -120,13 +120,13 @@ def bundle() -> dict:
              "prediction": {"type": "ref", "collection": "predictions", "on_delete": "unlink"},
              "belief_version": {"type": "ref", "collection": "belief_versions",
                                 "on_delete": "unlink"},
-             # The belief that version belongs to, so retrieval can attach
-             # feedback to the claim. An id, not a ref, like
-             # prediction_beliefs.belief.
-             "belief": {"type": "string", "max": 32},
              "kyle_words": {"type": "text", "max": 4000, "required": True},
              # A stated preference and an actual choice are different evidence.
-             "shared_as": {"type": "enum", "values": ["preference", "choice", "correction"]},
+             # Access spelled out as publish would settle a field new to the
+             # live App, so judgment_upgrade's second run finds nothing to do.
+             "shared_as": {"type": "enum", "values": ["preference", "choice", "correction"],
+                           "access": {"read": ["owner", "kyle"],
+                                      "create": ["owner", "kyle"], "update": ["kyle"]}},
              "source_ref": {"type": "string", "max": 200},
              "source_at": {"type": "datetime"},
              "outcome": {"type": "enum", "values": OUTCOMES, "required": True},
@@ -138,8 +138,8 @@ def bundle() -> dict:
                     "delete": ["kyle"]},
          "writers": TOOL_ONLY,
          "rules": [{"kind": "immutable_after_create",
-                    "fields": ["prediction", "belief_version", "belief", "source_at",
-                               "outcome", "shared_as"]}],
+                    "fields": ["prediction", "belief_version", "source_at", "outcome",
+                               "shared_as"]}],
          "indexed": ["prediction", "belief_version", "source_at"]},
     ]
     views = [
@@ -180,9 +180,10 @@ def bundle() -> dict:
          "params": {"prediction": {"type": "string", "required": True}},
          "filter": [{"field": "prediction", "op": "eq",
                      "value": {"param": "prediction"}}], "paging": True},
-        {"view": "feedback_for_belief", "collection": "feedback",
-         "params": {"belief": {"type": "string", "required": True}},
-         "filter": [{"field": "belief", "op": "eq", "value": {"param": "belief"}}],
+        {"view": "feedback_for_version", "collection": "feedback",
+         "params": {"version": {"type": "string", "required": True}},
+         "filter": [{"field": "belief_version", "op": "eq",
+                     "value": {"param": "version"}}],
          "sort": [{"field": "created_at", "dir": "asc"}], "paging": True},
         {"view": "links_for_belief", "collection": "prediction_beliefs",
          "params": {"belief": {"type": "string", "required": True}},
@@ -390,7 +391,7 @@ def convert_snapshot(source: dict[str, list[dict]]) -> dict[str, list[ImportReco
         out["feedback"].append(ImportRecord(
             "feedback", f["id"], _doc({
                 "prediction": f["prediction_id"], "belief_version": ref,
-                "belief": f["belief_id"], "kyle_words": f["kyle_words"], "source_ref": f["source_ref"],
+                "kyle_words": f["kyle_words"], "source_ref": f["source_ref"],
                 "source_at": f["source_at"], "outcome": f["outcome"],
                 "interpretation": f["interpretation"],
                 "confirmed_at": f["confirmed_at"]}), f["author"], f["created_at"],
