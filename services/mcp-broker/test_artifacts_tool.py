@@ -207,6 +207,68 @@ def test_get_on_a_file_is_metadata_and_no_picture(api):
     assert text.splitlines()[-1] == f"reference it in Relay as `[[artifact:{FILE_ID}]]`"
 
 
+# `full=true` on a file: the content as text, fetched as the caller from the
+# content route the API already gates — so the read check is the API's own.
+PAGE = ("<!doctype html><html><body>" + "<p>café résumé</p>" * 150
+        + "</body></html>").encode()
+OCTET_PAGE = {**FILE, "name": "page.html", "mime": "application/octet-stream", "size": len(PAGE)}
+
+
+def test_get_full_on_a_text_file_returns_the_source(api):
+    api.replies[f"{ARTIFACTS}/{FILE_ID}"] = (200, json.dumps(OCTET_PAGE))
+    api.replies[f"{ARTIFACTS}/{FILE_ID}/content"] = (200, PAGE, "application/octet-stream")
+    out = artifacts(action="get", id=FILE_ID, full=True)
+    assert [c[1] for c in api] == [f"{ARTIFACTS}/{FILE_ID}", f"{ARTIFACTS}/{FILE_ID}/content"]
+    text = text_of(out)
+    assert f"content: text · {len(PAGE)} bytes · truncated=false" in text
+    assert PAGE.decode() in text
+    assert text.splitlines()[-1] == f"reference it in Relay as `[[artifact:{FILE_ID}]]`"
+
+
+def test_get_without_full_never_fetches_the_content(api):
+    artifacts(action="get", id=FILE_ID)
+    assert [c[1] for c in api] == [f"{ARTIFACTS}/{FILE_ID}"]
+
+
+def test_get_full_for_a_caller_the_api_denies_returns_no_content(api):
+    """The metadata route refuses first; and should the content route refuse
+    on its own, its refusal is what comes back — never the bytes."""
+    api.replies[f"{ARTIFACTS}/{FILE_ID}"] = (404, '{"detail":"unknown artifact"}')
+    api.replies[f"{ARTIFACTS}/{FILE_ID}/content"] = (200, PAGE, "text/html")
+    assert artifacts(action="get", id=FILE_ID, full=True) == "error: unknown artifact"
+    assert [c[1] for c in api] == [f"{ARTIFACTS}/{FILE_ID}"]
+    api.replies[f"{ARTIFACTS}/{FILE_ID}"] = (200, json.dumps(OCTET_PAGE))
+    api.replies[f"{ARTIFACTS}/{FILE_ID}/content"] = (403, '{"detail":"not your run"}')
+    text = text_of(artifacts(action="get", id=FILE_ID, full=True))
+    assert "(no content returned: not your run)" in text and "doctype" not in text
+
+
+@pytest.mark.parametrize("body", [b"PK\x03\x04\x00\x00binary", b"\xff\xfe\x00z"])
+def test_get_full_on_a_binary_file_returns_no_content(api, body):
+    api.replies[f"{ARTIFACTS}/{FILE_ID}"] = (200, json.dumps(
+        {**FILE, "name": "a.zip", "mime": "application/octet-stream", "size": len(body)}))
+    api.replies[f"{ARTIFACTS}/{FILE_ID}/content"] = (200, body, "application/octet-stream")
+    text = text_of(artifacts(action="get", id=FILE_ID, full=True))
+    assert f"content: binary, not returned ({len(body)} B)" in text
+    assert "PK" not in text
+
+
+def test_get_full_on_an_oversize_text_file_is_truncated(api):
+    """Cut at 64 KiB — mid-character here, which still decodes as text."""
+    body = b"a" * (broker.ARTIFACT_TEXT_MAX - 1) + "é".encode() * 10
+    api.replies[f"{ARTIFACTS}/{FILE_ID}"] = (200, json.dumps(
+        {**FILE, "name": "big.txt", "mime": "application/octet-stream", "size": len(body)}))
+    api.replies[f"{ARTIFACTS}/{FILE_ID}/content"] = (200, body, "application/octet-stream")
+    text = text_of(artifacts(action="get", id=FILE_ID, full=True))
+    assert f"content: text · {len(body)} bytes · truncated=true (first 64 KB returned)" in text
+    assert "a" * (broker.ARTIFACT_TEXT_MAX - 1) in text and "é" not in text
+
+
+def test_get_full_on_a_text_mime_reads_past_a_bad_byte(api):
+    api.replies[f"{ARTIFACTS}/{FILE_ID}/content"] = (200, b"a,b\n1,\xff\n", "text/csv")
+    assert "1,�" in text_of(artifacts(action="get", id=FILE_ID, full=True))
+
+
 def test_a_thumb_the_api_will_not_serve_still_answers_the_metadata(api):
     api.replies[f"{ARTIFACTS}/{IMAGE_ID}/thumb"] = (404, '{"detail":"no thumb for this artifact"}')
     out = artifacts(action="get", id=IMAGE_ID)
