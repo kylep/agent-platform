@@ -52,15 +52,29 @@ not publish these definitions. See [System agents](building-blocks/system-agents
 
 ## Platform code — manual, image by image
 
-Images and the Helm chart are deployed by hand. Build for the cluster's
-architecture (`linux/amd64` on the NUC), save the image over SSH into k3s's
-containerd namespace, then restart whatever runs it:
+Images and the Helm chart are deployed by hand. **Prod pins every image to an
+explicit tag in the Helm values** (`images.backend.tag`, `mcpBroker.image.tag`,
+`images.runnerDev.tag` and so on; see `helm get values ap`). It never runs
+`:dev`. Rebuilding `:dev` and running `rollout restart` therefore ships
+nothing: the pods restart on the old pinned tag. This happened on 2026-11-22,
+and live checks passed by coincidence. Always build under a new unique tag and
+point Helm at it:
 
 ```sh
-docker buildx build --platform linux/amd64 --load -t <image>:dev <context>
-docker save <image>:dev | ssh pai 'sudo k3s ctr -n k8s.io images import -'
-kubectl -n agent-platform rollout restart deploy/<deployment>
+TAG=kp-$(git rev-parse --short HEAD)
+docker buildx build --platform linux/amd64 --provenance=false --load -t <image>:$TAG <context>
+docker save <image>:$TAG | ssh pai 'sudo k3s ctr -n k8s.io images import -'
+helm get values ap -n agent-platform | tail -n +2 > /tmp/ap-values.yaml
+helm upgrade ap charts/agent-platform -n agent-platform -f /tmp/ap-values.yaml \
+  --set images.backend.tag=$TAG        # one --set per image you rebuilt
+rm /tmp/ap-values.yaml
+kubectl -n agent-platform get deploy -o custom-columns=N:.metadata.name,I:.spec.template.spec.containers[0].image
 ```
+
+Verify with the last line that the deployments show the new tag before you
+call anything deployed. Helm and kubectl run from a laptop with pai's k3s
+kubeconfig (`/etc/rancher/k3s/k3s.yaml`, server rewritten to `https://pai:6443`);
+pai itself has no `helm`.
 
 `-n k8s.io` is not optional: images imported into any other containerd
 namespace are invisible to kubelet.
@@ -69,7 +83,7 @@ namespace are invisible to kubelet.
 |---|---|---|
 | `agent-platform-backend` | `services/backend` | `deploy/ap-api`, `deploy/ap-dispatcher`, `deploy/ap-recorder` — **one image, three deployments**; restart all three |
 | `agent-platform-runner` | `services/runner` (it copies `workbench.py` too, so a change there means rebuilding both runner images) | no deployment — the dispatcher launches it as a Job per run, so a new image applies to the *next* run with no restart |
-| `agent-platform-runner-dev` | **the repository root** with `-f services/runner/Dockerfile.dev .` (it warms the npm and pip caches from the lockfiles) | no deployment — the dispatcher launches it as the Job for every `role: dev` run (the Workbench, design 24), so a new image applies to the *next* dev run with no restart |
+| `agent-platform-runner-dev` | **the repository root** with `-f services/runner/Dockerfile.dev .` (it warms the npm and pip caches from the lockfiles) | no deployment — the dispatcher launches it as the Job for every `role: dev` run (the Workbench, design 24). It runs the tag in `images.runnerDev.tag` (the dispatcher's `AP_RUNNER_DEV_IMAGE`), so a rebuilt image needs a new tag plus a Helm upgrade |
 | `agent-platform-codex-proxy` | `services/codex-proxy` | `deploy/ap-codex-proxy` — owns Codex OAuth, token refresh, and upstream Responses streaming (design 26) |
 | `agent-platform-web` | `services/web`, using `Dockerfile.prebuilt` after `npm run build -w web` | `deploy/ap-web` |
 | `agent-platform-mcp-broker` | `services/mcp-broker` | `deploy/ap-mcp-broker` |
@@ -90,8 +104,10 @@ is the one image CI never builds (it is several GB), so it is always built here:
 
 ```sh
 docker buildx build --platform linux/amd64 --provenance=false --load \
-  -t agent-platform-runner-dev:dev -f services/runner/Dockerfile.dev .
+  -t agent-platform-runner-dev:$TAG -f services/runner/Dockerfile.dev .
 ```
+
+Then import it and `helm upgrade … --set images.runnerDev.tag=$TAG` as above.
 
 Expect tens of minutes on the first build; later builds reuse the dependency
 layers unless a lockfile, a `requirements.txt` or `services/backend/pyproject.toml`
