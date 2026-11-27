@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -82,14 +83,22 @@ async def check_kafka(ctx) -> Observation:
     return obs
 
 
+def _ident(value) -> str:
+    return re.sub(r"[^A-Za-z0-9_.:+-]", "?", str(value if value is not None else "-"))[:64]
+
+
 async def check_tool_denials(ctx) -> Observation:
     obs = Observation(known=("tool-denials:",))
     for row in await tool_rows(ctx.sf, 24):
         if row["denials"] <= 0:
             continue
+        # Denied calls can come from unauthenticated callers, and this body
+        # summons Pai: keep only identifier characters so a crafted action or
+        # agent string can't carry an @mention or instructions into her run.
         samples = "; ".join(
-            f"{d['ts']} agent={d['agent']} run={d['run_id']} action={d['action']} "
-            f"decision={d['decision']}" for d in row["recent_denials"])
+            f"{_ident(d['ts'])} agent={_ident(d['agent'])} run={_ident(d['run_id'])} "
+            f"action={_ident(d['action'])} decision={_ident(d['decision'])}"
+            for d in row["recent_denials"])
         obs.active[f"tool-denials:{row['tool']}"] = (f"Tool {row['tool']} calls were denied", (
             f"{row['denials']} denied call(s) to {row['tool']} in the last 24 hours. "
             f"Newest denials: {samples}. Intervention: decide whether each is correctly "
