@@ -94,6 +94,7 @@ async def _denied_since(session, tool: str, since: datetime) -> bool:
 
 async def report_incident(session, producer, *, incident_key: str, title: str,
                           body: str, resolved: bool = False, run=None,
+                          system_actor: bool = False,
                           budget_limit: int = 20) -> Ticket | None:
     """One stable key, one ticket, no repeated summons for the same incident.
 
@@ -107,13 +108,13 @@ async def report_incident(session, producer, *, incident_key: str, title: str,
         .with_for_update())).scalar_one_or_none()
     if conv is None or room_home(conv) != "relay" or conv.archived_at is not None:
         raise ticket_store.TicketRuleError("an active internal OPS project is required")
-    # The deterministic checker (health_checker.py) has no run and acts as the
-    # system; the ad hoc health-monitor agent still reports from its own run.
-    if run is None:
+    # Only the in-process checker (health_checker.py) passes system_actor; it is
+    # never exposed through the API, which always requires a health-monitor run.
+    if system_actor:
         author = HEALTH_CHECKER_ACTOR
     else:
         author = "agent:health-monitor"
-        if run.agent != "health-monitor":
+        if run is None or run.agent != "health-monitor":
             raise ticket_store.TicketRuleError("health incidents require a health-monitor run")
         if not is_member(conv, author, await enabled_agents(session), await explicit_members(session, conv.id)):
             raise ticket_store.TicketRuleError("health-monitor cannot access OPS")

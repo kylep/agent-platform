@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 import pytest
+from agentplatform.ticket_store import TicketRuleError
 from sqlalchemy import func, select
 
 from agentplatform.db import (AgentDef, Base, RelayMessage, Run, RunState, Ticket,
@@ -275,3 +276,17 @@ async def test_monitor_cannot_bypass_recovery_via_tickets_but_pai_can_dispose(to
     assert recurred.status_code == 200, recurred.text
     async with sf() as s:
         assert (await s.get(Ticket, ticket_id)).state == "open"
+
+
+async def test_a_missing_run_is_refused_unless_the_checker_says_so(sf, producer):
+    # No run must never mean "trusted system": only the in-process checker
+    # passes system_actor=True; every other path needs a health-monitor run.
+    await _setup(sf)
+    async with sf() as s:
+        with pytest.raises(TicketRuleError):
+            await report_incident(s, producer, run=None, incident_key="kafka-down",
+                title="Kafka unreachable", body="Broker unreachable.")
+    async with sf() as s:
+        ticket = await report_incident(s, producer, run=None, system_actor=True, incident_key="kafka-down",
+            title="Kafka unreachable", body="Broker unreachable.")
+    assert ticket is not None and ticket.reporter == "system:health-checker"

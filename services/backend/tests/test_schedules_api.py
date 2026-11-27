@@ -40,7 +40,7 @@ async def test_list_only_valid_cron_agents(sched_client):
     body = r.json()
     # plain + badcron excluded; the two scheduled code-owned system workers
     # (docs/design/34) are materialized by init_db with their default crons.
-    assert [s["agent"] for s in body] == ["cronbot", "health-monitor", "run-summarizer"]
+    assert [s["agent"] for s in body] == ["cronbot", "run-summarizer"]  # health-monitor moved to the dispatcher checker (OPS-53)
     assert body[0]["cron"] == "*/10 * * * *" and body[0]["enabled"] is True
 
 

@@ -124,7 +124,7 @@ class HealthChecker:
         try:
             async with self.sf() as s:
                 await report_incident(s, self.producer, incident_key=key, title=title,
-                                      body=body, resolved=resolved)
+                                      body=body, resolved=resolved, system_actor=True)
         except TicketRuleError as exc:
             # A tool-denial recovery without proof is a rejected recovery: the
             # key stays active until Pai or a human closes its ticket.
