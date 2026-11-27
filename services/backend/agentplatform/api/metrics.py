@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
+from sqlalchemy.orm import defer
 
 from agentplatform.api.auth import READ_ROLES, require_role
 from agentplatform.db import AgentDef, ACTIVE_STATES, Run, RunModelUsage, RunState, utcnow
@@ -100,10 +101,18 @@ def _last_failure(runs: list[Run]):
     return max(failed).isoformat() if failed else None
 
 
+# Metrics read 5000 runs at a time: their big text/JSON columns (a whole agent
+# definition per run, prompts, results) are never aggregated, and loading them
+# OOMKilled the 256Mi dispatcher once the health checker called this (OPS-53).
+_HEAVY_RUN_COLUMNS = (Run.definition_snapshot, Run.user_message, Run.prompt, Run.memory_query,
+                      Run.error, Run.summary, Run.result, Run.permission_denials)
+
+
 async def recent_runs(session_factory) -> list[Run]:
     async with session_factory() as s:
         return list((await s.execute(
-            select(Run).where(Run.execution_location == "cluster").order_by(Run.created_at.desc()).limit(_WINDOW))).scalars())
+            select(Run).options(*(defer(c, raiseload=True) for c in _HEAVY_RUN_COLUMNS))
+            .where(Run.execution_location == "cluster").order_by(Run.created_at.desc()).limit(_WINDOW))).scalars())
 
 
 @router.get("/api/metrics/overview", response_model=S.MetricsOverview, dependencies=[Depends(require_role(*READ_ROLES))])
