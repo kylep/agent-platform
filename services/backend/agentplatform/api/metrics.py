@@ -100,15 +100,15 @@ def _last_failure(runs: list[Run]):
     return max(failed).isoformat() if failed else None
 
 
-async def _recent_runs(request: Request) -> list[Run]:
-    async with request.app.state.session_factory() as s:
+async def recent_runs(session_factory) -> list[Run]:
+    async with session_factory() as s:
         return list((await s.execute(
             select(Run).where(Run.execution_location == "cluster").order_by(Run.created_at.desc()).limit(_WINDOW))).scalars())
 
 
 @router.get("/api/metrics/overview", response_model=S.MetricsOverview, dependencies=[Depends(require_role(*READ_ROLES))])
 async def overview(request: Request):
-    runs = await _recent_runs(request)
+    runs = await recent_runs(request.app.state.session_factory)
     now = utcnow()
     day = [r for r in runs if r.created_at and as_utc(r.created_at) >= now - timedelta(days=1)]
     week = [r for r in runs if r.created_at and as_utc(r.created_at) >= now - timedelta(days=7)]
@@ -174,11 +174,7 @@ async def durations(request: Request, days: int = 14, agent: str | None = None):
     return out
 
 
-@router.get("/api/metrics/agents", response_model=list[S.AgentMetrics], dependencies=[Depends(require_role(*READ_ROLES))])
-async def per_agent(request: Request):
-    runs = await _recent_runs(request)
-    async with request.app.state.session_factory() as session:
-        enabled = dict((await session.execute(select(AgentDef.name, AgentDef.enabled))).all())
+def agent_rows(runs: list[Run], enabled: dict[str, bool]) -> list[dict]:
     buckets: dict[str, list[Run]] = defaultdict(list)
     for r in runs:
         buckets[r.agent].append(r)
@@ -194,8 +190,21 @@ async def per_agent(request: Request):
     return rows
 
 
+@router.get("/api/metrics/agents", response_model=list[S.AgentMetrics], dependencies=[Depends(require_role(*READ_ROLES))])
+async def per_agent(request: Request):
+    sf = request.app.state.session_factory
+    runs = await recent_runs(sf)
+    async with sf() as session:
+        enabled = dict((await session.execute(select(AgentDef.name, AgentDef.enabled))).all())
+    return agent_rows(runs, enabled)
+
+
 @router.get("/api/metrics/tools", response_model=list[S.ToolMetrics], dependencies=[Depends(require_role(*READ_ROLES))])
 async def metrics_tools(request: Request, hours: int = 24):
+    return await tool_rows(request.app.state.session_factory, hours)
+
+
+async def tool_rows(session_factory, hours: int = 24) -> list[dict]:
     """Per-tool call aggregates from the audit trail (docs/design/13 E):
     volumes, denials, errors, latency — what health-monitor watches for
     denial spikes and what the Reporting page charts."""
@@ -210,7 +219,7 @@ async def metrics_tools(request: Request, hours: int = 24):
                    func.avg(ToolAudit.latency_ms).label("avg_latency_ms"))
             .where(ToolAudit.ts >= cutoff).group_by(ToolAudit.tool)
             .order_by(func.count().desc()))
-    async with request.app.state.session_factory() as s:
+    async with session_factory() as s:
         rows = (await s.execute(stmt)).all()
         # Give the health worker enough evidence to distinguish a broken
         # scheduled reader from correctly rejected unauthenticated traffic.

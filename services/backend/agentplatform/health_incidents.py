@@ -17,11 +17,12 @@ from agentplatform.tickets import CLOSED_STATES
 from agentplatform.scheduler import as_utc
 
 
-# The worker is a model and rewords its evidence on every 15-minute pass, so a
+# The ad hoc worker is a model and rewords its evidence on every 15-minute pass, so a
 # content fingerprint alone never matches: OPS-26 logged ~1,400 edits that way.
 # Evidence on an open ticket is refreshed at most this often; `updated_at` is
 # the last time the ticket was written, not the last observation.
 EVIDENCE_REFRESH = timedelta(hours=6)
+HEALTH_CHECKER_ACTOR = "system:health-checker"
 
 
 class HealthIncident(Base):
@@ -106,11 +107,16 @@ async def report_incident(session, producer, *, incident_key: str, title: str,
         .with_for_update())).scalar_one_or_none()
     if conv is None or room_home(conv) != "relay" or conv.archived_at is not None:
         raise ticket_store.TicketRuleError("an active internal OPS project is required")
-    author = "agent:health-monitor"
-    if run is None or run.agent != "health-monitor":
-        raise ticket_store.TicketRuleError("health incidents require a health-monitor run")
-    if not is_member(conv, author, await enabled_agents(session), await explicit_members(session, conv.id)):
-        raise ticket_store.TicketRuleError("health-monitor cannot access OPS")
+    # The deterministic checker (health_checker.py) has no run and acts as the
+    # system; the ad hoc health-monitor agent still reports from its own run.
+    if run is None:
+        author = HEALTH_CHECKER_ACTOR
+    else:
+        author = "agent:health-monitor"
+        if run.agent != "health-monitor":
+            raise ticket_store.TicketRuleError("health incidents require a health-monitor run")
+        if not is_member(conv, author, await enabled_agents(session), await explicit_members(session, conv.id)):
+            raise ticket_store.TicketRuleError("health-monitor cannot access OPS")
     record = await session.get(HealthIncident, incident_key, with_for_update=True)
     ticket = await session.get(Ticket, record.ticket_id) if record else None
     if record and ticket is None:

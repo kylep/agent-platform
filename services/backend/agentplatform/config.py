@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     # verifiable secret's probe/script this often and records the status, so
     # `valid` can't go stale-green. <= 0 disables the heartbeat.
     secret_verify_interval_seconds: int = 600
+    # Deterministic health checks (health_checker.py): DLQ, failure streaks,
+    # Kafka, tool denials and backups, evaluated in the dispatcher with no model
+    # call. AP_HEALTH_CHECKER_ENABLED=false turns the loop off.
+    health_checker_enabled: bool = True
+    health_checker_interval_seconds: int = 300
     # Default transcript retention: prune run_transcript_events older than this
     # many days (Run metadata/summary is kept). Per-agent manifest override wins;
     # <= 0 disables pruning (keep forever).

@@ -60,15 +60,18 @@ async def _dispatcher_lag(bootstrap: str) -> int | None:
 
 @router.get("/api/health/kafka", response_model=S.KafkaHealth, dependencies=[Depends(require_role(*READ_ROLES))])
 async def kafka_health(request: Request):
+    return await kafka_status(request.app.state.settings, request.app.state.session_factory)
+
+
+async def kafka_status(settings, session_factory) -> dict:
     """Broker liveness + expected-topic presence, a best-effort dispatcher lag,
     and a DB-derived run backlog (queued/active/dlq). Powers the dashboard's
     Kafka health panel; deeper metrics wait for the M05 observability pass."""
-    settings = request.app.state.settings
     bootstrap = settings.kafka_bootstrap
     result: dict = {"reachable": False, "topics": [], "missing_topics": [],
                     "lag": None, "error": None}
 
-    async with request.app.state.session_factory() as s:
+    async with session_factory() as s:
         queued = (await s.execute(select(func.count()).select_from(Run)
                   .where(Run.state == RunState.QUEUED))).scalar_one()
         active = (await s.execute(select(func.count()).select_from(Run)

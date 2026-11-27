@@ -16,6 +16,7 @@ from agentplatform.db import init_db, make_engine, make_session_factory
 from agentplatform.dispatcher import Dispatcher
 from agentplatform.events import Producer
 from agentplatform.githubapp import GitHubApp
+from agentplatform.health_checker import HealthChecker
 from agentplatform.conversation_ingest import ConversationIngestor
 from agentplatform.ingest import Ingestor, ToolAuditIngestor
 from agentplatform.joblauncher import JobWatcher, K8sJobLauncher
@@ -127,6 +128,7 @@ async def main() -> None:
     tool_provisioner = ToolProvisioner(ToolRegistry(settings.tools_root), engine,
                                        K8sSecretStore(core, settings.k8s_namespace),
                                        settings)
+    health_checker = HealthChecker(session_factory, producer, settings)
     ingestor = Ingestor(settings, session_factory, producer)
     audit_ingestor = ToolAuditIngestor(settings, session_factory, producer)
     conv_ingestor = ConversationIngestor(settings, session_factory, producer)
@@ -165,7 +167,7 @@ async def main() -> None:
                              ingestor.run_forever(), audit_ingestor.run_forever(),
                              conv_ingestor.run_forever(), news_ingestor.run_forever(),
                              relay_router.run_forever(),
-                             verifier.run_forever(),
+                             verifier.run_forever(), health_checker.run_forever(),
                              sweep_orphaned_keys_forever(session_factory),
                              pr_summarizer.run_forever(), merged_tickets.run_forever(),
                              rapid_chat.run_forever(session_factory, producer, settings))
