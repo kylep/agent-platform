@@ -653,6 +653,8 @@ That is 12 implementer units (U0.5 and the deploys are main's). The opus units h
 
 ## 16. Risks
 
+0. **The command port trusts the caller and run headers (accepted in P1, fix in P2).** The 2026-11-28 security review flagged this. `tools/village/run.py` sends the broker-verified `TOOL_CALLER_AGENT` and `TOOL_RUN_ID` as headers. The engine checks them against the Run and `village_runs` rows, and only tool-executor can reach port 8001. A model cannot set those headers. Code running inside tool-executor can, which means any tool merged by PR that reads another run's id. **P2 hardening (U9):** bind the identity to a per-call credential the executor attaches (the `_app_data` per-call proxy pattern, `tools/README.md` l.36-37), and have the engine verify it.
+
 1. **A long-lived planner run may not loop for an hour.** Claude Code compaction, a model that decides it is "done", or harness turn limits could end it. U0 measures 15 min; supervision restarts it (bounded) and the hands never wait. If the spike fails its gate, the fallback is a relaunch cadence, which adds ~55 s gaps per relaunch.
 2. **Planner latency on a run is unmeasured.** Each cycle is a full Claude Code turn with growing context. If `think_ms` p95 is over 20 s, characters run on habits more and the "thinking slowly" caption shows often. The codex backup runtime is the alternative, and Kyle must be told.
 3. **Global concurrency.** Planners hold 3 of 8 slots for the whole session; reflections need up to 2 more. Other platform runs (Relay wakes, crons, coding agents) get 3. If the NUC struggles at 8, lower to 6 and drop reflection overlap to 1.
