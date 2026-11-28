@@ -42,8 +42,12 @@ async def _village_run(sf, *, role="reflection", persona="pai", row_state="runni
         snap = {"name": agent, "prompt": BASE_PROMPT, "harness_tools": ["WebSearch", "WebFetch"],
                 "skills": ["git"], "platform_tools": PERSONA_TOOLS if agent == persona else
                 [VILLAGE_TOOL, MEM]}
+        # Carry the agent's current generation, as materialize_run does: the
+        # seeded village-planner row has been through migrate_authority's bump.
+        generation = (await s.get(AgentDef, agent)).authorization_generation or 0
         s.add(Run(id=run_id, agent=agent, trigger="village" if row else "conversation",
-                  requested_by="village:t", prompt="x", state=run_state, definition_snapshot=snap))
+                  requested_by="village:t", prompt="x", state=run_state, definition_snapshot=snap,
+                  authorization_generation=generation))
         if row:
             s.add(VillageRun(session_id=session.id, persona=persona, role=role, run_id=run_id,
                              state=row_state))
