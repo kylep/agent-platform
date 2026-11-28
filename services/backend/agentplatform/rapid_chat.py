@@ -822,7 +822,8 @@ async def cancel(producer, run_id: str) -> str:
     return ""
 
 
-async def cancel_turn_run(s, producer, run_id: str | None) -> str:
+async def cancel_turn_run(s, producer, run_id: str | None,
+                          error: str = "cancelled by rapid-chat") -> str:
     """Cancel a turn's Run. A run still `queued` has no pod and the dispatcher
     only acts on a cancel for an active run, so a lost publish would let it
     launch later: kill it in the database directly (conditional on still being
@@ -831,7 +832,7 @@ async def cancel_turn_run(s, producer, run_id: str | None) -> str:
     if not run_id:
         return ""
     res = await s.execute(update(Run).where(Run.id == run_id, Run.state == RunState.QUEUED).values(
-        state=RunState.KILLED, finished_at=utcnow(), error="cancelled by rapid-chat"))
+        state=RunState.KILLED, finished_at=utcnow(), error=error))
     if res.rowcount:
         await revoke_run_keys(s, run_id)
         await s.commit()

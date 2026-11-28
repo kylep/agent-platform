@@ -1,9 +1,11 @@
 """The village spectator API (GEN-11, plan 2026-11-27-village-game §9, §10.5, §11).
 
 Read-only over the engine's `village_*` tables. The engine is the single writer
-of world state, so nothing here writes a world table; the admin controls
-(start a test session, stop) go through the engine's command interface, which
-is stubbed behind `app.state.village_command_sender` until it lands.
+of world state, so nothing here writes a world table. The admin controls
+write only `village_sessions` rows, which the engine's clock acts on: Start
+test inserts a `kind=test, state=scheduled` row (the clock opens it within
+seconds), Stop pulls `planned_end` in so the clock runs the T-3 walk and the
+T-0 freeze (plan §4).
 
 Every serializer is an allowlist. `village_notes`, `village_knowledge`,
 planner briefs, `wait` deltas and "how I play" sections are never selected,
@@ -21,14 +23,17 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from datetime import timedelta
+
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from agentplatform.api import relay as relay_api
 from agentplatform.api.auth import require_role, still_signed_in, stream_cookie
 from agentplatform.db import (VillageConfig, VillageEvent, VillagePlannerCycle,
                               VillageRun, VillageSession, VillageSnapshot, utcnow)
-from agentplatform.village import contract
+from agentplatform.village import contract, glue
+from agentplatform.village.clock import local_day
 
 router = APIRouter(tags=["village"])
 
@@ -63,6 +68,8 @@ def _scrub(value: Any) -> Any:
 
 
 def _public_state(state: dict[str, Any]) -> dict[str, Any]:
+    if "actors" in state:                  # the engine's World snapshot (village/world.py)
+        state = glue.public_view(state)
     out = {k: _scrub(state[k]) for k in SNAPSHOT_KEYS if k in state}
     chars = out.get("characters")
     items = chars.values() if isinstance(chars, dict) else (chars or [])
@@ -245,24 +252,54 @@ async def put_config(body: ConfigBody, request: Request, caller: str = Depends(A
         return {"rules": contract.merged_rules(row.rules)}
 
 
-async def _send_admin_command(request: Request, action: str, args: dict[str, Any]) -> dict[str, Any]:
-    """STUB: the engine's command interface (U2/U4) is not merged yet. A sender
-    is any async callable on `app.state.village_command_sender`; until one is
-    installed the controls answer 503 rather than write a world table."""
-    sender = getattr(request.app.state, "village_command_sender", None)
-    if sender is None:
-        raise HTTPException(503, "village engine command interface is not available")
-    return await sender(action, args)
+OPEN_STATES = ("scheduled", "live", "closing")
+
+
+class TestSessionBody(BaseModel):
+    length_min: int = Field(8, ge=1, le=60)
+    # Test sessions skip the quota gates unless asked not to (§4: honoured only for tests).
+    override: bool = True
 
 
 @router.post("/api/village/sessions/test")
-async def start_test_session(request: Request, caller: str = Depends(ADMIN)):
-    return await _send_admin_command(request, "start_test", {"by": caller})
+async def start_test_session(request: Request, body: TestSessionBody | None = None,
+                             caller: str = Depends(ADMIN)):
+    body = body or TestSessionBody()
+    async with request.app.state.session_factory() as s:
+        busy = (await s.execute(select(VillageSession).where(
+            VillageSession.state.in_(OPEN_STATES)).limit(1))).scalar_one_or_none()
+        if busy is not None:
+            raise HTTPException(409, f"a session is already {busy.state}")
+        rules = await _rules(s)
+        row = VillageSession(day=local_day(utcnow(), rules).isoformat(), kind="test",
+                             state="scheduled", length_min=body.length_min,
+                             quota_at_start={"override": body.override, "by": caller})
+        s.add(row)
+        await s.commit()
+        return session_out(row)
 
 
 @router.post("/api/village/sessions/{session_id}/stop")
 async def stop_session(session_id: str, request: Request, caller: str = Depends(ADMIN)):
-    return await _send_admin_command(request, "stop", {"session_id": session_id, "by": caller})
+    async with request.app.state.session_factory() as s:
+        row = await s.get(VillageSession, session_id)
+        if row is None:
+            raise HTTPException(404, "no such session")
+        if row.state not in OPEN_STATES:
+            raise HTTPException(409, f"the session is already {row.state}")
+        now = utcnow()
+        if row.state == "scheduled":
+            row.state, row.ended_at, row.length_min = "skipped", now, 0
+        else:
+            rules = await _rules(s)
+            soon = now + timedelta(minutes=rules["closing"]["walk_to_square_min"])
+            end = row.planned_end
+            if end is not None and end.tzinfo is None:
+                end = end.replace(tzinfo=soon.tzinfo)
+            row.planned_end = soon if end is None or end > soon else end
+        row.end_reason = f"stopped by {caller}"[:256]
+        await s.commit()
+        return session_out(row)
 
 
 @router.get("/api/village/glossary")

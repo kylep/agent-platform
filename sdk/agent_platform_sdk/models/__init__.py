@@ -310,6 +310,7 @@ from .task_in import TaskIn
 from .task_patch import TaskPatch
 from .team_in import TeamIn
 from .team_patch import TeamPatch
+from .test_session_body import TestSessionBody
 from .ticket_actor_count import TicketActorCount
 from .ticket_agent_budget import TicketAgentBudget
 from .ticket_assign_in import TicketAssignIn
@@ -799,6 +800,7 @@ __all__ = (
     "TaskPatch",
     "TeamIn",
     "TeamPatch",
+    "TestSessionBody",
     "TicketActorCount",
     "TicketAgentBudget",
     "TicketAssignIn",

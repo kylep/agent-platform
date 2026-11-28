@@ -58,9 +58,12 @@ class Journal:
 
     async def submit(self, session_id: str, source: str, action: str,
                      args: dict[str, Any] | None = None, *, run_id: str | None = None,
-                     persona: str | None = None, request_id: str | None = None) -> Submitted:
+                     persona: str | None = None, request_id: str | None = None,
+                     digest: str | None = None) -> Submitted:
+        """`digest` overrides the args hash: the hash of the tool call as made,
+        when what is journaled is a validated subset of it."""
         args = args or {}
-        digest = args_hash(args)
+        digest = digest or args_hash(args)
         async with self._lock:
             if run_id and request_id:
                 prior = await self.find(run_id, request_id)

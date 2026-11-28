@@ -67,17 +67,50 @@ async def test_config_validates_and_merges(admin_client):
                                    json={"rules": {"nope": 1}})).status_code == 422
 
 
-async def test_admin_controls_are_stubbed_until_the_engine_command_port_exists(admin_client):
-    assert (await admin_client.post("/api/village/sessions/test")).status_code == 503
-    calls = []
+async def test_start_test_inserts_a_scheduled_row_the_clock_opens(admin_client, sf):
+    r = await admin_client.post("/api/village/sessions/test", json={"length_min": 8})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kind"] == "test" and body["state"] == "scheduled" and body["length_min"] == 8
+    assert body["quota_at_start"]["override"] is True
+    assert (await admin_client.post("/api/village/sessions/test")).status_code == 409
+    stop = await admin_client.post(f"/api/village/sessions/{body['id']}/stop")
+    assert stop.json()["state"] == "skipped" and stop.json()["end_reason"].startswith("stopped by")
 
-    async def sender(action, args):
-        calls.append((action, args.get("session_id")))
-        return {"state": "applied"}
 
-    admin_client._transport.app.state.village_command_sender = sender
-    r = await admin_client.post("/api/village/sessions/s1/stop")
-    assert r.json() == {"state": "applied"} and calls == [("stop", "s1")]
+async def test_stop_pulls_a_live_sessions_end_in(admin_client, sf):
+    from datetime import timedelta
+    from agentplatform.db import utcnow
+    async with sf() as s:
+        s.add(VillageSession(id="s9", day="2026-11-27", kind="test", state="live", length_min=60,
+                             planned_end=utcnow() + timedelta(hours=1)))
+        await s.commit()
+    r = await admin_client.post("/api/village/sessions/s9/stop")
+    assert r.status_code == 200 and r.json()["state"] == "live"
+    async with sf() as s:
+        row = await s.get(VillageSession, "s9")
+    end = row.planned_end.replace(tzinfo=None) if row.planned_end.tzinfo else row.planned_end
+    assert end <= utcnow().replace(tzinfo=None) + timedelta(minutes=3, seconds=5)
+    assert (await admin_client.post("/api/village/sessions/nope/stop")).status_code == 404
+
+
+async def test_state_reads_the_real_world_snapshot_shape(admin_client, sf):
+    from agentplatform.village.world import new_world
+    w = new_world()
+    w.actors["pai"]["section"] = TOKEN
+    w.actors["pai"]["goals"] = [TOKEN]
+    w.actors["pai"]["caption"] = "fetching wood"
+    async with sf() as s:
+        s.add(VillageSession(id="s2", day="2026-11-27", kind="test", state="live"))
+        s.add(VillageSnapshot(session_id="s2", tick=w.tick, state_hash=w.state_hash(),
+                              state=w.to_snapshot()))
+        await s.commit()
+    r = await admin_client.get("/api/village/state")
+    st = r.json()["snapshot"]["state"]
+    assert st["map"] == {"w": 64, "h": 40}
+    (pai,) = st["characters"]
+    assert pai["id"] == "pai" and pai["now"] == "fetching wood" and isinstance(pai["x"], int)
+    assert TOKEN not in r.text and "sources" in st
 
 
 async def test_glossary_degrades_to_empty(admin_client):

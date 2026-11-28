@@ -794,6 +794,9 @@ class World:
                 self.emit("quota_close", None, [], "closing early to save the weekly budget", dict(args))
             self._to_square()
         elif act == "freeze":
+            hook = self.handlers.get("before_freeze")   # glue: e.g. tomorrow's-list fallback
+            if hook is not None:
+                hook(self)
             for a in self.actors.values():
                 tasks.release(self, a)
             self.consents = []
@@ -823,6 +826,11 @@ class World:
                                     {"op": "say", "say": "Everyone gathers in the square.",
                                      "id": f"sq{self.tick}b"}])
         self.emit("walk_to_square", None, [], "everyone is heading to the square")
+
+    def frame(self) -> dict[str, Any]:
+        """The 2 Hz `village.frames` payload: positions and captions only (public)."""
+        return {"characters": [{"id": aid, "x": a["x"], "y": a["y"], "now": a["caption"]}
+                               for aid, a in sorted(self.actors.items())]}
 
     # --- invariants ---------------------------------------------------------------------------------
 
@@ -864,3 +872,8 @@ class World:
         for s in self.sources.values():
             out[s["m"]] += s["amount"]
         return out
+
+
+def new_world(rules: dict | None = None, seed: int = 1) -> World:
+    """The starting village (main.default_make_world's fresh world)."""
+    return World(seed=seed, rules=rules)

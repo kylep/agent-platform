@@ -23,6 +23,8 @@ log = logging.getLogger(__name__)
 TRIGGER = "village"
 BACKOFF_S = (30, 120)          # before restart 1, then every later restart
 LIVE_ROW_STATES = ("launching", "running")
+MIN_TIMEOUT_S, MAX_TIMEOUT_S = 60, 7200
+CANCEL_ERROR = "cancelled by village"
 
 
 def requested_by(session_id: str, persona: str) -> str:
@@ -30,9 +32,12 @@ def requested_by(session_id: str, persona: str) -> str:
 
 
 async def launch_run(sf, producer, *, session_id: str, persona: str, role: str, agent: str,
-                     prompt: str, attempt: int = 1, slot: str | None = None) -> VillageRun:
+                     prompt: str, attempt: int = 1, slot: str | None = None,
+                     timeout_seconds: int | None = None,
+                     memory_query: str | None = None) -> VillageRun:
     """Row first (committed), then the Run; on failure the row ends `failed`
-    with the reason and is returned (the caller decides about a retry)."""
+    with the reason and is returned (the caller decides about a retry).
+    `timeout_seconds` is the per-run deadline (materialize_run's keyword)."""
     from agentplatform import materialize
     if role not in c.RUN_ROLES:
         raise ValueError(f"unknown village run role {role!r}")
@@ -43,10 +48,12 @@ async def launch_run(sf, producer, *, session_id: str, persona: str, role: str, 
         s.add(row)
         await s.commit()
         row_id = row.id
+    spec = {"run_id": run_id, "agent": agent, "prompt": prompt, "trigger": TRIGGER,
+            "requested_by": requested_by(session_id, persona), "initiated_by": "admin"}
+    if memory_query:
+        spec["memory_query"] = memory_query[:300]
     try:
-        await materialize.materialize_run(sf, producer, {
-            "run_id": run_id, "agent": agent, "prompt": prompt, "trigger": TRIGGER,
-            "requested_by": requested_by(session_id, persona), "initiated_by": "admin"})
+        await materialize.materialize_run(sf, producer, spec, timeout_seconds=timeout_seconds)
     except Exception as exc:
         log.warning("village %s run for %s failed to launch", role, persona, exc_info=True)
         async with sf() as s:
@@ -62,9 +69,29 @@ async def launch_run(sf, producer, *, session_id: str, persona: str, role: str, 
 
 
 async def launch_planner(sf, producer, *, session_id: str, persona: str, prompt: str,
-                         attempt: int = 1, agent: str = "village-planner") -> VillageRun:
+                         attempt: int = 1, agent: str = "village-planner",
+                         timeout_seconds: int | None = None) -> VillageRun:
     return await launch_run(sf, producer, session_id=session_id, persona=persona,
-                            role=c.PLANNER, agent=agent, prompt=prompt, attempt=attempt)
+                            role=c.PLANNER, agent=agent, prompt=prompt, attempt=attempt,
+                            timeout_seconds=timeout_seconds)
+
+
+def clamp_timeout(seconds: float) -> int:
+    """materialize_run accepts 60..7200."""
+    return int(max(MIN_TIMEOUT_S, min(MAX_TIMEOUT_S, seconds)))
+
+
+async def launch_reflection(sf, producer, *, session_id: str, persona: str, slot: str,
+                            timeout_s: int, prompt: str, memory_query: str) -> str:
+    """The persona's own run (§6 Launch): row (role=reflection, slot) committed
+    first, then materialize_run with the per-run timeout. Raises when the launch
+    failed (the row is already marked failed); returns the run id."""
+    row = await launch_run(sf, producer, session_id=session_id, persona=persona,
+                           role=c.REFLECTION, agent=persona, prompt=prompt, slot=slot,
+                           timeout_seconds=clamp_timeout(timeout_s), memory_query=memory_query)
+    if row.state == "failed":
+        raise RuntimeError(row.reason or "launch failed")
+    return row.run_id
 
 
 def _row_state(run: Run | None) -> tuple[str, str | None]:
@@ -119,7 +146,7 @@ async def cancel_runs(sf, producer, session_id: str, role: str | None = None,
         for row in list((await s.execute(q)).scalars()):
             row.state, row.reason, row.finished_at = "cancelled", reason[:256], utcnow()
             await s.commit()
-            await cancel_turn_run(s, producer, row.run_id)
+            await cancel_turn_run(s, producer, row.run_id, error=CANCEL_ERROR)
             n += 1
     return n
 
@@ -148,12 +175,13 @@ class PlannerSupervisor:
     def __init__(self, sf, producer, *, session_id: str, personas: list[str],
                  prompt_for: Callable[[str, int], Awaitable[str]], rules: dict | None = None,
                  emit: Emit | None = None, hub=None, clock: Callable[[], float] = time.monotonic,
-                 backoff: tuple[float, ...] = BACKOFF_S) -> None:
+                 backoff: tuple[float, ...] = BACKOFF_S, timeout_seconds: int | None = None) -> None:
         self.sf, self.producer = sf, producer
         self.session_id, self.personas = session_id, list(personas)
         self.prompt_for = prompt_for
         self.rules = c.merged_rules(rules)
         self.emit, self.hub, self.clock, self.backoff = emit, hub, clock, backoff
+        self.timeout_seconds = timeout_seconds
         self.live = False
         self.exhausted: set[str] = set()
         self._due: dict[str, float] = {}
@@ -166,7 +194,8 @@ class PlannerSupervisor:
         prompt = await self.prompt_for(persona, attempt)
         row = await launch_planner(self.sf, self.producer, session_id=self.session_id,
                                    persona=persona, prompt=prompt, attempt=attempt,
-                                   agent=self.rules["planner_agent"])
+                                   agent=self.rules["planner_agent"],
+                                   timeout_seconds=self.timeout_seconds)
         failed = row.state == "failed"
         if self.hub:
             if attempt > 1:

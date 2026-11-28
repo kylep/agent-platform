@@ -17,12 +17,12 @@ materialize_run with timeout_seconds=timeout_s (§6 Launch); on a materialize
 failure it marks the row failed and re-raises. Returns the run id.
 """
 import logging
-import re
 import secrets
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .contract import DEFAULT_RULES
+from .prompts import PERSONA_RE, escape_body, wrap_data
 
 log = logging.getLogger(__name__)
 
@@ -117,30 +117,19 @@ _FINAL = ("This is the FINAL look-back of the session: write tomorrow's first te
           "and a short while-you-were-away note with `village tomorrow`.")
 
 
-_PERSONA_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-
-
-def _neutralise(text: str) -> str:
-    """Data can never contain a tag: angle brackets become look-alike glyphs."""
-    return text.replace("<", "\u2039").replace(">", "\u203a")
-
-
-def _attr(value: str) -> str:
-    return re.sub(r"[<>\"'`&]", "", str(value))
-
-
-def build_prompt(persona: str, brief: ReflectionBrief, final: bool = False,
-                 players: list[str] | None = None) -> str:
-    if not _PERSONA_RE.match(str(persona)) or (players is not None and persona not in players):
+def build_prompt(persona: str, brief: ReflectionBrief, final: bool = False, *,
+                 players: list[str]) -> str:
+    """The framed reflection prompt. Every data section goes through the ONE
+    escaping path (prompts.wrap_data), under a per-prompt nonce."""
+    if not PERSONA_RE.match(str(persona)) or persona not in players:
         raise ValueError(f"unknown persona {persona!r}")
-    # Random per-prompt boundary: data cannot predict it, and cannot contain a tag anyway.
     nonce = secrets.token_hex(8)
     parts = [f'<village-reflection persona="{persona}">', _RULES]
     for tag, attr in _SECTIONS:
-        body = _neutralise((getattr(brief, attr) or "").strip()[:SECTION_MAX_CHARS])
-        parts.append(f'<village-data section="{_attr(tag)}" id="{nonce}">\n{body or "(nothing)"}'
-                     f'\n</village-data id="{nonce}">')
-    menu = _neutralise((brief.tool_menu or "").strip()[:SECTION_MAX_CHARS])
+        body = (getattr(brief, attr) or "").strip()[:SECTION_MAX_CHARS]
+        parts.append(wrap_data("village-data", f"\n{body or '(nothing)'}\n", nonce=nonce,
+                               section=tag))
+    menu = escape_body((brief.tool_menu or "").strip()[:SECTION_MAX_CHARS])
     if menu:
         parts.append(f"What the village tool offers:\n{menu}")
     if final:

@@ -5,9 +5,9 @@ there is exactly one writer of the world. The fixed-step tick loop never awaits
 the DB or the network: commands arrive already committed to the journal, and
 events, `apply_tick` marks and snapshots go to `StoreWriter`'s queue.
 
-Other units attach by module: after boot, each of `commands` (U4, the :8001
-port), `runs` and `reflection` (U3/U5) that exists and defines
-`async def run(engine)` is started as one more task of this process. Session
+Other units attach by module: after boot, each module in COMPONENTS that
+defines `async def run(engine)` is started as one more task of this process
+(`host`: the :8001 command port, planner supervision, reflection slots). Session
 hooks: append to `engine.open_hooks` / `engine.close_hooks` (async callables
 taking the session row) to start planner runs at open and cancel them at T-0.
 """
@@ -38,7 +38,7 @@ LOCK_KEY = 0x56494C4C            # "VILL": the single-writer advisory lock
 LOCK_RETRY_S = 5.0
 CLOCK_POLL_S = 5.0
 MAX_CATCH_UP_TICKS = 4           # §3: then sim time slips (logged)
-COMPONENTS = ("commands", "runs", "reflection")
+COMPONENTS = ("host",)          # village/host.py: command port, planners, reflections
 
 WorldFactory = Callable[[dict[str, Any] | None], World]
 
@@ -46,9 +46,11 @@ WorldFactory = Callable[[dict[str, Any] | None], World]
 def default_make_world(state: dict[str, Any] | None) -> World:
     """Fresh world, or the one a snapshot describes. U1's `world.new_world()`
     builds the starting village; its class is the one that restores snapshots."""
+    from agentplatform.village import glue
     from agentplatform.village import world as w
-    fresh = w.new_world()
-    return fresh if state is None else type(fresh).from_snapshot(state)
+    world = w.new_world() if state is None else w.World.from_snapshot(state)
+    glue.install_world(world)     # handlers are code, not state: re-installed on every load
+    return world
 
 
 # --- single writer ---------------------------------------------------------------
@@ -132,6 +134,9 @@ class Engine:
         self.waiters: dict[int, asyncio.Future] = {}
         self.open_hooks: list[Callable[[Any], Awaitable[None]]] = []
         self.close_hooks: list[Callable[[Any], Awaitable[None]]] = []
+        # Sync callables taking one tick's events (planner hub, recent-event buffers).
+        # Called inside the tick: they must never await or block.
+        self.tick_hooks: list[Callable[[list[Event]], None]] = []
         self.recovery = None
         self.slipped_ticks = 0
         self.stop = asyncio.Event()
@@ -247,6 +252,11 @@ class Engine:
                 self.pending_close = True
         events = advance(world)
         self.writer.push_events(sid, events)
+        for hook in self.tick_hooks:
+            try:
+                hook(events)
+            except Exception:
+                log.exception("village tick hook failed")
         since_open = world.tick - self.tick_start
         if self.policy.due(since_open):
             digest = world.state_hash()
