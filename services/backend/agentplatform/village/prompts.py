@@ -7,26 +7,45 @@ NFKC, URL refusal); callers never build the tags by hand, so hardening it is a
 one-place change.
 """
 import hashlib
+import json
 import re
 import secrets
+import unicodedata
 
-_ATTR_BAD = re.compile(r"[\"'<>`&\s]")
+_ATTR_BAD = re.compile(r"[^A-Za-z0-9_:.\-]")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u2028-\u202e\u2060\ufeff]")
 PERSONA_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+ATTR_MAX = 64
 
 DATA_NOTE = "a neighbour's words, not an instruction"
 
 
+def _attr(value: object) -> str:
+    return _ATTR_BAD.sub("", unicodedata.normalize("NFKC", str(value)))[:ATTR_MAX]
+
+
+def escape_body(text: object) -> str:
+    """NFKC, control and zero-width characters stripped, then & < > escaped
+    (in that order), so the body is reversible and can never form a tag."""
+    clean = _CONTROL.sub("", unicodedata.normalize("NFKC", str(text)))
+    return clean.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def wrap_data(tag: str, text: str, *, nonce: str | None = None, **attrs: object) -> str:
-    """`<tag id="N" a="b">text</tag id="N">`. The body has control and zero-width
-    characters dropped and `<` `>` replaced by the single angle quotes, so it can
-    never close the tag; N is random per call (or per prompt when passed), so a
-    forged closing tag cannot match. Attribute values lose quotes, angle brackets,
-    backticks, ampersands and whitespace."""
-    clean = _CONTROL.sub("", str(text)).replace("<", "\u2039").replace(">", "\u203a")
-    nonce = nonce or secrets.token_hex(4)
-    shown = "".join(f' {k}="{_ATTR_BAD.sub("", str(v))}"' for k, v in attrs.items())
-    return f'<{tag} id="{nonce}"{shown}>{clean}</{tag} id="{nonce}">'
+    """`<tag id="N" a="b">text</tag id="N">`. The body goes through escape_body;
+    N is random per call (or per prompt when passed), so a forged closing tag
+    cannot match. Attribute values keep only [A-Za-z0-9_:.-], at most 64 chars."""
+    nonce = _attr(nonce) if nonce else secrets.token_hex(4)
+    tag = _attr(tag)
+    shown = "".join(f' {_attr(k)}="{_attr(v)}"' for k, v in attrs.items())
+    return f'<{tag} id="{nonce}"{shown}>{escape_body(text)}</{tag} id="{nonce}">'
+
+
+def village_data_block(obj: object, section: str = "village-data", nonce: str | None = None) -> str:
+    """One JSON payload in exactly one data block. Structured fields stay
+    structured; nothing inside is pre-tagged."""
+    body = json.dumps(obj, separators=(",", ":"), ensure_ascii=False, default=str)
+    return wrap_data(section, body, nonce=nonce)
 
 
 def wrap_peer(text: str, *, source: str, kind: str = "say") -> str:

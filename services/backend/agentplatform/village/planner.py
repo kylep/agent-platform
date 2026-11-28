@@ -8,7 +8,6 @@ needs to know about the world comes through `WorldView`, which the engine glue
 implements over the real World (U1): this module never imports a world.
 """
 import asyncio
-import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -16,7 +15,7 @@ from typing import Any, Callable, Protocol
 
 from agentplatform.village import contract as c
 from agentplatform.village.planner_ops import EditPlan
-from agentplatform.village.prompts import wrap_brief, wrap_data, wrap_peer
+from agentplatform.village.prompts import village_data_block
 
 # Most urgent first. step_failed / step_blocked bypass `planner_min_s`.
 PRIORITY = ("step_failed", "step_blocked", "addressed", "step_done", "nearby", "notice",
@@ -220,12 +219,11 @@ class PlannerHub:
                                "queue_version": self.view.queue_version(me)}
         out["look" if full else "changes"] = self.view.look(me) if full else self.view.changes(me)
         if ch.speech:
-            out["speech"] = [wrap_peer(t, source=s, kind=k) for s, k, t in ch.speech]
+            out["speech"] = [{"from": s, "kind": k, "text": t} for s, k, t in ch.speech]
         priv = self.view.private(me) or {}
         if priv.get("knowledge"):
-            out["knowledge"] = [
-                wrap_peer(k["text"], source=k.get("source") or "unknown", kind=k.get("kind", "told"))
-                if k.get("kind") == "told" else k["text"] for k in priv["knowledge"]]
+            out["knowledge"] = [{"kind": k.get("kind", "told"), "source": k.get("source"),
+                                 "text": k["text"]} for k in priv["knowledge"]]
         if priv.get("reminders"):
             out["reminders"] = list(priv["reminders"])[:MAX_REMINDERS]
         if ch.refusals:
@@ -233,7 +231,7 @@ class PlannerHub:
         if ch.notes:
             out["notes"] = ch.notes
         if ch.brief:
-            out["brief"] = wrap_brief(me, *ch.brief)
+            out["brief"] = {"version": ch.brief[0], "text": ch.brief[1]}
         ch.pending.clear()
         ch.speech, ch.refusals, ch.notes, ch.brief = [], [], [], None
         ch.returns += 1
@@ -279,9 +277,8 @@ class PlannerHub:
 
 
 def render(reply: dict[str, Any]) -> str:
-    """The text the tool hands the model: compact JSON in <village-data>."""
-    body = json.dumps(reply, separators=(",", ":"), ensure_ascii=False, default=str)
-    return wrap_data("village-data", body)
+    """The text the tool hands the model: the whole reply, once, in one block."""
+    return village_data_block(reply)
 
 
 async def write_cycle(sf, cycle: dict[str, Any]) -> None:
