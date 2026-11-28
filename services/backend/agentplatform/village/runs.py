@@ -24,7 +24,6 @@ log = logging.getLogger(__name__)
 TRIGGER = "village"
 BACKOFF_S = (60, 120)          # before restart 1, then every later restart
 MIN_GAP_S = 120                # at most about one launch per 2 minutes per persona
-MAX_RESTARTS = 20              # per persona per session; early exits are expected noise
 LIVE_ROW_STATES = ("launching", "running")
 MIN_TIMEOUT_S, MAX_TIMEOUT_S = 60, 7200
 CANCEL_ERROR = "cancelled by village"
@@ -237,14 +236,17 @@ class PlannerSupervisor:
                  prompt_for: Callable[[str, int], Awaitable[str]], rules: dict | None = None,
                  emit: Emit | None = None, hub=None, clock: Callable[[], float] = time.monotonic,
                  backoff: tuple[float, ...] = BACKOFF_S, timeout_seconds: int | None = None,
-                 max_restarts: int = MAX_RESTARTS, min_gap_s: float = MIN_GAP_S) -> None:
+                 max_restarts: int | None = None, min_gap_s: float = MIN_GAP_S) -> None:
         self.sf, self.producer = sf, producer
         self.session_id, self.personas = session_id, list(personas)
         self.prompt_for = prompt_for
         self.rules = c.merged_rules(rules)
         self.emit, self.hub, self.clock, self.backoff = emit, hub, clock, backoff
         self.timeout_seconds = timeout_seconds
-        self.max_restarts, self.min_gap_s = max_restarts, min_gap_s
+        # Early exits are expected noise; the cap is per persona per session.
+        self.max_restarts = (self.rules["planner_max_restarts"] if max_restarts is None
+                             else max_restarts)
+        self.min_gap_s = min_gap_s
         self._last_launch: dict[str, float] = {}
         self.live = False
         self.exhausted: set[str] = set()

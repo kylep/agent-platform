@@ -150,7 +150,7 @@ DEFAULT_RULES: dict[str, Any] = {
     "planner_min_s": 10,
     "planner_heartbeat_s": 30,
     "runway_s": 20,
-    "planner_max_restarts": 3,
+    "planner_max_restarts": 20,
     "reflection_slots": {"pai": "5:00", "kai": "8:20", "olu": "11:40"},
     "reflection_every_min": 10,
     "reflection_timeout_s": 480,
