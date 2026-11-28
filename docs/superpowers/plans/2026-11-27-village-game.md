@@ -337,6 +337,8 @@ Goal: prove the planner loop works as a platform run before anything else is bui
 4. Measure from `run_events` + tool-call logs: cycles completed; `think_ms` p50/p95 (wait return → next `edit_queue`); context growth and whether/when compaction happened; any stall or self-termination; and that claude-proxy recorded quota headers during the run (`/api/quota` age < 2 min) plus the 7d delta.
 5. Delete `tools/village_spike/` and the spike agent after recording the result in this plan.
 
+**Result (2026-11-28, run 1040f4e0d6af45a79b5d6ca3bb080e7a, Sonnet 5.5 on the claude runtime): PASS.** In 16 min it made 37 `wait` cycles and 17 `edit_queue` calls. `think_ms` (wait return → next call) was p50 1.8 s, p95 2.8 s, max 3.4 s. Context grew from 1.6k to 14k tokens, linearly at about 0.8k per minute, with no compaction, so a 60-min run lands near 50k. The run never ended itself and was killed at 16 min. The proxy recorded quota headers live (`/api/quota` age 7 s) and the run emitted `rate_limit_event`s. The 7d delta was 22% → 23%, mixed with the orchestrator's own use, so per-run cost still needs L10. Build as planned.
+
 **Gate:** ≥ 25 cycles in 15 min, `think_ms` p95 < 20 s, no self-termination before cancel, quota headers recorded → build as planned. If the run stops looping (ends itself) → add a bounded relaunch cadence (planner run per 15 min, overlap handoff) and re-estimate. If p95 ≥ 20 s → try `backup_runtime` codex for the planner and tell Kyle (his decision named Sonnet).
 
 ---
