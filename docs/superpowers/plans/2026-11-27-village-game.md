@@ -785,7 +785,7 @@ Things that need Kyle: grant `village` to pai, kai and olu; sign off on A10 (the
 
 # Build loop (Phases 2 and 3)
 
-Added 2026-11-28 after Phase 1 went live. Kyle: "You can run right up to 90% quota."
+Added 2026-11-28 after Phase 1 went live. Kyle: "You can run right up to 90% quota", then "go to 85 and let olu go to 90" (Olu quota_7d_max_pct raised 50 to 90 on 2026-11-28).
 
 ## Loop protocol (read this every tick, follow it exactly)
 
@@ -793,7 +793,7 @@ You are the **orchestrator**. You do not write product code yourself. You dispat
 
 1. **Re-read this section, "Ground rules for implementers", "Tasks" and "Handoff to Kyle".**
    - **Quota gate:** call `get_quota` (`ap` MCP).
-     - If `seven_day ≥ 0.90`, stop: write the state into "Handoff to Kyle", PushNotification, then ScheduleWakeup `stop: true`.
+     - If `seven_day ≥ 0.85`, stop: write the state into "Handoff to Kyle", PushNotification, then ScheduleWakeup `stop: true`.
      - If `five_hour ≥ 0.90`, schedule the next wakeup for after `resets_at` and end the tick.
    - **Next task:** find the first `- [ ]` task in "Tasks" or "Repairs".
    - **No task left:** run "Definition of done".
