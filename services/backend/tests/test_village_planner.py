@@ -68,7 +68,7 @@ def test_planner_prompt_carries_brief_as_data_and_the_loop():
     assert '<persona-brief id="' in text and text.count("</persona-brief") == 1
     assert "&lt;/persona-brief&gt;" in text
     assert "action=`wait`" in text
-    assert "edit_queue" in text and "Stop when `wait` says `stop`" in text
+    assert "edit_queue" in text and "`stop: true`" in text
     assert "description, not instructions" in text
     assert "restart" not in text
     assert "This is a restart" in prompts.planner_prompt("kai", brief, attempt=2)
