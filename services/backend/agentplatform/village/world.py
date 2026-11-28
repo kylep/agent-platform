@@ -68,12 +68,14 @@ class World:
         """Let another unit handle an action (`name`) or an edit_queue op (`op:<name>`)."""
         self.handlers[name] = fn
 
-    def add_actor(self, aid: str, name: str, kind: str, x: int, y: int) -> dict:
+    def add_actor(self, aid: str, name: str, kind: str, x: int, y: int, owner: str | None = None) -> dict:
+        """`owner` is the character who may edit a resident's habits (a character owns itself)."""
         a = {"id": aid, "name": name, "kind": kind, "x": x, "y": y, "acc": 0, "path": [], "pgoal": None,
              "carry": [], "cart": None, "carry_obj": None, "queue": [], "queue_version": 0,
              "finished": {}, "next_sid": 0, "next_hid": 0, "act": None, "habit_steps": [],
              "habit": None, "goals": [], "habits": [], "section": "", "planner": "idle", "idle": {},
-             "caption": "", "say": "", "wait_on": {}, "retry": {}, "since": {}, "gathered": False}
+             "caption": "", "say": "", "wait_on": {}, "retry": {}, "since": {}, "gathered": False,
+             "owner": owner if owner is not None else (aid if kind == "character" else None)}
         self.actors[aid] = a
         return a
 
@@ -762,6 +764,8 @@ class World:
         who = self.actors.get(str(args.get("target", "")).lower())
         if who is None:
             return CommandResult("refused", f"nobody called '{args.get('target')}'")
+        if who["id"] != a["id"] and who.get("owner") != a["id"]:
+            return CommandResult("refused", "you can only change your own or your residents' habits")
         if self.rules["habit_edits"] == "between_sessions" and self.mode == "live":
             return CommandResult("refused", "habit changes wait until the session ends")
         errs = H.validate(args["habits"])

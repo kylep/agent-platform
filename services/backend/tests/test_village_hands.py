@@ -352,3 +352,16 @@ def test_say_tell_and_unavailable_ops():
     assert tell.data["claim"] == "reed rope snaps under a cart" and tell.data["witnesses"]
     w.register("op:pull", lambda world, actor, op: (True, None, {}))
     assert edit(w, ops=[{"op": "pull", "target": "kai", "toward": "dock", "line": "come"}]).state == "applied"
+
+
+def test_habits_can_only_be_set_on_yourself_or_your_own_residents():
+    w = World(rules=TWO)
+    w.add_actor("mara", "Mara", "resident", 31, 21, owner="pai")
+    ok = [{"when": {"kind": "idle"}, "do": {"kind": "rest_at", "place": "dock"}}]
+    res = w.apply(cmd("set_habits", "pai", "reflection", target="kai", habits=ok))
+    assert res.state == "refused" and "only change your own or your residents' habits" in res.reason
+    assert w.actors["kai"]["habits"] == []
+    assert w.apply(cmd("set_habits", "kai", "reflection", target="mara", habits=ok)).state == "refused"
+    assert w.apply(cmd("set_habits", "pai", "reflection", target="mara", habits=ok)).state == "applied"
+    assert w.actors["mara"]["habits"] == ok
+    assert w.apply(cmd("set_habits", "pai", "reflection", target="pai", habits=ok)).state == "applied"
