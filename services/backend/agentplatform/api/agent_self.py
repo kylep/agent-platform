@@ -1,4 +1,8 @@
 """Self-management is a narrow capability, never an agent-definition editor."""
+import hashlib
+import hmac
+import re
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -98,6 +102,12 @@ async def actor(session, request):
     if not await ensure_run_authority(session, run):
         await session.commit()
         raise HTTPException(403, "run authority has changed")
+    from agentplatform.village.commands import village_run
+    if await village_run(session, run.id) is not None:
+        # A village run changes its prompt only through `village prompt`,
+        # section-only and applied at close (GEN-11 §6.2). The API fence
+        # already refuses these paths; this is the handler's own check.
+        raise HTTPException(403, "a village run may not use agent_self")
     row = await session.get(AgentDef, name, with_for_update=True)
     if row is None:
         raise HTTPException(403, "agent no longer exists")
@@ -228,4 +238,145 @@ async def set_self_avatar(request: Request, body: AgentImageIn):
         await session.commit()
         out = profile_view(row, await next_version(session, row.name) - 1)
     await artifact_store.publish_artifact_event(st.producer, event="agent_image", artifact=view, agent=out["name"])
+    return out
+
+
+# --- the village "how I play" section (GEN-11 plan §6.1) ---------------------
+# The one writer of a persona's in-game prompt text. Everything outside the
+# markers is the persona's own and never changes through here.
+PLAY_START = "<!-- village:how-i-play -->"
+PLAY_END = "<!-- /village:how-i-play -->"
+PLAY_HEADING = "## How I play the village game"
+PROMPT_MAX = 64000
+_PLAY_RE = re.compile(re.escape(PLAY_START) + r"(.*?)" + re.escape(PLAY_END), re.S)
+# Controls (bar newline and tab), zero-width and bidi characters.
+_INVISIBLE = re.compile("[\x00-\x08\x0b-\x1f\x7f​-‏‪-‮⁠-⁤﻿]")
+
+
+class PlaySectionError(Exception):
+    def __init__(self, status: int, reason: str):
+        super().__init__(reason)
+        self.status, self.reason = status, reason
+
+
+def _play_span(prompt: str) -> re.Match | None:
+    """The one well-formed section, None when there is none. Malformed (a
+    lone marker, two sections) is refused rather than guessed at."""
+    found = list(_PLAY_RE.finditer(prompt))
+    starts, ends = prompt.count(PLAY_START), prompt.count(PLAY_END)
+    if len(found) > 1 or starts != ends or starts != len(found):
+        raise PlaySectionError(409, "the prompt's how-I-play markers are malformed")
+    return found[0] if found else None
+
+
+def play_section(prompt: str) -> str:
+    """The section's text (heading excluded), "" when absent."""
+    span = _play_span(prompt or "")
+    if span is None:
+        return ""
+    body = span[1].strip("\n")
+    return body[len(PLAY_HEADING):].strip("\n") if body.startswith(PLAY_HEADING) else body
+
+
+def hide_play_section(prompt: str) -> str:
+    """The prompt as a non-village run sees it under play_section_scope
+    village_only: the markers stay, the body goes."""
+    empty = PLAY_START + "\n" + PLAY_END
+    try:
+        span = _play_span(prompt or "")
+    except PlaySectionError:
+        return _PLAY_RE.sub(empty, prompt)
+    if span is None:
+        return prompt
+    return prompt[:span.start()] + empty + prompt[span.end():]
+
+
+def guard_play_text(text: str, max_chars: int) -> str:
+    """Minimal structural guard so the text can never leave its markers or
+    carry tags. U9's textguard (URL refusal, closing-tag neutralizing) is the
+    full pass and runs in the engine before this."""
+    if not isinstance(text, str):
+        raise PlaySectionError(422, "section must be text")
+    text = _INVISIBLE.sub("", unicodedata.normalize("NFKC", text))
+    text = text.replace("<", "").replace(">", "").strip()
+    if len(text) > max_chars:
+        raise PlaySectionError(422, f"section is longer than {max_chars} characters")
+    return text
+
+
+def _outside(prompt: str) -> str:
+    span = _play_span(prompt)
+    return (prompt if span is None else prompt[:span.start()] + prompt[span.end():]).rstrip()
+
+
+async def apply_play_section(s, agent: str, new_text: str, changed_via: str = "village",
+                             expected_version: int | None = None, *,
+                             changed_by: str = "system:village", max_chars: int = 1500) -> dict:
+    """Replace ONLY the text between the how-I-play markers of `agent`'s prompt
+    (appending the section the first time), write one AgentVersion and bump
+    `authorization_generation` as any prompt change must. Refuses any result
+    that differs outside the markers. Does not commit: the caller commits and
+    reloads the agent store. Returns {version, before, after, changed}."""
+    row = await s.get(AgentDef, agent, with_for_update=True)
+    if row is None:
+        raise PlaySectionError(404, "unknown agent")
+    if row.agent_type != "persona" or row.system_source:
+        raise PlaySectionError(403, "only a persona's own prompt has a how-I-play section")
+    version = await next_version(s, agent) - 1
+    if expected_version is not None and expected_version != version:
+        raise PlaySectionError(409, "the agent changed; read it again")
+    text = guard_play_text(new_text, max_chars)
+    old = row.prompt or ""
+    before = play_section(old)
+    block = PLAY_START + "\n" + PLAY_HEADING + "\n" + (text + "\n" if text else "") + PLAY_END
+    span = _play_span(old)
+    new = (old.rstrip("\n") + "\n\n" + block + "\n" if span is None
+           else old[:span.start()] + block + old[span.end():])
+    if _outside(new) != _outside(old) or play_section(new) != text:
+        raise PlaySectionError(409, "a section edit may not change the prompt outside its markers")
+    if len(new) > PROMPT_MAX:
+        raise PlaySectionError(422, "the prompt would be too long")
+    if new == old:
+        return {"version": version, "before": before, "after": text, "changed": False}
+    row.prompt = new
+    row.authorization_generation = (row.authorization_generation or 0) + 1
+    version += 1
+    s.add(AgentVersion(agent=agent, version=version, snapshot=snapshot_of(row),
+                       changed_by=changed_by[:128], changed_via=changed_via[:32]))
+    return {"version": version, "before": before, "after": text, "changed": True}
+
+
+class PlaySectionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    agent: str = Field(min_length=1, max_length=128)
+    section: str = Field(max_length=4000)
+    expected_version: int | None = Field(default=None, ge=0)
+    changed_by: str = Field(default="system:village", max_length=128)
+
+
+@router.post("/api/internal/village/play-section")
+async def internal_play_section(request: Request, body: PlaySectionIn):
+    """The engine's door to apply_play_section at session close (§6.2):
+    the internal secret only (the quota-capture precedent), never an agent key."""
+    from agentplatform.api.quota import SECRET_HEADER
+    from agentplatform.village.commands import village_rules
+    st = request.app.state
+    secret = st.settings.internal_secret
+    if not secret:
+        raise HTTPException(503, "no internal secret configured")
+    presented = request.headers.get(SECRET_HEADER, "")
+    if not hmac.compare_digest(hashlib.sha256(presented.encode()).digest(),
+                               hashlib.sha256(secret.encode()).digest()):
+        raise HTTPException(401, "unauthorized")
+    async with st.session_factory() as s:
+        cap = int((await village_rules(s))["play_section_max_chars"])
+        try:
+            out = await apply_play_section(s, body.agent, body.section, "village",
+                                           body.expected_version, changed_by=body.changed_by,
+                                           max_chars=cap)
+        except PlaySectionError as exc:
+            raise HTTPException(exc.status, exc.reason)
+        await s.commit()
+    if out["changed"]:
+        await st.agent_store.reload()
     return out

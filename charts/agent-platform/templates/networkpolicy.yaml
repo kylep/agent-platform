@@ -35,8 +35,9 @@ spec:
 # own token), the mcp-facade (same, for external clients — design/17), and the
 # claude-proxy (its quota snapshot push — design/22), codex-proxy (OAuth
 # token rotation persistence — design/26), both tool-executor pools (a
-# tool call's app-data endpoint — design/39), and the dispatcher (its secret
-# heartbeat proves qa-web-login against the platform's own login).
+# tool call's app-data endpoint — design/39), the dispatcher (its secret
+# heartbeat proves qa-web-login against the platform's own login), and the
+# village engine (its internal play-section route at session close — GEN-11).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -54,7 +55,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, dispatcher, mcp-broker, mcp-facade, claude-proxy, codex-proxy, connector-discord, tool-executor, tool-executor-views]}
+              - {key: app.kubernetes.io/component, operator: In, values: [web, runner, dispatcher, mcp-broker, mcp-facade, claude-proxy, codex-proxy, connector-discord, tool-executor, tool-executor-views, village]}
       ports:
         - port: 8000
           protocol: TCP
@@ -156,6 +157,45 @@ spec:
           protocol: TCP
         - port: 8443
           protocol: TCP
+{{- if (.Values.village | default dict).enabled }}
+---
+# village engine (GEN-11 plan §10.1): the command port (8001) answers only
+# tool-executor, where tools/village runs; the engine checks every caller's
+# broker-verified run against Postgres, and holds no shared secret, so this
+# is what keeps everything else off the port. Health/metrics (8000) answer
+# the api only. Egress needs no policy of its own: postgres, kafka and the
+# api are in-namespace (allow-egress-internal), and the engine is not in the
+# external-HTTPS list, so it reaches no model and no proxy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-village-ingress
+  labels:
+    {{- include "agent-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-platform
+      app.kubernetes.io/component: village
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: tool-executor
+      ports:
+        - port: 8001
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-platform
+              app.kubernetes.io/component: api
+      ports:
+        - port: 8000
+          protocol: TCP
+{{- end }}
 ---
 # mcp-broker: runner pods (token-bearing agents) reach it on 8000 for MCP.
 apiVersion: networking.k8s.io/v1
@@ -240,7 +280,7 @@ spec:
         - port: 8000
           protocol: TCP
 ---
-# postgres: only the backend services (api/dispatcher/recorder) on 5432.
+# postgres: only the backend services (api/dispatcher/recorder/village) on 5432.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -257,7 +297,7 @@ spec:
         - podSelector:
             matchExpressions:
               - {key: app.kubernetes.io/name, operator: In, values: [agent-platform]}
-              - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, recorder]}
+              - {key: app.kubernetes.io/component, operator: In, values: [api, dispatcher, recorder, village]}
         # apps own a schema in the same server (role-confined — design/11)
         - podSelector:
             matchLabels:

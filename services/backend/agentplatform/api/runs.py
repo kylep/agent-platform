@@ -404,6 +404,7 @@ async def get_agentdef(run_id: str, request: Request):
         current = await s.get(AgentDef, initial.agent, with_for_update=True)
         run = await s.get(Run, run_id, with_for_update=True, populate_existing=True)
         await _current_run_or_403(s, run)
+        fence = await _village_fence(s, run)
         startup = await envelope(s, run, current, request.headers.get('X-AP-Startup-Memory-Protocol'))
         if run.definition_snapshot:
             try:
@@ -418,7 +419,7 @@ async def get_agentdef(run_id: str, request: Request):
                 startup_memory=startup,
                 open_commitments=await commitments.deliver(s, run, current))
             await s.commit()
-            return response
+            return _village_shape(response, fence)
         await s.commit()
     # Compatibility for runs queued before design 27 was deployed.
     store = request.app.state.agent_store
@@ -431,12 +432,43 @@ async def get_agentdef(run_id: str, request: Request):
     # A quarantined row has no manifest; the dispatcher rejects its runs before
     # a pod exists, so this is belt-and-braces rather than a live path.
     m = info.manifest
-    return RunAgentDef(name=info.name, prompt=info.agent_md,
+    return _village_shape(RunAgentDef(name=info.name, prompt=info.agent_md,
                        description=m.description if m else "",
                        harness_tools=info.harness_tools,
                        platform_tools=info.platform_tools,
                        skills=list(m.skills) if m else [],
-                       model=m.model if m else "")
+                       model=m.model if m else ""), fence)
+
+
+async def _village_fence(s, run) -> dict:
+    """What the village rails (GEN-11 §10.2, §6.1) do to this run's definition:
+    `village` is (row, memory allowed) for a run with a village_runs row in
+    any state, and `hide_play` says whether a non-village run sees the
+    "how I play" section's markers only."""
+    from agentplatform.village.commands import village_rules, village_run
+    row = await village_run(s, run.id)
+    rules = await village_rules(s)
+    memory = bool(row and row.role == "reflection" and rules["reflection_memory_writes"])
+    return {"village": (row, memory) if row else None,
+            "hide_play": row is None and rules["play_section_scope"] == "village_only"}
+
+
+def _village_shape(d: RunAgentDef, fence: dict) -> RunAgentDef:
+    """A village run pre-approves no harness tool and loads no skill: the
+    runner turns these lists straight into `tools:` and --allowedTools, so
+    pai's WebSearch/WebFetch are gone here, not only at the broker. Its
+    platform grants narrow to the village Tool (plus memory for a look-back),
+    the same set whoami answers."""
+    from agentplatform.api.agent_self import hide_play_section
+    from agentplatform.api.auth import VILLAGE_TOOL
+    from agentplatform.dreams import MEMORY_TOOL
+    if fence["village"] is not None:
+        memory = fence["village"][1]
+        return d.model_copy(update={"harness_tools": [], "skills": [], "platform_tools": [
+            t for t in d.platform_tools if t == VILLAGE_TOOL or (memory and t == MEMORY_TOOL)]})
+    if fence["hide_play"]:
+        return d.model_copy(update={"prompt": hide_play_section(d.prompt)})
+    return d
 
 
 class FallbackIn(BaseModel):

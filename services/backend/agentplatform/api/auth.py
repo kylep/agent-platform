@@ -357,6 +357,52 @@ async def rapid_chat_for_request(s, request: Request):
     return chats[0] if chats else None
 
 
+# A village run (GEN-11 plan §10.2) acts only through the `village` Tool,
+# which talks to the engine, not to this API. Its credential reaches whoami
+# and, for a look-back (reflection) run while `reflection_memory_writes` is
+# on, the memory routes a dream may use. Everything else (agent-self PATCH
+# and avatar, relay, tickets, runs, wiki writes, every other API-backed
+# broker Tool) is 403. Keyed on a village_runs row in ANY state.
+VILLAGE_PATHS = re.compile(r"^/api/whoami$")
+VILLAGE_MEMORY_PATHS = re.compile(r"^/api/memory-(?:review|delete|hybrid)$")
+VILLAGE_TOOL = "mcp__platform__village"
+
+
+def village_allows(path: str, memory: bool) -> bool:
+    return bool(VILLAGE_PATHS.match(path) or (memory and VILLAGE_MEMORY_PATHS.match(path)))
+
+
+async def village_run_for_request(s, request: Request):
+    """(village_runs row, memory allowed) for this credential, or None.
+    Resolved from trusted credentials and DB rows, never input, including
+    the workload-token branch that carries no run id."""
+    from sqlalchemy import select
+    from agentplatform.db import ACTIVE_STATES, Run, VillageRun
+    from agentplatform.village.commands import village_rules, village_run
+    agent = getattr(request.state, "api_key_agent", None)
+    run_id = getattr(request.state, "api_key_run_id", None)
+    if not agent:
+        return None
+    if run_id:
+        row = await village_run(s, run_id)
+        if row is not None:
+            run = await s.get(Run, run_id)
+            if run is None or run.agent != agent:
+                raise HTTPException(403, "village run identity mismatch")
+    elif getattr(request.state, "auth_kind", None) == "workload":
+        rows = (await s.execute(select(VillageRun).join(Run, Run.id == VillageRun.run_id).where(
+            Run.agent == agent, Run.state.in_(ACTIVE_STATES)).limit(2))).scalars().all()
+        if len(rows) > 1:
+            raise HTTPException(403, "ambiguous village run scope")
+        row = rows[0] if rows else None
+    else:
+        return None
+    if row is None:
+        return None
+    memory = row.role == "reflection" and bool((await village_rules(s))["reflection_memory_writes"])
+    return row, memory
+
+
 async def _dream_fence(request: Request) -> None:
     run_id = getattr(request.state, "api_key_run_id", None)
     agent = getattr(request.state, "api_key_agent", None)
@@ -368,6 +414,11 @@ async def _dream_fence(request: Request) -> None:
     async with request.app.state.session_factory() as s:
         if run_id and not DREAM_PATHS.match(request.url.path) and await active_dream(s, run_id) is not None:
             raise HTTPException(403, "a dreaming run may use only its memory Tool")
+        village = await village_run_for_request(s, request)
+        if village is not None:
+            if not village_allows(request.url.path, village[1]):
+                raise HTTPException(403, "a village run may act only through the village Tool")
+            return
         chat = await rapid_chat_for_request(s, request)
         if chat is None:
             return
@@ -714,14 +765,17 @@ async def whoami(request: Request):
     run_id = getattr(request.state, "api_key_run_id", None)
     tools: list[str] | None = None
     dream = rapid = rapid_ui = False
+    village = None
     if agent and (run_id or getattr(request.state, "auth_kind", None) == "workload"):
-        # A dream run (docs/design/44) holds only its memory Tool, and a
-        # rapid-chat turn (docs/design/45) only wiki and quota,
-        # whatever the agent's grants: the broker enforces this answer.
+        # A dream run (docs/design/44) holds only its memory Tool, a
+        # rapid-chat turn (docs/design/45) only wiki and quota, and a village
+        # run (GEN-11 §10.2) only the village Tool (plus memory for a
+        # look-back), whatever the agent's grants: the broker enforces this.
         from agentplatform.dreams import active_dream
         async with request.app.state.session_factory() as s:
             dream = bool(run_id) and await active_dream(s, run_id) is not None
-            chat = None if dream else await rapid_chat_for_request(s, request)
+            village = None if dream else await village_run_for_request(s, request)
+            chat = None if dream or village else await rapid_chat_for_request(s, request)
             rapid = chat is not None
             rapid_ui = bool(chat and (chat.sink or {}).get("kind") == "ui_designer")
 
@@ -730,6 +784,8 @@ async def whoami(request: Request):
         from agentplatform.dreams import MEMORY_TOOL
         if dream:
             return [t for t in granted if t == MEMORY_TOOL]
+        if village is not None:
+            return [t for t in granted if t == VILLAGE_TOOL or (village[1] and t == MEMORY_TOOL)]
         if rapid:
             allowed = (TOOL_WIKI, TOOL_QUOTA, TOOL_UI_DESIGNER) if rapid_ui else (TOOL_WIKI, TOOL_QUOTA)
             return [t for t in granted if t in allowed]
