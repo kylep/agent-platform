@@ -287,6 +287,7 @@ async def test_help_lists_only_the_roles_actions_and_glossary():
     final = await A.dispatch(ctx(slot="final"), "help", {})
     assert "tomorrow" in final.data["actions"]
     assert "look-back" in refl.data["glossary"]
+    assert "plant" in planner.data["steps"] and "seed" in planner.data["steps"]["plant"]
 
 
 async def test_edit_queue_and_look_forward_to_ports():

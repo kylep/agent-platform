@@ -15,6 +15,7 @@ from typing import Any, Awaitable, Callable, Protocol
 
 from . import contract as c
 from .glossary import GLOSSARY
+from .hands import ARG_HELP
 
 FINAL_SLOT = "final"
 
@@ -128,7 +129,8 @@ async def _help(ctx: ActionContext, args: dict[str, Any]) -> c.CommandResult:
     menu = {a: ACTION_HELP[a] for a in c.ACTIONS
             if ctx.role in c.ACTION_ROLES[a] and (a in HANDLERS or a in LONG_POLL_ACTIONS)
             and (a not in c.FINAL_SLOT_ONLY or ctx.slot == FINAL_SLOT)}
-    return applied(role=ctx.role, actions=menu, glossary=dict(GLOSSARY))
+    # `steps`: what each queue step needs, so a planner writes args right first time.
+    return applied(role=ctx.role, actions=menu, steps=dict(ARG_HELP), glossary=dict(GLOSSARY))
 
 
 @handler("look")
