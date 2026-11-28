@@ -57,6 +57,32 @@ async def village_rules(s) -> dict[str, Any]:
     return c.merged_rules(row.rules if row else None)
 
 
+VILLAGE_TOOL = "mcp__platform__village"
+MEMORY_TOOL = "mcp__platform__memory"
+
+
+async def run_fence(s, run) -> tuple[VillageRun | None, bool] | None:
+    """(village_runs row, memory allowed) when `run` is a village run, else
+    None. A run with trigger `village` is fenced even before (or without) its
+    row, with no memory."""
+    row = await village_run(s, run.id)
+    if row is None and run.trigger != TRIGGER:
+        return None
+    memory = bool(row and row.role == c.REFLECTION
+                  and (await village_rules(s))["reflection_memory_writes"])
+    return row, memory
+
+
+def fence_definition(d: dict[str, Any], memory: bool) -> dict[str, Any]:
+    """The one definition a village run gets, at freeze and from agentdef:
+    no harness tools, no skills, no backup runtime (the Codex path is not
+    fenced yet), and platform grants narrowed to village (plus memory for a
+    look-back)."""
+    return {**d, "harness_tools": [], "skills": [], "backup_runtime": None, "backup_model": "",
+            "platform_tools": [t for t in d.get("platform_tools") or []
+                               if t == VILLAGE_TOOL or (memory and t == MEMORY_TOOL)]}
+
+
 class Refused(Exception):
     """A call that does not reach the handler. `status` is the HTTP code."""
 

@@ -3999,7 +3999,8 @@ def _ensure_village_planner_seed(conn) -> None:
         snapshot = AgentDefModel(
             name=name, prompt=VILLAGE_PLANNER_PROMPT, description=VILLAGE_PLANNER_DESCRIPTION,
             runtime="claude", model="claude-sonnet-5-5",
-            backup_runtime="codex", backup_model="gpt-6.1-sol",
+            # No backup: the Codex runner is not fenced (GEN-11 §10.2), and the
+            # dispatcher refuses a village run off the claude runtime anyway.
             role="operator", system=False, responds_to_all=False, can_invoke=False,
             accept_scheduled_tasks=False,
             concurrency=3, timeout_seconds=5400,

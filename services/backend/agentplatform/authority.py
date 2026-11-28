@@ -115,7 +115,10 @@ async def assert_summarizable_run(session, request, run):
     runs in rooms it isn't a member of fail `assert_readable_run`, so they were
     silently never summarized. Only its list/get/annotate routes call this; the
     summary stays on the run and is as private as the run itself."""
-    summarizer = getattr(request.state, 'api_key_agent', None) == 'run-summarizer'
+    # A village run's prompt carries the private play section and persona
+    # brief (GEN-11 §10.5): admin only, the summarizer included.
+    summarizer = (getattr(request.state, 'api_key_agent', None) == 'run-summarizer'
+                  and getattr(run, 'trigger', None) != 'village')
     agent = await session.get(AgentDef, 'run-summarizer') if summarizer else None
     if agent and agent.enabled and agent.system:
         return
@@ -125,6 +128,12 @@ async def assert_summarizable_run(session, request, run):
 async def assert_readable_run(session, request, run):
     from fastapi import HTTPException
     caller = getattr(request.state, 'api_key_agent', None)
+    if getattr(run, 'trigger', None) == 'village':
+        # GEN-11 §10.5: a village run's prompt, user_message and events carry
+        # the persona brief and the private how-I-play section. Admin only.
+        if getattr(request.state, 'resolved_role', None) == 'admin':
+            return
+        raise HTTPException(403, 'Village run history is private to administrators')
     if getattr(run, 'startup_memory_enabled', False):
         if getattr(request.state, 'resolved_role', None) == 'admin':
             return

@@ -269,3 +269,129 @@ async def test_internal_play_section_route_needs_the_internal_secret(client, sf,
     assert r.status_code == 200 and r.json()["changed"] is True
     async with sf() as s:
         assert AS.play_section((await s.get(AgentDef, "pai")).prompt) == "Carry two."
+
+
+# --- review round (Phase 1 Codex review): launch path, workload lapse, history --
+
+async def _queued_village_run(sf, *, agent="pai", role="reflection"):
+    run_id = uuid.uuid4().hex
+    async with sf() as s:
+        session = VillageSession(day=uuid.uuid4().hex[:10], kind="test", state="live")
+        s.add(session)
+        await s.flush()
+        generation = (await s.get(AgentDef, agent)).authorization_generation or 0
+        s.add(Run(id=run_id, agent=agent, trigger="village", requested_by="village:t", prompt="x",
+                  state=RunState.QUEUED, authorization_generation=generation))
+        s.add(VillageRun(session_id=session.id, persona="pai", role=role, run_id=run_id,
+                         state="launching"))
+        await s.commit()
+    return run_id
+
+
+def _dispatcher(sf, agent_store):
+    from agentplatform.config import Settings
+    from agentplatform.dispatcher import Dispatcher, FakeLauncher
+    from agentplatform.events import FakeProducer
+    return Dispatcher(Settings(global_concurrency=8), sf, FakeProducer(), agent_store, FakeLauncher())
+
+
+async def test_village_run_freezes_without_backup_skills_or_harness(sf, seed_agent, agent_store):
+    from agentplatform.config import Settings
+    from agentplatform.joblauncher import K8sJobLauncher
+    await _persona(seed_agent, agent_store, backup_runtime="codex", backup_model="gpt-6.1-sol")
+    run_id = await _queued_village_run(sf)
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+    manifest, error = await _dispatcher(sf, agent_store)._freeze_definition(run)
+    assert error is None
+    assert manifest.backup_runtime is None and manifest.skills == []
+    assert manifest.platform_tools == [VILLAGE_TOOL, MEM]
+    async with sf() as s:
+        snap = (await s.get(Run, run_id)).definition_snapshot
+    assert snap["backup_runtime"] is None and snap["skills"] == [] and snap["harness_tools"] == []
+    job = K8sJobLauncher(batch=None, settings=Settings(runner_image="r:1", k8s_namespace="ap")
+                         ).build_job(run, manifest)
+    env = {e.name for e in job.spec.template.spec.containers[0].env}
+    assert "AP_SKILLS" not in env and "AP_CODEX_PROXY_URL" not in env
+    assert job.spec.template.metadata.labels["agent-platform/codex-access"] == "false"
+
+
+async def test_village_run_cannot_take_the_codex_fallback(token_client, sf, seed_agent, agent_store):
+    await _persona(seed_agent, agent_store, backup_runtime="codex", backup_model="gpt-6.1-sol")
+    run_id = await _queued_village_run(sf)
+    disp = _dispatcher(sf, agent_store)
+    async with sf() as s:
+        await disp._freeze_definition(await s.get(Run, run_id))
+    async with sf() as s:
+        (await s.get(Run, run_id)).state = RunState.RUNNING
+        await s.commit()
+    headers = await _key(sf, name="session:fb", role="session", agent="pai", run_id=run_id)
+    r = await token_client.post(f"/api/runs/{run_id}/model-fallback", headers=headers,
+                                json={"reason": "authentication"})
+    assert r.status_code == 409, r.text
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+        assert not run.fallback_used and run.runtime == "claude"
+
+
+async def test_a_codex_primary_village_run_is_rejected(sf, seed_agent, agent_store):
+    await _persona(seed_agent, agent_store, runtime="codex", model="gpt-6.1-sol",
+                   backup_runtime="claude", backup_model="claude-sonnet-5-5")
+    run_id = await _queued_village_run(sf)
+    disp = _dispatcher(sf, agent_store)
+    await disp.handle({"type": "run", "run_id": run_id})
+    assert disp.launcher.launched == []
+    async with sf() as s:
+        run = await s.get(Run, run_id)
+    assert run.state == RunState.REJECTED and "claude runtime" in (run.error or "")
+
+
+async def test_planner_seed_has_no_codex_backup(sf):
+    async with sf() as s:
+        row = await s.get(AgentDef, "village-planner")
+    assert row is not None and not row.backup_runtime and not row.backup_model
+
+
+@pytest.mark.parametrize("state", [RunState.KILLED, RunState.SUCCEEDED, RunState.FAILED])
+async def test_a_finished_village_runs_workload_token_stays_fenced(sf, seed_agent, agent_store, state):
+    from agentplatform.db import utcnow
+    await _persona(seed_agent, agent_store)
+    _, run_id = await _village_run(sf, run_state=state)
+    async with sf() as s:
+        (await s.get(Run, run_id)).finished_at = utcnow()
+        await s.commit()
+    with pytest.raises(HTTPException) as exc:
+        await _dream_fence(await _workload_request(sf, "GET", "/api/relay/channels", "pai"))
+    assert exc.value.status_code == 403
+    # killed with no finished_at yet (pod still terminating) is fenced too
+    async with sf() as s:
+        (await s.get(Run, run_id)).finished_at = None
+        await s.commit()
+    with pytest.raises(HTTPException):
+        await _dream_fence(await _workload_request(sf, "GET", "/api/relay/channels", "pai"))
+
+
+async def test_a_long_gone_village_run_no_longer_fences_workload(sf, seed_agent, agent_store):
+    from datetime import timedelta
+    from agentplatform.db import utcnow
+    await _persona(seed_agent, agent_store)
+    _, run_id = await _village_run(sf, run_state=RunState.SUCCEEDED)
+    async with sf() as s:
+        (await s.get(Run, run_id)).finished_at = utcnow() - timedelta(days=1)
+        await s.commit()
+    await _dream_fence(await _workload_request(sf, "GET", "/api/relay/channels", "pai"))
+
+
+async def test_village_run_history_is_admin_only(token_client, admin_client, sf, seed_agent, agent_store):
+    await _persona(seed_agent, agent_store)
+    _, run_id = await _village_run(sf)
+    _, other_id = await _village_run(sf, row=False)
+    reader = await _key(sf, name="reader-human", role="reader")
+    pai = await _tokens(sf, "pai", other_id, role="reader")
+    for headers in (reader, pai):
+        for path in (f"/api/runs/{run_id}", f"/api/runs/{run_id}/events"):
+            r = await token_client.get(path, headers=headers)
+            assert r.status_code in (403, 404), (path, r.status_code)
+        listed = await token_client.get("/api/runs", headers=headers)
+        assert listed.status_code == 200 and run_id not in {x["id"] for x in listed.json()}
+    assert (await admin_client.get(f"/api/runs/{run_id}")).status_code == 200

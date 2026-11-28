@@ -189,7 +189,7 @@ async def list_tags(request: Request):
     # The vocabulary of recent runs, reading only what the tag list and the
     # access check need. Loading every whole Run (prompts included) here
     # OOM-killed the API at the hourly run-summarizer pass.
-    columns = load_only(Run.id, Run.agent, Run.tags, Run.conversation_id,
+    columns = load_only(Run.id, Run.agent, Run.tags, Run.conversation_id, Run.trigger,
                         Run.startup_memory_enabled, Run.local_persona_session_id)
     async with request.app.state.session_factory() as s:
         rows = (await s.execute(select(Run).options(columns)
@@ -442,30 +442,28 @@ async def get_agentdef(run_id: str, request: Request):
 
 async def _village_fence(s, run) -> dict:
     """What the village rails (GEN-11 §10.2, §6.1) do to this run's definition:
-    `village` is (row, memory allowed) for a run with a village_runs row in
-    any state, and `hide_play` says whether a non-village run sees the
-    "how I play" section's markers only."""
-    from agentplatform.village.commands import village_rules, village_run
-    row = await village_run(s, run.id)
+    `village` is (row, memory allowed) for a village run (a village_runs row
+    in any state, or trigger `village`), and `hide_play` says whether a
+    non-village run sees the "how I play" section's markers only."""
+    from agentplatform.village.commands import run_fence, village_rules
+    village = await run_fence(s, run)
     rules = await village_rules(s)
-    memory = bool(row and row.role == "reflection" and rules["reflection_memory_writes"])
-    return {"village": (row, memory) if row else None,
-            "hide_play": row is None and rules["play_section_scope"] == "village_only"}
+    return {"village": village,
+            "hide_play": village is None and rules["play_section_scope"] == "village_only"}
 
 
 def _village_shape(d: RunAgentDef, fence: dict) -> RunAgentDef:
     """A village run pre-approves no harness tool and loads no skill: the
     runner turns these lists straight into `tools:` and --allowedTools, so
     pai's WebSearch/WebFetch are gone here, not only at the broker. Its
-    platform grants narrow to the village Tool (plus memory for a look-back),
-    the same set whoami answers."""
+    platform grants narrow to the village Tool (plus memory for a look-back).
+    The same `fence_definition` the dispatcher freezes, so launch env,
+    run JWT and this answer agree."""
     from agentplatform.api.agent_self import hide_play_section
-    from agentplatform.api.auth import VILLAGE_TOOL
-    from agentplatform.dreams import MEMORY_TOOL
+    from agentplatform.village.commands import fence_definition
     if fence["village"] is not None:
-        memory = fence["village"][1]
-        return d.model_copy(update={"harness_tools": [], "skills": [], "platform_tools": [
-            t for t in d.platform_tools if t == VILLAGE_TOOL or (memory and t == MEMORY_TOOL)]})
+        fenced = fence_definition(d.model_dump(), fence["village"][1])
+        return d.model_copy(update={k: fenced[k] for k in ("harness_tools", "skills", "platform_tools")})
     if fence["hide_play"]:
         return d.model_copy(update={"prompt": hide_play_section(d.prompt)})
     return d
@@ -488,6 +486,10 @@ async def use_model_fallback(run_id: str, body: FallbackIn, request: Request):
         run = await session.get(Run, run_id, with_for_update=True, populate_existing=True)
         if run.state not in ACTIVE_STATES or run.tool_calls or run.result:
             raise HTTPException(409, "fallback is only available before work begins")
+        from agentplatform.village.commands import run_fence
+        if await run_fence(session, run) is not None:
+            # The Codex runner is not fenced; a village run never falls back.
+            raise HTTPException(409, "village runs have no backup runtime")
         result = await activate(session, run, body.reason)
         proxy = (request.app.state.settings.codex_proxy_url if run.runtime == "codex"
                  else request.app.state.settings.claude_proxy_url)

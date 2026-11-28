@@ -390,8 +390,18 @@ async def village_run_for_request(s, request: Request):
             if run is None or run.agent != agent:
                 raise HTTPException(403, "village run identity mismatch")
     elif getattr(request.state, "auth_kind", None) == "workload":
+        # The projected token is bound to the POD, not the Run: a killed or
+        # finished run's pod keeps a valid token until the Job is GC'd
+        # (run_ttl_seconds after it finished). So any village row whose pod
+        # may still exist fences the agent, whatever the Run's state.
+        from datetime import timedelta
+        from sqlalchemy import or_
+        from agentplatform.db import utcnow
+        settings = getattr(request.app.state, "settings", None)
+        alive = timedelta(seconds=getattr(settings, "run_ttl_seconds", 3600) + 600)
         rows = (await s.execute(select(VillageRun).join(Run, Run.id == VillageRun.run_id).where(
-            Run.agent == agent, Run.state.in_(ACTIVE_STATES)).limit(2))).scalars().all()
+            Run.agent == agent, or_(Run.state.in_(ACTIVE_STATES), Run.finished_at.is_(None),
+                                    Run.finished_at >= utcnow() - alive)).limit(2))).scalars().all()
         if len(rows) > 1:
             raise HTTPException(403, "ambiguous village run scope")
         row = rows[0] if rows else None

@@ -162,9 +162,13 @@ class Dispatcher:
                 return None, "agent is disabled"
             if not await ensure_run_authority(s, db_run):
                 return None, "run authority unavailable before freeze"
+            from agentplatform.village.commands import fence_definition, run_fence
+            village = await run_fence(s, db_run)
             if db_run.definition_snapshot:
                 try:
                     model = AgentDefModel(**db_run.definition_snapshot)
+                    if village is not None:
+                        model = AgentDefModel(**fence_definition(model.model_dump(mode="json"), village[1]))
                 except Exception:
                     return None, "run has an invalid frozen agent definition"
                 # A pre-protocol snapshot is legacy disabled. Never recapture.
@@ -180,6 +184,11 @@ class Dispatcher:
                         model.model = run.requested_model
                         if model.backup_runtime == model.runtime and model.backup_model == model.model:
                             model.backup_runtime, model.backup_model = None, ""
+                    if village is not None:
+                        # GEN-11 §10.2: the frozen definition (and so the
+                        # runner, AP_SKILLS, the run JWT's tools and any later
+                        # model-fallback) is the fenced one.
+                        model = AgentDefModel(**fence_definition(model.model_dump(mode="json"), village[1]))
                     version = ((await s.execute(select(func.max(AgentVersion.version)).where(
                         AgentVersion.agent == run.agent))).scalar() or 0)
                     db_run.runtime, db_run.model = model.runtime, model.model
@@ -190,6 +199,11 @@ class Dispatcher:
                 except Exception:
                     await s.rollback()
                     return None, "startup definition/context capture failed"
+            if village is not None and (model.runtime != "claude" or db_run.fallback_used):
+                # The Codex runner is not fenced (full-access sandbox, no tool
+                # filter), so a village run never runs there.
+                await s.commit()
+                return None, "village runs need the claude runtime"
             await s.commit()
             for field in ('runtime', 'model', 'agent_version', 'definition_snapshot', 'startup_memory_enabled'):
                 setattr(run, field, getattr(db_run, field))

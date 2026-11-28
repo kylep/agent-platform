@@ -526,7 +526,7 @@ async def test_village_planner_seed_is_fenced_to_the_village_tool(sf):
         versions = list((await s.execute(select(AgentVersion).where(
             AgentVersion.agent == "village-planner"))).scalars())
     assert row.runtime == "claude" and row.model == "claude-sonnet-5-5"
-    assert row.backup_runtime == "codex" and row.backup_model
+    assert not row.backup_runtime and not row.backup_model   # Codex runner is unfenced
     assert row.concurrency == 3 and row.timeout_seconds == 5400
     assert row.platform_tools == ["mcp__platform__village"]      # no memory, nothing else
     assert row.harness_tools == [] and row.skills == [] and row.secrets == []
