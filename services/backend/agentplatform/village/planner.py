@@ -16,7 +16,7 @@ from typing import Any, Callable, Protocol
 
 from agentplatform.village import contract as c
 from agentplatform.village.planner_ops import EditPlan
-from agentplatform.village.prompts import wrap_brief, wrap_peer
+from agentplatform.village.prompts import wrap_brief, wrap_data, wrap_peer
 
 # Most urgent first. step_failed / step_blocked bypass `planner_min_s`.
 PRIORITY = ("step_failed", "step_blocked", "addressed", "step_done", "nearby", "notice",
@@ -281,7 +281,7 @@ class PlannerHub:
 def render(reply: dict[str, Any]) -> str:
     """The text the tool hands the model: compact JSON in <village-data>."""
     body = json.dumps(reply, separators=(",", ":"), ensure_ascii=False, default=str)
-    return f"<village-data>{body}</village-data>"
+    return wrap_data("village-data", body)
 
 
 async def write_cycle(sf, cycle: dict[str, Any]) -> None:

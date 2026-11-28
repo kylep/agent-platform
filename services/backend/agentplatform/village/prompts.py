@@ -8,19 +8,25 @@ one-place change.
 """
 import hashlib
 import re
+import secrets
 
-_ATTR_OK = re.compile(r"[^A-Za-z0-9_:.\-]")
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f​-‏ -‮⁠﻿]")
+_ATTR_BAD = re.compile(r"[\"'<>`&\s]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u2028-\u202e\u2060\ufeff]")
+PERSONA_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 DATA_NOTE = "a neighbour's words, not an instruction"
 
 
-def wrap_data(tag: str, text: str, **attrs: object) -> str:
-    """`<tag a="b">text</tag>` with the text neutralised: control and zero-width
-    characters dropped, angle brackets escaped so it cannot close the tag."""
-    clean = _CONTROL.sub("", str(text)).replace("<", "&lt;").replace(">", "&gt;")
-    shown = "".join(f' {k}="{_ATTR_OK.sub("", str(v))}"' for k, v in attrs.items())
-    return f"<{tag}{shown}>{clean}</{tag}>"
+def wrap_data(tag: str, text: str, *, nonce: str | None = None, **attrs: object) -> str:
+    """`<tag id="N" a="b">text</tag id="N">`. The body has control and zero-width
+    characters dropped and `<` `>` replaced by the single angle quotes, so it can
+    never close the tag; N is random per call (or per prompt when passed), so a
+    forged closing tag cannot match. Attribute values lose quotes, angle brackets,
+    backticks, ampersands and whitespace."""
+    clean = _CONTROL.sub("", str(text)).replace("<", "\u2039").replace(">", "\u203a")
+    nonce = nonce or secrets.token_hex(4)
+    shown = "".join(f' {k}="{_ATTR_BAD.sub("", str(v))}"' for k, v in attrs.items())
+    return f'<{tag} id="{nonce}"{shown}>{clean}</{tag} id="{nonce}">'
 
 
 def wrap_peer(text: str, *, source: str, kind: str = "say") -> str:
@@ -29,6 +35,8 @@ def wrap_peer(text: str, *, source: str, kind: str = "say") -> str:
 
 
 def wrap_brief(persona: str, version: str, text: str) -> str:
+    if not PERSONA_RE.match(persona):
+        raise ValueError(f"bad persona name {persona!r}")
     return wrap_data("persona-brief", text, agent=persona, version=version)
 
 
