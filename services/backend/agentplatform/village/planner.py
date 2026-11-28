@@ -281,11 +281,16 @@ def render(reply: dict[str, Any]) -> str:
     return village_data_block(reply)
 
 
-async def write_cycle(sf, cycle: dict[str, Any]) -> None:
-    """Persist one cycle row (the command port calls this after `record_edit`)."""
+def cycle_row(cycle: dict[str, Any]):
+    """One `village_planner_cycles` row from `record_edit`'s fields."""
     from agentplatform.db import VillagePlannerCycle
     row = {k: v for k, v in cycle.items() if v is not None or k in ("ops_refused",)}
     row.setdefault("wait_returned_at", _now_utc())
+    return VillagePlannerCycle(**row)
+
+
+async def write_cycle(sf, cycle: dict[str, Any]) -> None:
+    """Persist one cycle row on its own (an edit that journaled nothing)."""
     async with sf() as s:
-        s.add(VillagePlannerCycle(**row))
+        s.add(cycle_row(cycle))
         await s.commit()

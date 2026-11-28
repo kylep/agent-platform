@@ -219,3 +219,63 @@ async def test_main_boots_on_sqlite_and_runs_a_session(tmp_path, monkeypatch, la
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         get_settings.cache_clear()
+
+
+async def _reflection_caller(sf, producer, seed_agent):
+    """A live session with one running Pai reflection run."""
+    from agentplatform.village import runs
+    await seed_agent("pai", prompt=PAI_PROMPT, platform_tools=["mcp__platform__village"])
+    eng = Engine(sf, producer, lock=NullLock(), now=Now(T0), quota=_no_quota, codex_in_use=_no_codex)
+    await eng.acquire_lock_once()
+    await eng.boot()
+    village = host.attach(eng, global_concurrency=8)
+    async with sf() as s:
+        s.add(VillageSession(id="t2", day="2026-11-27", kind="test", state="scheduled",
+                             length_min=30, quota_at_start={"override": True}))
+        await s.commit()
+    await eng.clock.poll()
+    run_id = await runs.launch_reflection(sf, producer, session_id="t2", persona="pai", slot="r1",
+                                          timeout_s=480, prompt="look back", memory_query="village: pai")
+    await _set_run(sf, run_id)
+    return eng, village, run_id
+
+
+async def _count(sf, model, *where):
+    from sqlalchemy import func
+    async with sf() as s:
+        return (await s.execute(select(func.count()).select_from(model).where(*where))).scalar()
+
+
+NOTE = {"action": "note", "args": {"request_id": "n1", "text": "fetch reeds early"}}
+
+
+async def test_a_crash_at_commit_leaves_neither_the_note_nor_its_receipt(sf, producer, seed_agent,
+                                                                        launches, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from agentplatform.db import VillageCommand
+    eng, village, run_id = await _reflection_caller(sf, producer, seed_agent)
+    real_commit = AsyncSession.commit
+
+    async def crash(self):
+        if any(isinstance(o, VillageNote) for o in self.new):
+            raise ConnectionError("killed mid-write")
+        return await real_commit(self)
+
+    monkeypatch.setattr(AsyncSession, "commit", crash)
+    with pytest.raises(ConnectionError):
+        await village.port.call("pai", run_id, NOTE)
+    monkeypatch.setattr(AsyncSession, "commit", real_commit)
+    assert await _count(sf, VillageNote) == 0
+    assert await _count(sf, VillageCommand, VillageCommand.request_id == "n1") == 0
+    receipt = (await village.port.call("pai", run_id, NOTE))["data"]     # the model retries
+    assert receipt["state"] == "accepted" and not receipt.get("repeat")
+    assert await _count(sf, VillageNote) == 1
+
+
+async def test_concurrent_retries_write_exactly_one_note(sf, producer, seed_agent, launches):
+    from agentplatform.db import VillageCommand
+    eng, village, run_id = await _reflection_caller(sf, producer, seed_agent)
+    replies = await asyncio.gather(*(village.port.call("pai", run_id, NOTE) for _ in range(3)))
+    assert len({r["data"]["seq"] for r in replies}) == 1
+    assert await _count(sf, VillageNote) == 1
+    assert await _count(sf, VillageCommand, VillageCommand.request_id == "n1") == 1

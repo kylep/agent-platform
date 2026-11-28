@@ -59,9 +59,14 @@ class Journal:
     async def submit(self, session_id: str, source: str, action: str,
                      args: dict[str, Any] | None = None, *, run_id: str | None = None,
                      persona: str | None = None, request_id: str | None = None,
-                     digest: str | None = None) -> Submitted:
+                     digest: str | None = None,
+                     side: Callable[[Any, VillageCommand], None] | None = None) -> Submitted:
         """`digest` overrides the args hash: the hash of the tool call as made,
-        when what is journaled is a validated subset of it."""
+        when what is journaled is a validated subset of it.
+
+        `side(session, row)` adds side-table rows (a private note) in the SAME
+        transaction as the journal row, so both land or neither does. It runs
+        only for a new command, never for a duplicate."""
         args = args or {}
         digest = digest or args_hash(args)
         async with self._lock:
@@ -77,6 +82,9 @@ class Journal:
                                      action=action, args=args, state="accepted")
                 s.add(row)
                 try:
+                    if side is not None:
+                        await s.flush()                # row.seq for the side rows
+                        side(s, row)
                     await s.commit()                   # durable before the ack
                 except IntegrityError:                  # another writer raced the unique key
                     await s.rollback()

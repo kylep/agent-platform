@@ -31,7 +31,7 @@ from agentplatform.village import contract as c
 from agentplatform.village import reflection as R
 from agentplatform.village.commands import Caller, CommandPort, Refused, build_app
 from agentplatform.village.journal import IdempotencyConflict
-from agentplatform.village.planner import PlannerHub, write_cycle
+from agentplatform.village.planner import PlannerHub, cycle_row, write_cycle
 from agentplatform.village.planner_ops import prepare_edit
 from agentplatform.village.store import aware
 
@@ -57,17 +57,20 @@ class _Ports:
     def __init__(self, village: "Village", caller: Caller, command: c.Command | None):
         self.v, self.caller, self.command = village, caller, command
         self.saved: c.Command | None = None
+        self.duplicate = False
 
-    async def _journal(self, action: str, args: dict[str, Any]) -> c.CommandResult:
+    async def _journal(self, action: str, args: dict[str, Any], side=None) -> c.CommandResult:
+        """`side` (see Journal.submit) writes side-table rows atomically with the
+        journal row; a duplicate submit writes nothing."""
         cmd, who = self.command, self.caller
         try:
             out = await self.v.engine.journal.submit(
                 who.session_id, who.role, action, args, run_id=who.run_id, persona=who.persona,
-                request_id=cmd.request_id, digest=cmd.args_hash)
+                request_id=cmd.request_id, digest=cmd.args_hash, side=side)
         except IdempotencyConflict:
             raise Refused(409, "this request_id was already used with different arguments; "
                                "use a new request_id")
-        self.saved = out.command
+        self.saved, self.duplicate = out.command, out.duplicate
         return c.CommandResult("accepted", data={"seq": out.command.seq})
 
     async def apply_world(self, action: str, args: dict[str, Any]) -> c.CommandResult:
@@ -81,24 +84,33 @@ class _Ports:
         who = self.caller
         plan = prepare_edit({"request_id": self.command.request_id, "base_version": base_version,
                              "ops": ops}, self.v.view.queue(who.persona))
-        hub = self.v.hub
-        if who.role == c.PLANNER and hub is not None:
+        hub = self.v.hub if who.role == c.PLANNER else None
+
+        def record():
             cycle = hub.record_edit(who.persona, plan)
             cycle["run_id"] = who.run_id
-            await write_cycle(self.v.sf, cycle)
-        if not plan.valid:
+            return cycle
+        if not plan.valid:                    # nothing journaled: nothing to repeat
+            if hub is not None:
+                await write_cycle(self.v.sf, record())
             return actions.refused("; ".join(r["reason"] for r in plan.refused)[:256],
                                    refusals=plan.refused)
-        return await self._journal("edit_queue", {"base_version": base_version, "ops": plan.valid})
+        # The cycle row (and the hub's refusal bookkeeping) happen only for a new
+        # command, in the journal row's transaction: a retry records nothing twice.
+        side = (lambda s, _row: s.add(cycle_row(record()))) if hub is not None else None
+        return await self._journal("edit_queue", {"base_version": base_version, "ops": plan.valid},
+                                   side=side)
 
-    async def add_note(self, text: str, links: list[str]) -> str:
-        await self._journal("note", self.command.args)
-        async with self.v.sf() as s:
-            row = VillageNote(agent=self.caller.persona, session_id=self.caller.session_id,
-                              text=text, links=list(links))
-            s.add(row)
-            await s.commit()
-            return row.id
+    async def add_note(self, text: str, links: list[str]) -> str | None:
+        """The note and its journal row commit together (one transaction); a
+        retry that finds the first row writes no second note."""
+        note = VillageNote(agent=self.caller.persona, session_id=self.caller.session_id,
+                           text=text, links=list(links))
+
+        def side(s, _row) -> None:
+            s.add(note)
+        await self._journal("note", self.command.args, side=side)
+        return None if self.duplicate else note.id
 
     async def search_notes(self, q: str, limit: int) -> list[dict[str, Any]]:
         stmt = select(VillageNote).where(VillageNote.agent == self.caller.persona)
