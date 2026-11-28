@@ -570,7 +570,7 @@ Bash + curl + kubectl, `set -euo pipefail`. It writes `reports/village-live-$(da
 | `quota_stale_min` | 15 | — |
 | `planner_agent`, `planner_min_s`, `planner_heartbeat_s`, `runway_s`, `planner_max_restarts` | `village-planner`, 10, 30, 20, 3 | the model/runtime live on the agent def |
 | `reflection_slots`, `reflection_every_min`, `reflection_timeout_s`, `final_slot_before_end_min` | `{pai:"5:00",kai:"8:20",olu:"11:40"}`, 10, 480, 12 | — |
-| `reflection_memory_writes` | `false` | `true` (adds memory tool + routes to the fence) |
+| `reflection_memory_writes` | `true` (Kyle, A13) | `false` (removes the memory tool and routes from the fence) |
 | `play_section_scope` | `village_only` | `everywhere` |
 | `play_section_max_chars`, `prompt_edits_per_session` | 1500, 3 | — |
 | `rain_notice_s` | 60 | — |
