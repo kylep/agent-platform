@@ -135,6 +135,47 @@ def _site(w, step: dict):
     return w.locate(t) if t else None
 
 
+# What each step op wants, in the planner's words. Shown by `help`/`look` and
+# appended to refusals so a step that can't run says how to write it.
+ARG_HELP = {
+    "walk": "target: a place name (square, dock, pond...), 'tile:x,y', a character or an object id",
+    "pickup": "target: a material (wood, reeds, stone, seeds, clay), a source id or a loose piece id; hands must have room",
+    "carry_to": "target: where to bring what you carry (place, character, object id), or '<object id>><place>' to move an object",
+    "drop": "optional target: where to put down everything you carry (default: here)",
+    "place": "target: the object id (or project id) being built, with a matching piece carried; or 'tile:x,y' with stones for a path",
+    "dismantle": "target: an object id",
+    "repair": "target: an object id, or tool:hammer / tool:saw",
+    "use": "target: a finished object id",
+    "visit": "target: a place, character or object id",
+    "rest": "optional target: a place to rest at",
+    "look": "no arguments",
+    "say": "say: the line to speak",
+    "wait_for": "target: a character id",
+    "plant": "target: the id of a finished garden bed (a project built with function 'grow'), with 1 seed carried",
+    "harvest": "target: the id of a garden bed with a ripe crop",
+    "set_aside": "target: a material or piece id; needs.n is how many",
+    "keepsake": "target: an object id, say: the sentence to leave on it",
+}
+
+
+def _arg_error(op: str, what: str) -> str:
+    return f"{what}; {op} wants {ARG_HELP[op]}"
+
+
+def garden_for(w, a: dict, t: str | None) -> dict | None:
+    """The garden bed a plant/harvest step means: the object itself, or the nearest
+    bed to a place/tile/character it names (or to the actor when it names nothing)."""
+    obj = w.object_for(t)
+    if obj is not None:
+        return obj if obj["function"] == "grow" else None
+    loc = w.locate(t, a) if t else {"x": a["x"], "y": a["y"]}
+    if loc is None:
+        return None
+    beds = sorted((o for o in w.objects.values() if o["function"] == "grow"),
+                  key=lambda o: (cheb(loc["x"], loc["y"], o["x"], o["y"]), not o["ready"], o["id"]))
+    return beds[0] if beds and cheb(loc["x"], loc["y"], beds[0]["x"], beds[0]["y"]) <= 3 else None
+
+
 # --- precheck ----------------------------------------------------------------
 # (ok, reason, who, fatal)
 
@@ -148,14 +189,14 @@ def precheck(w, a: dict, step: dict, strict: bool = False):
             return False, f"waiting for {needs.get('n', 1)} {needs['material']}", None, False
     if op in ("walk", "visit", "carry_to") and not (t and w.locate(t, a)) and not (
             op == "carry_to" and t and ">" in t):
-        return False, f"don't know where '{t}' is", None, True
+        return False, _arg_error(op, f"don't know where '{t}' is"), None, True
     if op == "pickup":
         return _pre_pickup(w, a, step, strict)
     if op == "drop":
         if not a["carry"]:
             return False, "carrying nothing to drop", None, False
         if t and not w.locate(t, a):
-            return False, f"don't know where '{t}' is", None, True
+            return False, _arg_error(op, f"don't know where '{t}' is"), None, True
         return ok
     if op == "carry_to":
         if t and ">" in t:
@@ -168,7 +209,7 @@ def precheck(w, a: dict, step: dict, strict: bool = False):
     if op == "dismantle":
         obj = w.object_for(t)
         if obj is None:
-            return False, f"no object '{t}'", None, True
+            return False, _arg_error(op, f"no object '{t}'"), None, True
         if w.tools["saw"]["broken"]:
             return False, "the saw is broken, waiting for a repair", None, False
         return ok
@@ -179,34 +220,34 @@ def precheck(w, a: dict, step: dict, strict: bool = False):
     if op == "wait_for":
         other = w.actors.get((t or "").lower())
         if other is None:
-            return False, f"nobody called '{t}'", None, True
+            return False, _arg_error("wait_for", f"nobody called '{t}'"), None, True
         if cheb(a["x"], a["y"], other["x"], other["y"]) > 2:
             return False, f"waiting for {other['name']}", other["id"], False
         return ok
     if op == "plant":
-        obj = w.object_for(t)
-        if obj is None or obj["kind"] != "garden_bed":
-            return False, f"'{t}' is not a garden bed", None, True
+        obj = garden_for(w, a, t)
+        if obj is None:
+            return False, _arg_error("plant", f"'{t}' is not a garden bed"), None, True
         if not obj["ready"]:
-            return False, "the garden bed isn't finished yet", None, False
+            return False, f"the garden bed {obj['id']} isn't finished yet", None, False
         if obj.get("crop"):
-            return False, "something is already growing there", None, False
+            return False, f"something is already growing in {obj['id']}", None, False
         if not carried(w, a, "seeds"):
             return False, "waiting for seeds", None, False
         return ok
     if op == "harvest":
-        obj = w.object_for(t)
-        if obj is None or obj["kind"] != "garden_bed":
-            return False, f"'{t}' is not a garden bed", None, True
+        obj = garden_for(w, a, t)
+        if obj is None:
+            return False, _arg_error("harvest", f"'{t}' is not a garden bed"), None, True
         crop = obj.get("crop")
         if not crop or crop["ripe_at"] > w.tick:
             return False, "nothing is ripe yet", None, False
         return ok
     if op == "keepsake":
         if w.object_for(t) is None:
-            return False, f"no object '{t}'", None, True
+            return False, _arg_error(op, f"no object '{t}'"), None, True
         if not step.get("say"):
-            return False, "a keepsake needs a sentence", None, True
+            return False, _arg_error("keepsake", "a keepsake needs a sentence"), None, True
         return ok
     if op == "set_aside":
         return ok
@@ -219,7 +260,7 @@ def precheck(w, a: dict, step: dict, strict: bool = False):
 def _pre_pickup(w, a, step, strict):
     t = step.get("target")
     if not t:
-        return False, "pickup needs a target", None, True
+        return False, _arg_error("pickup", "pickup has no target"), None, True
     if len(a["carry"]) >= cap(a) or a.get("carry_obj"):
         return False, f"hands full (carrying {len(a['carry'])})", None, False
     if t in w.sources:
@@ -239,7 +280,7 @@ def _pre_pickup(w, a, step, strict):
         if cand is None:
             return False, why, None, False
         return True, None, None, False
-    return False, f"unknown material or source '{t}'", None, True
+    return False, _arg_error("pickup", f"unknown material or source '{t}'"), None, True
 
 
 def _pre_place(w, a, step):
@@ -249,7 +290,7 @@ def _pre_place(w, a, step):
     if t and t.startswith("tile:"):
         loc = w.locate(t, a)
         if loc is None:
-            return False, f"don't know where '{t}' is", None, True
+            return False, _arg_error("place", f"don't know where '{t}' is"), None, True
         if w.is_raining() and not w.covered(loc["x"], loc["y"]):
             return False, "paused for rain", None, False
         if not carried(w, a, "stone") and not w.stones_at(loc["x"], loc["y"]):
@@ -275,7 +316,7 @@ def _pre_repair(w, a, step):
         return True, None, None, False
     obj = w.object_for(t)
     if obj is None:
-        return False, f"no object '{t}'", None, True
+        return False, _arg_error("repair", f"no object '{t}'"), None, True
     if obj["wear"] <= 0:
         return False, "nothing to repair", None, True
     if w.tools_blocked("hammer"):
@@ -291,7 +332,7 @@ def _pre_repair(w, a, step):
 def _pre_use(w, a, step):
     obj = w.object_for(step.get("target"))
     if obj is None:
-        return False, f"no object '{step.get('target')}'", None, True
+        return False, _arg_error("use", f"no object '{step.get('target')}'"), None, True
     if not w.usable(obj):
         return False, "it isn't finished yet", None, False
     if obj["wear"] >= M.WEAR_BROKEN:
@@ -308,7 +349,7 @@ def _pre_move(w, a, step):
     oid, _, place = step["target"].partition(">")
     obj = w.object_for(oid)
     if obj is None:
-        return False, f"no object '{oid}'", None, True
+        return False, _arg_error("carry_to", f"no object '{oid}'"), None, True
     if w.locate(place, a) is None:
         return False, f"don't know where '{place}' is", None, True
     if obj.get("moving"):
@@ -604,7 +645,9 @@ def _op_use(w, a, step, act, strict):
 
 
 def _op_plant(w, a, step, act, strict):
-    obj = w.object_for(step["target"])
+    obj = garden_for(w, a, step.get("target"))
+    if obj is None:
+        return _failed(_arg_error("plant", f"'{step.get('target')}' is not a garden bed"))
     r, bad = _reach(w, a, act, (obj["x"], obj["y"]), 1)
     if bad:
         return bad
@@ -621,7 +664,9 @@ def _op_plant(w, a, step, act, strict):
 
 
 def _op_harvest(w, a, step, act, strict):
-    obj = w.object_for(step["target"])
+    obj = garden_for(w, a, step.get("target"))
+    if obj is None:
+        return _failed(_arg_error("harvest", f"'{step.get('target')}' is not a garden bed"))
     r, bad = _reach(w, a, act, (obj["x"], obj["y"]), 1)
     if bad:
         return bad

@@ -354,6 +354,65 @@ def test_say_tell_and_unavailable_ops():
     assert edit(w, ops=[{"op": "pull", "target": "kai", "toward": "dock", "line": "come"}]).state == "applied"
 
 
+def _bed(w, caption="A garden bed", function="grow", **kw):
+    oid = build(w, size=2, function=function, caption=caption, **kw)
+    return oid, w.objects[oid]
+
+
+def test_plant_works_however_the_planner_names_the_bed():
+    for target in ("bed", "garden", "tile", "none", "project"):
+        w = World()
+        oid, obj = _bed(w)
+        assert obj["kind"] == "garden_bed"
+        give(w, "pai", "seeds", 1)
+        t = {"bed": oid, "garden": "garden", "tile": f"tile:{obj['x']},{obj['y']}", "none": None,
+             "project": obj["project"]}[target]
+        if target == "garden":
+            obj["x"], obj["y"] = 22, 30            # the garden landmark
+        step = {"op": "plant"} if t is None else {"op": "plant", "target": t}
+        steps = [step]
+        if target == "tile":
+            steps = [{"op": "carry_to", "target": oid}, step]
+        edit(w, steps)
+        run(w, 80)
+        assert obj["crop"] is not None, (target, w.actors["pai"]["queue"], w.drain_events())
+        assert w.actors["pai"]["carry"] == []
+
+
+def test_a_garden_built_with_any_caption_is_a_bed_if_it_grows():
+    w = World()
+    oid, obj = _bed(w, caption="A seed bed by the fence")
+    assert obj["kind"] == "garden_bed"
+
+
+def test_plant_refusals_say_what_is_needed():
+    w = World()
+    oid, obj = _bed(w)
+    edit(w, [{"op": "plant", "target": oid}])
+    run(w, 10)
+    s = w.actors["pai"]["queue"][0]
+    assert s["state"] == "blocked" and s["blocked_reason"] == "waiting for seeds"
+    other = build(w, size=2, function="sit", caption="A bench")
+    give(w, "pai", "seeds", 1)
+    edit(w, [{"op": "plant", "target": other}])
+    evs = run(w, 100)
+    f = w.actors["pai"]["finished"]
+    assert f["s2"] == "failed"
+    ev = [e for e in evs if e.kind == "step_failed" and e.subjects == ["s2"]]
+    assert "plant wants target: the id of a finished garden bed" in ev[0].data["reason"]
+
+
+def test_every_step_op_has_arg_help_and_unknown_targets_say_how_to_write_them():
+    from agentplatform.village import hands
+    from agentplatform.village.contract import STEP_OPS
+    assert set(hands.ARG_HELP) == set(STEP_OPS)
+    w = World()
+    for op in ("use", "repair", "dismantle", "keepsake", "plant", "harvest", "walk", "visit"):
+        edit(w, [{"op": op, "target": "nowhere-at-all", "say": "x"}])
+        failed = [e for e in run(w, 6) if e.kind == "step_failed"]
+        assert failed and f"{op} wants" in failed[0].data["reason"], op
+
+
 def test_habits_can_only_be_set_on_yourself_or_your_own_residents():
     w = World(rules=TWO)
     w.add_actor("mara", "Mara", "resident", 31, 21, owner="pai")

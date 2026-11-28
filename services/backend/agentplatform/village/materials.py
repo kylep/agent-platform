@@ -62,6 +62,8 @@ _NAME_RE = re.compile(r"^name:[A-Za-z][A-Za-z '-]{0,23}$")
 
 def kind_for(function: str, caption: str) -> str:
     low = caption.lower()
+    if function == "grow" and "bridge" not in low:
+        return "garden_bed"             # anything built to grow is a bed, whatever it is called
     for word, kind in KIND_KEYWORDS:
         if word in low:
             return kind

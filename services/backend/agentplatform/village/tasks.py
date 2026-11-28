@@ -126,7 +126,7 @@ def normalize(w, a: dict, raw: dict) -> tuple[dict | None, str | None]:
             return None, "pickup needs a target"
         if t not in MATERIAL_SET and t not in w.sources and t.split(":")[-1] not in w.pieces:
             return None, f"unknown material '{t}'; materials are {', '.join(MATERIALS)}"
-    if raw["op"] in ("walk", "visit", "plant", "harvest", "dismantle", "keepsake", "use", "repair",
+    if raw["op"] in ("walk", "visit", "dismantle", "keepsake", "use", "repair",
                      "wait_for", "carry_to") and not t:
         return None, f"{raw['op']} needs a target"
     if raw.get("big") and w.closing["no_big"]:
