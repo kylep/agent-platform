@@ -53,6 +53,10 @@ class Run(Base):
     fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     fallback_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     requested_model: Mapped[str] = mapped_column(String(64), default="")
+    # Per-run deadline override (GEN-11 §6): set only by platform code through
+    # materialize_run's keyword, never from a request body or a Kafka payload.
+    # None = the agent definition's timeout_seconds.
+    timeout_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requested_runtime: Mapped[str | None] = mapped_column(String(16), nullable=True)
     task_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     model: Mapped[str] = mapped_column(String(64), default="")

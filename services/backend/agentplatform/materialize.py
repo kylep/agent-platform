@@ -20,9 +20,24 @@ log = logging.getLogger("materialize")
 # already committed, so a timed-out publish just falls to the sweep.
 PUBLISH_TIMEOUT_SECONDS = 5.0
 
+# Bounds for a per-run deadline override (GEN-11: reflections ~8 min, planners
+# ~70 min, while e.g. pai's own timeout is 180 s).
+RUN_TIMEOUT_MIN, RUN_TIMEOUT_MAX = 60, 7200
+
+
+def check_run_timeout(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not (
+            RUN_TIMEOUT_MIN <= value <= RUN_TIMEOUT_MAX):
+        raise ValueError(f"timeout_seconds must be an integer between "
+                         f"{RUN_TIMEOUT_MIN} and {RUN_TIMEOUT_MAX}")
+    return value
+
 
 async def materialize_run(session_factory, producer, spec: dict,
-                          publish_timeout: float = PUBLISH_TIMEOUT_SECONDS) -> str:
+                          publish_timeout: float = PUBLISH_TIMEOUT_SECONDS, *,
+                          timeout_seconds: int | None = None) -> str:
     """Create the Run (idempotent on spec['run_id']) and publish run.requests.
     `spec` keys: run_id, agent, prompt, trigger, requested_by, and optional
     initiated_by (root principal, defaults to "admin" — the single-operator
@@ -30,10 +45,17 @@ async def materialize_run(session_factory, producer, spec: dict,
     trigger_message_id, ticket_id.
     Returns the run id.
 
+    `timeout_seconds` (keyword, 60..7200) overrides the agent definition's
+    deadline for this run only. It is deliberately NOT a spec key: the
+    run.inbound consumer passes Kafka payloads through as the spec, and any
+    pod in the namespace can produce to Kafka, so only backend code calling
+    this function directly can set it.
+
     Postgres-first: the row is committed before the publish, and a failed/slow
     publish is swallowed — the run is `queued` and the dispatcher's queued-run
     sweep drains it once Kafka is reachable (see Dispatcher.sweep_queued)."""
     run_id = spec["run_id"]
+    timeout_seconds = check_run_timeout(timeout_seconds)
     async with session_factory() as s:
         if await s.get(Run, run_id) is None:
             generation = await current_generation(s, spec["agent"])
@@ -84,6 +106,7 @@ async def materialize_run(session_factory, producer, spec: dict,
                 external_observation_id=spec.get("external_observation_id"),
                 ticket_id=spec.get("ticket_id"),
                 requested_model=spec.get("model") or "",
+                timeout_seconds=timeout_seconds,
             ))
             await s.commit()
     try:

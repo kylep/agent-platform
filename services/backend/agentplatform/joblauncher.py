@@ -21,6 +21,12 @@ from agentplatform.events import TOPIC_RUN_EVENTS
 log = logging.getLogger("joblauncher")
 
 
+def run_timeout(run: Run, manifest: Manifest) -> int:
+    """The run's own deadline when platform code set one (materialize_run's
+    `timeout_seconds`, GEN-11), else the agent definition's."""
+    return getattr(run, "timeout_seconds", None) or manifest.timeout_seconds
+
+
 class K8sJobLauncher(Launcher):
     # Audience for projected ServiceAccount tokens (design/13): bound to the
     # platform, NOT the k8s apiserver — a leaked token authenticates nowhere
@@ -444,7 +450,7 @@ class K8sJobLauncher(Launcher):
                 spec=pod_spec,
             ),
             backoff_limit=0,
-            active_deadline_seconds=manifest.timeout_seconds,
+            active_deadline_seconds=run_timeout(run, manifest),
             # GC finished run Jobs + their pods after this long. Safe: the run's
             # transcript/state/metrics are already persisted to postgres by the
             # recorder, and the UI reads history from there, not from pods.
@@ -512,7 +518,7 @@ class K8sJobLauncher(Launcher):
                     key, run_id=run.id, agent=run.agent,
                     initiated_by=run.initiated_by or "admin",
                     tools=self._frozen_tools(manifest), sa_name=sa_identity,
-                    timeout_seconds=manifest.timeout_seconds
+                    timeout_seconds=run_timeout(run, manifest)
                         or self.settings.run_timeout_seconds)
         job = self.build_job(run, manifest, api_token=api_token,
                              sa_identity=sa_identity, run_token=run_token, pod_sa=pod_sa,
