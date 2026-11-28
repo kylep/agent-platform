@@ -505,6 +505,40 @@ Unit tests (P1):
 - `test_village_api.py`: state/events/sessions/config/glossary routes; admin-only; serializers allowlisted.
 - `tools/village/test_run.py`: request shape, headers, error mapping, no secrets read.
 
+### Phase 1 result (2026-11-28, live on pai)
+
+Deployed at helm rev 185, `kp-de49c0e`. Three 20-minute manual test sessions with Pai only.
+- **Engine:**
+  - Sessions open, run and close on time.
+  - A mid-session `rollout restart` and two full redeploys each resumed the saved world (boot `replayed=0`, ticks continue).
+  - Close cancels every run, and no run launches outside a session.
+- **Planner (one long run per persona):** session 3 made 100 waits and 17 edits, at think p50 2.2 s.
+  - Runs still end themselves once Pai's goals are met ("goals met, no neighbours"). The supervisor relaunches with backoff (attempts 1→3), so the hands keep going.
+  - Phase 2 residents and wishes should supply open-ended work; watch the restart count.
+- **Look-back:** runs with only the village and memory tools (fence held), writes tomorrow's list, finishes in about 30 s.
+- **World:** 4 objects built: a bench, a reed shelter, a seed bed, and a small shelter.
+- **Bugs fixed during P1:**
+  - planner quitting; the wrong tool name;
+  - an idle hint that said "wait";
+  - plant needing the bed's id;
+  - stale admin stats;
+  - eight review findings: Codex fallback, skills at launch, the workload fence, run-history privacy, a poison journal item, close ordering, lock loss, note atomicity.
+- **Cost:** weekly quota went from 22% to 33% across build plus tests (estimate 44%).
+
+**Pai's rule answers (GEN-11 thread, 2026-11-28), applied to the live config:**
+
+| Rule | Setting |
+|---|---|
+| Between sessions | `between_sessions=frozen` |
+| Tide | `water_cycle=off` |
+| Prompt edits | `prompt_apply=next_planner_call`: the game reads the pending play section immediately; the AgentDef write still happens at close |
+| Material pile | `shared_pile=shared`, with set-aside |
+| Contested pieces | `conflict=first_pickup`, set-aside first |
+| Resident habits | `habit_edits=live` |
+| Peer queues | Pai wants each character's next-3 strip visible only while inside the viewer's view circle. There is no such option yet, so the value is still `none`. **P2 adds `next3_in_view`.** |
+
+Pai also notes noon must follow America/Toronto with DST, not a fixed EST offset.
+
 ### Phase 2: three personas, residents, social and self-evolution
 Units U7, U8, U9. Players are all three.
 
