@@ -233,8 +233,11 @@ async def test_an_sse_feed_closes_after_its_session_is_revoked(admin_client, sf,
              "root_path": ""}
     task = asyncio.create_task(app(scope, receive, send))
     try:
-        await asyncio.wait_for(started.wait(), 2)
-        assert b"heartbeat" in await asyncio.wait_for(bodies.get(), 2)
+        # Generous waits: under the full suite's load on one shared sqlite
+        # connection the stream has been seen to take over 2s to start (QA-29).
+        # These bound a hang; the assertions below are what the test proves.
+        await asyncio.wait_for(started.wait(), 15)
+        assert b"heartbeat" in await asyncio.wait_for(bodies.get(), 15)
         assert not task.done()
         # Sign out while the stream waits out its next heartbeat. The
         # in-memory sqlite is one shared connection, and the stream re-checks
@@ -242,7 +245,7 @@ async def test_an_sse_feed_closes_after_its_session_is_revoked(admin_client, sf,
         # logout's uncommitted update.
         await asyncio.sleep(0.1)
         await admin_client.post("/api/logout")
-        await asyncio.wait_for(task, 3)     # the stream ended on its own
+        await asyncio.wait_for(task, 15)    # the stream ended on its own
     finally:
         # Await the cancel, bounded, while the engine is still open: a stream
         # left unwinding past this point meets `sf`'s engine.dispose() on the

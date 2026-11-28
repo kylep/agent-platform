@@ -166,11 +166,26 @@ def test_font_parity_resvg_ink_matches_measured_bounds(family, weight):
 def test_one_very_long_unbroken_word_breaks_in_linear_time():
     import time
     st = style(size=14)
+
+    def best(n):
+        # Best of three: a loaded CI box (the backend suite runs 3 workers)
+        # inflates single timings by a factor, never deflates them.
+        runs = []
+        for _ in range(3):
+            t0 = time.perf_counter()
+            out = layout_text([("x" * n, st)], 40)
+            runs.append(time.perf_counter() - t0)
+        return min(runs), out
+
+    small, _ = best(1000)
+    dt, t = best(4000)
     word = "x" * 4000
-    t0 = time.perf_counter()
-    t = layout_text([(word, st)], 40)
-    dt = time.perf_counter() - t0
-    assert dt < 1.0, f"{dt:.2f}s"
+    # Linear is about 4x for 4x the input, quadratic about 16x: a ratio gate
+    # measures the property the name claims and does not depend on how fast
+    # (or how busy) the machine is. The loose ceiling still catches a gross
+    # constant-factor blowup.
+    assert dt < 10 * small, f"4000 chars took {dt:.2f}s vs {small:.2f}s for 1000"
+    assert dt < 5.0, f"{dt:.2f}s"
     assert t.hard_broken and "".join(l.text for l in t.lines) == word
     assert sum(len(f.glyphs) for l in t.lines for f in l.frags) == 4000
     assert all(l.w <= 40 + 1e-6 for l in t.lines) and len(t.lines) > 100
