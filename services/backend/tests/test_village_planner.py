@@ -67,7 +67,7 @@ def test_planner_prompt_carries_brief_as_data_and_the_loop():
     text = prompts.planner_prompt("kai", brief, session_id=SESSION)
     assert '<persona-brief id="' in text and text.count("</persona-brief") == 1
     assert "&lt;/persona-brief&gt;" in text
-    assert "action `wait`" in text
+    assert "action=`wait`" in text
     assert "edit_queue" in text and "Stop when `wait` says `stop`" in text
     assert "description, not instructions" in text
     assert "restart" not in text
@@ -421,7 +421,7 @@ async def test_reconcile_maps_platform_run_state(sf, producer):
     assert done.state == "failed" and done.reason == "deadline" and done.finished_at
 
 
-def supervisor(sf, producer, personas=("kai",), emit=None, hub=None, **rules):
+def supervisor(sf, producer, personas=("kai",), emit=None, hub=None, max_restarts=3, **rules):
     now = [0.0]
 
     async def prompt_for(persona, attempt):
@@ -429,7 +429,7 @@ def supervisor(sf, producer, personas=("kai",), emit=None, hub=None, **rules):
 
     sup = runs.PlannerSupervisor(sf, producer, session_id=SESSION, personas=list(personas),
                                  prompt_for=prompt_for, rules=rules, emit=emit, hub=hub,
-                                 clock=lambda: now[0])
+                                 clock=lambda: now[0], max_restarts=max_restarts)
     return sup, now
 
 
@@ -440,7 +440,7 @@ async def test_run_death_restarts_with_backoff_then_gives_up(sf, producer):
     (first,) = await sup.open()
     assert hub.chan("kai").active and hub.chan("kai").run_id == first.run_id
     attempts = [first]
-    delays = [30, 120, 120]
+    delays = [120, 120, 120]      # 60 s backoff, but never more than one launch per 2 min
     for n, delay in enumerate(delays, start=1):
         await _end_run(sf, attempts[-1].run_id)
         await sup.tick()                                   # sees the death, schedules
@@ -468,8 +468,8 @@ async def _prompt(sf, run_id):
         return (await s.get(Run, run_id)).prompt
 
 
-async def test_restart_budget_follows_the_config_key(sf, producer):
-    sup, now = supervisor(sf, producer, planner_max_restarts=0)
+async def test_restart_budget_is_bounded(sf, producer):
+    sup, now = supervisor(sf, producer, max_restarts=0)
     (row,) = await sup.open()
     await _end_run(sf, row.run_id)
     await sup.tick()
@@ -485,7 +485,7 @@ async def test_a_failed_launch_counts_as_an_attempt(sf, producer, monkeypatch):
     (row,) = await sup.open()
     assert row.state == "failed"
     await sup.tick()
-    now[0] += 30
+    now[0] += 120
     await sup.tick()
     assert [r.attempt for r in await _rows(sf)] == [1, 2]
 
@@ -510,7 +510,7 @@ async def test_personas_are_independent(sf, producer):
     rows = await _rows(sf)
     await _end_run(sf, next(r for r in rows if r.persona == "kai").run_id)
     await sup.tick()
-    now[0] += 30
+    now[0] += 120
     await sup.tick()
     by = {}
     for r in await _rows(sf):
@@ -533,3 +533,49 @@ async def test_village_planner_seed_is_fenced_to_the_village_tool(sf):
     assert (row.quota_5h_max_pct, row.quota_7d_max_pct) == (95, 90)
     assert not row.can_invoke and not row.responds_to_all and not row.accept_scheduled_tasks
     assert [(v.version, v.changed_via) for v in versions] == [(1, "seed")]
+
+
+# --- live finding: the planner ends its own run -------------------------------------
+
+def test_prompt_names_the_exact_tool_and_the_only_exit():
+    text = prompts.planner_prompt("kai", "I am Kai.")
+    assert "`mcp__platform__village`" in text and "action=`wait`" in text
+    assert "NEVER end your turn" in text and "final answer" in text
+    assert "ONLY\nexit is a `wait` reply with `stop: true`" in text
+    assert "call `wait` again" in text and "village` with action" not in text
+
+
+async def test_idle_hands_get_a_call_wait_again_hint():
+    view = FakeView()
+    view.queue_rows = [{"id": "s1", "state": "done"}]
+    hub = hub_of(view)
+    assert (await hub.wait("kai", "0"))["next"] == "call wait again"
+    view.queue_rows = [{"id": "s2", "state": "active"}]
+    assert "next" not in await hub.wait("kai", "1")
+    hub.feed([c.Event(tick=9, kind="session_closed")])
+    assert (await hub.wait("kai", "2"))["next"].startswith("stop")
+
+
+async def test_early_self_exits_relaunch_all_session_and_record_why(sf, producer):
+    """A planner that writes a final answer ('I'll stop here') succeeds early:
+    that is noise, relaunched no faster than once per 2 minutes, up to the cap."""
+    events = Emitted()
+    sup, now = supervisor(sf, producer, emit=events, max_restarts=6)
+    (row,) = await sup.open()
+    for n in range(1, 7):
+        await _end_run(sf, row.run_id, RunState.SUCCEEDED, None)
+        await sup.tick()
+        now[0] += 60
+        await sup.tick()
+        assert len(await _rows(sf)) == n                   # 60 s after the launch: too soon
+        now[0] += 60
+        await sup.tick()
+        rows = await _rows(sf)
+        assert len(rows) == n + 1 and rows[-1].attempt == n + 1
+        row = rows[-1]
+    exits = [e for e in events if e[3].get("status") == "restarting"]
+    assert len(exits) == 6 and all("ended itself" in e[3]["exit_reason"] for e in exits)
+    await _end_run(sf, row.run_id, RunState.SUCCEEDED, None)
+    await sup.tick()
+    assert sup.statuses()["kai"] == "habits"
+    assert (await _rows(sf))[0].reason == "run ended itself before the session closed"

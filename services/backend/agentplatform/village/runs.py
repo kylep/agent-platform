@@ -22,7 +22,9 @@ from agentplatform.village import contract as c
 log = logging.getLogger(__name__)
 
 TRIGGER = "village"
-BACKOFF_S = (30, 120)          # before restart 1, then every later restart
+BACKOFF_S = (60, 120)          # before restart 1, then every later restart
+MIN_GAP_S = 120                # at most about one launch per 2 minutes per persona
+MAX_RESTARTS = 20              # per persona per session; early exits are expected noise
 LIVE_ROW_STATES = ("launching", "running")
 MIN_TIMEOUT_S, MAX_TIMEOUT_S = 60, 7200
 CANCEL_ERROR = "cancelled by village"
@@ -105,7 +107,7 @@ def _row_state(run: Run | None) -> tuple[str, str | None]:
     if st in (RunState.DISPATCHED, RunState.RUNNING):
         return "running", None
     if st == RunState.SUCCEEDED:
-        return "done", None
+        return "done", "run ended itself before the session closed"
     if st == RunState.KILLED:
         return "cancelled", (run.error or "killed")[:256]
     return "failed", (run.error or str(st.value if hasattr(st, "value") else st) or "ended")[:256]
@@ -234,13 +236,16 @@ class PlannerSupervisor:
     def __init__(self, sf, producer, *, session_id: str, personas: list[str],
                  prompt_for: Callable[[str, int], Awaitable[str]], rules: dict | None = None,
                  emit: Emit | None = None, hub=None, clock: Callable[[], float] = time.monotonic,
-                 backoff: tuple[float, ...] = BACKOFF_S, timeout_seconds: int | None = None) -> None:
+                 backoff: tuple[float, ...] = BACKOFF_S, timeout_seconds: int | None = None,
+                 max_restarts: int = MAX_RESTARTS, min_gap_s: float = MIN_GAP_S) -> None:
         self.sf, self.producer = sf, producer
         self.session_id, self.personas = session_id, list(personas)
         self.prompt_for = prompt_for
         self.rules = c.merged_rules(rules)
         self.emit, self.hub, self.clock, self.backoff = emit, hub, clock, backoff
         self.timeout_seconds = timeout_seconds
+        self.max_restarts, self.min_gap_s = max_restarts, min_gap_s
+        self._last_launch: dict[str, float] = {}
         self.live = False
         self.exhausted: set[str] = set()
         self._due: dict[str, float] = {}
@@ -255,6 +260,7 @@ class PlannerSupervisor:
                                    persona=persona, prompt=prompt, attempt=attempt,
                                    agent=self.rules["planner_agent"],
                                    timeout_seconds=self.timeout_seconds)
+        self._last_launch[persona] = self.clock()
         failed = row.state == "failed"
         if self.hub:
             if attempt > 1:
@@ -297,7 +303,7 @@ class PlannerSupervisor:
     async def _ended(self, persona: str, row: VillageRun) -> None:
         now = self.clock()
         if persona not in self._due:
-            if row.attempt - 1 >= self.rules["planner_max_restarts"]:
+            if row.attempt - 1 >= self.max_restarts:
                 self.exhausted.add(persona)
                 if self.hub:
                     self.hub.set_run(persona, None, active=False)
@@ -305,12 +311,14 @@ class PlannerSupervisor:
                           status="habits", attempt=row.attempt)
                 return
             wait = self.backoff[min(row.attempt - 1, len(self.backoff) - 1)]
-            self._due[persona] = now + wait
+            due = max(now + wait, self._last_launch.get(persona, now) + self.min_gap_s)
+            self._due[persona] = due
+            wait = due - now
             if self.hub:
                 self.hub.set_run(persona, None, active=False)
             self._say("planner_status", persona,
                       f"{persona} can't think right now: restarting", status="restarting",
-                      attempt=row.attempt, in_s=wait)
+                      attempt=row.attempt, in_s=wait, exit_reason=row.reason)
             return
         if now >= self._due[persona]:
             del self._due[persona]

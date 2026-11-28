@@ -217,6 +217,10 @@ class PlannerHub:
                                "reasons": [r for r in PRIORITY if r in ch.pending] or [reason],
                                "stop": self.stopped, "full": full,
                                "queue_version": self.view.queue_version(me)}
+        if self.stopped:
+            out["next"] = "stop: end your turn"
+        elif not any(st.get("state") in ("queued", "active", "blocked") for st in self.view.queue(me)):
+            out["next"] = "call wait again"      # idle hands are not a reason to stop planning
         out["look" if full else "changes"] = self.view.look(me) if full else self.view.changes(me)
         if ch.speech:
             out["speech"] = [{"from": s, "kind": k, "text": t} for s, k, t in ch.speech]
