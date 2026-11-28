@@ -107,7 +107,8 @@ async def test_a_test_session_runs_end_to_end(sf, producer, seed_agent, launches
     assert applied.result().state == "applied"
     assert [s["id"] for s in eng.world.actors["pai"]["queue"]][:2] == ["w1", "hi"]
     async with sf() as s:
-        cycles = list((await s.execute(select(VillagePlannerCycle))).scalars())
+        cycles = list((await s.execute(select(VillagePlannerCycle).where(
+            VillagePlannerCycle.edit_at.is_not(None)))).scalars())
     assert len(cycles) == 1 and cycles[0].run_id == planner and cycles[0].think_ms is not None
 
     mono[0] += 11                                      # past planner_min_s

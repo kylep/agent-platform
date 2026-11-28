@@ -21,6 +21,7 @@ from agentplatform.village.prompts import village_data_block
 PRIORITY = ("step_failed", "step_blocked", "addressed", "step_done", "nearby", "notice",
             "brief_changed", "runway", "session_state", "heartbeat")
 URGENT = frozenset({"step_failed", "step_blocked"})
+IDLE_HINT = "your hands are idle: add steps toward your goals with edit_queue, then call wait"
 FULL_LOOK_EVERY = 10          # every 10th return is a full look (bounds drift)
 SLOW_THINK_S = 20             # "thinking slowly"
 SILENT_WAIT_S = 90            # "can't think right now"
@@ -66,6 +67,7 @@ class _Chan:
     last_reply: dict[str, Any] | None = None
     run_id: str | None = None
     active: bool = False
+    wait_cycle: dict[str, Any] | None = None   # unsaved row for the wait just returned
 
 
 def _now_utc() -> datetime:
@@ -211,7 +213,9 @@ class PlannerHub:
 
     def _reply(self, ch: _Chan, reason: str) -> dict[str, Any]:
         me = ch.persona
-        full = ch.returns % FULL_LOOK_EVERY == 0
+        idle = self._idle(me)
+        # Idle hands get a full look too: goals and nearby sources are what a plan needs.
+        full = ch.returns % FULL_LOOK_EVERY == 0 or (idle and not self.stopped)
         ch.seq += 1
         out: dict[str, Any] = {"cursor": str(ch.seq), "wake": reason,
                                "reasons": [r for r in PRIORITY if r in ch.pending] or [reason],
@@ -219,8 +223,10 @@ class PlannerHub:
                                "queue_version": self.view.queue_version(me)}
         if self.stopped:
             out["next"] = "stop: end your turn"
-        elif not any(st.get("state") in ("queued", "active", "blocked") for st in self.view.queue(me)):
-            out["next"] = "call wait again"      # idle hands are not a reason to stop planning
+        elif idle:
+            out["next"] = IDLE_HINT
+        elif self.view.queue_seconds(me) >= self.rules["runway_s"]:
+            out["next"] = "call wait again"      # the list still has work in it
         out["look" if full else "changes"] = self.view.look(me) if full else self.view.changes(me)
         if ch.speech:
             out["speech"] = [{"from": s, "kind": k, "text": t} for s, k, t in ch.speech]
@@ -241,8 +247,21 @@ class PlannerHub:
         ch.returns += 1
         ch.last_return = self.clock()
         ch.awaiting = (ch.last_return, reason, _now_utc())
+        ch.wait_cycle = {"session_id": self.session_id, "persona": me, "run_id": ch.run_id,
+                         "wait_returned_at": ch.awaiting[2], "wake_reason": reason}
         ch.last_reply = out
         return out
+
+    def _idle(self, persona: str) -> bool:
+        return not any(st.get("state") in ("queued", "active", "blocked")
+                       for st in self.view.queue(persona))
+
+    def take_wait_cycle(self, persona: str) -> dict[str, Any] | None:
+        """The row for the wait that just returned (once), so "last wait" is
+        durable: it is the newest wait_returned_at among the cycle rows."""
+        ch = self.chan(persona)
+        row, ch.wait_cycle = ch.wait_cycle, None
+        return row
 
     # --- edits --------------------------------------------------------------
 

@@ -545,15 +545,66 @@ def test_prompt_names_the_exact_tool_and_the_only_exit():
     assert "call `wait` again" in text and "village` with action" not in text
 
 
-async def test_idle_hands_get_a_call_wait_again_hint():
+async def test_idle_hands_are_told_to_add_steps_and_get_a_full_look():
     view = FakeView()
     view.queue_rows = [{"id": "s1", "state": "done"}]
     hub = hub_of(view)
-    assert (await hub.wait("kai", "0"))["next"] == "call wait again"
+    first = await hub.wait("kai", "0")
+    assert first["next"] == prompts_idle() and "call wait again" not in first["next"]
+    again = await hub.wait("kai", first["cursor"])           # idle: full look (goals, sources), not a delta
+    assert again["full"] and "look" in again and again["next"] == prompts_idle()
     view.queue_rows = [{"id": "s2", "state": "active"}]
-    assert "next" not in await hub.wait("kai", "1")
+    busy = await hub.wait("kai", again["cursor"])
+    assert busy["next"] == "call wait again" and not busy["full"]       # runway left: waiting is fine
+    view.runway = 5.0
+    assert "next" not in await hub.wait("kai", busy["cursor"])          # short runway: no soothing hint
     hub.feed([c.Event(tick=9, kind="session_closed")])
-    assert (await hub.wait("kai", "2"))["next"].startswith("stop")
+    assert (await hub.wait("kai", "9"))["next"].startswith("stop")
+
+
+def prompts_idle():
+    from agentplatform.village.planner import IDLE_HINT
+    return IDLE_HINT
+
+
+async def test_empty_queue_runway_wakes_within_the_min_interval():
+    view = FakeView()
+    view.queue_rows = []
+    view.runway = 0.0
+    hub = hub_of(view, planner_min_s=0.1, planner_heartbeat_s=5)
+    await hub.wait("kai", "0")
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    reply = await hub.wait("kai", "1")
+    assert reply["wake"] == "runway" and loop.time() - t0 < 0.4
+
+
+def test_prompt_says_an_idle_character_is_the_planners_job():
+    text = prompts.planner_prompt("kai", "I am Kai.")
+    assert "fixing that is YOUR job" in text and "Never wait on an empty list" in text
+
+
+async def test_every_wait_leaves_a_durable_row_for_last_wait(sf, admin_client):
+    from agentplatform.db import VillageSession
+    async with sf() as s:
+        s.add(VillageSession(id=SESSION, day="2026-11-28", kind="test", state="live"))
+        await s.commit()
+    hub = hub_of(planner_heartbeat_s=0.01)
+    hub.set_run("kai", "run1")
+    cursor = "0"
+    for _ in range(3):
+        reply = await hub.wait("kai", cursor)
+        cursor = reply["cursor"]
+        await write_cycle(sf, hub.take_wait_cycle("kai"))
+    assert hub.take_wait_cycle("kai") is None                  # taken once
+    replay = await hub.wait("kai", "1")                         # a retried reply is not a new wait
+    assert hub.take_wait_cycle("kai") is None and replay["cursor"] == "3"
+    plan = planner_ops.prepare_edit(_edit({"op": "say", "line": "hi"}), QUEUE)
+    await write_cycle(sf, {**hub.record_edit("kai", plan), "session_id": SESSION})
+    body = (await admin_client.get("/api/village/admin")).json()
+    kai = body["personas"]["kai"]
+    assert kai["waits"] == 3 and kai["cycles"] == 1 and kai["last_wait"]
+    assert [r["ops_applied"] for r in body["recent_cycles"]] == [1]   # recent_cycles = edits only
 
 
 async def test_early_self_exits_relaunch_all_session_and_record_why(sf, producer):

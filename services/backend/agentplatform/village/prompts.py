@@ -104,7 +104,11 @@ Your only tool is `{TOOL}`; every call passes `action`.
 
 NEVER end your turn and NEVER write a final answer. The session is stopped from outside.
 An empty queue, finished goals or nothing to do all mean: call `wait` again. The ONLY
-exit is a `wait` reply with `stop: true`. If unsure, call `wait`. Keep thinking short.
+exit is a `wait` reply with `stop: true`. Keep thinking short.
+
+But waiting is only for a list that still has work in it. If the reply says your hands are
+idle or the queue is empty, fixing that is YOUR job: call `edit_queue` with steps toward
+the goals first, then `wait`. Never wait on an empty list.
 
 Loop: `{TOOL}` action=`wait` (pass the `cursor` from the last reply, "0" the first
 time). Read what changed. If the to-do list needs changing, call action=`edit_queue`

@@ -208,8 +208,13 @@ async def admin_strip(request: Request, caller: str = Depends(ADMIN)):
                                   .order_by(VillagePlannerCycle.wait_returned_at))).scalars().all()
     personas: dict[str, dict[str, Any]] = {}
     for c in cycles:
-        p = personas.setdefault(c.persona, {"think_ms": [], "last_wait": None, "cycles": 0})
-        p["cycles"] += 1
+        p = personas.setdefault(c.persona, {"think_ms": [], "last_wait": None, "cycles": 0,
+                                            "waits": 0})
+        # Every wait is a row (edit_at None until an edit answers it); an edit adds its own.
+        if c.edit_at is None:
+            p["waits"] += 1
+        else:
+            p["cycles"] += 1
         if c.think_ms is not None:
             p["think_ms"].append(c.think_ms)
         p["last_wait"] = _iso(c.wait_returned_at)
@@ -217,7 +222,8 @@ async def admin_strip(request: Request, caller: str = Depends(ADMIN)):
         ms = sorted(p.pop("think_ms"))
         p["think_ms_p50"] = ms[len(ms) // 2] if ms else None
     return {"session": session_out(sess), "runs": [run_out(r) for r in runs],
-            "personas": personas, "recent_cycles": [cycle_out(c) for c in cycles[-20:]]}
+            "personas": personas,
+            "recent_cycles": [cycle_out(c) for c in cycles if c.edit_at is not None][-20:]}
 
 
 class ConfigBody(BaseModel):

@@ -145,7 +145,14 @@ class EngineHandler:
             hub = self.v.hub
             if hub is None or hub.session_id != caller.session_id:
                 raise Refused(503, "the village is not running this session")
-            return await hub.wait(caller.persona, str(args.get("cursor") or "0"))
+            reply = await hub.wait(caller.persona, str(args.get("cursor") or "0"))
+            row = hub.take_wait_cycle(caller.persona)
+            if row is not None:
+                try:                       # durable "last wait"; never costs the planner its reply
+                    await write_cycle(self.v.sf, row)
+                except Exception:
+                    log.warning("village wait row not saved", exc_info=True)
+            return reply
         result = await actions.dispatch(self._ctx(caller, _Ports(self.v, caller, None)), action, args)
         if result.state == "refused":
             raise Refused(422, result.reason or "refused")
