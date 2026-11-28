@@ -465,3 +465,37 @@ def test_state_is_json_stable_after_many_events():
     snap = w.to_snapshot()
     assert json.loads(json.dumps(snap)) == snap
     assert World.from_snapshot(snap).state_hash() == w.state_hash()
+
+
+def _shuffled(v, rnd):
+    """The same JSON with every dict's key order scrambled (what JSONB may hand back)."""
+    if isinstance(v, dict):
+        keys = list(v)
+        rnd.shuffle(keys)
+        return {k: _shuffled(v[k], rnd) for k in keys}
+    if isinstance(v, list):
+        return [_shuffled(x, rnd) for x in v]
+    return v
+
+
+def test_restore_ignores_dict_key_order_even_past_the_finished_cap():
+    rnd = random.Random(5)
+    w = World(rules={"players": ["pai", "kai"]})
+    for _ in range(5):                                   # > 200 finished steps, so eviction runs
+        edit(w, [{"op": "say", "say": "hi"} for _ in range(50)])
+        run(w, 100)
+    a = w.actors["pai"]
+    assert len(a["finished"]) == 200 and a["fin_order"][0] == "s51"
+    edit(w, [{"op": "pickup", "target": "wood"}, {"op": "carry_to", "target": "pile"}, {"op": "drop"}])
+    edit(w, [{"op": "pickup", "target": "reeds"}], persona="kai")
+    run(w, 30)
+    snap = json.loads(json.dumps(w.to_snapshot()))
+    w2 = World.from_snapshot(_shuffled(snap, rnd))
+    assert w2.state_hash() == w.state_hash()
+    for _ in range(3):
+        edit(w, [{"op": "say", "say": "more"} for _ in range(40)])
+        edit(w2, [{"op": "say", "say": "more"} for _ in range(40)])
+        run(w, 300)
+        run(w2, 300)
+        assert w2.state_hash() == w.state_hash()
+    assert sorted(w2.actors["pai"]["finished"]) == sorted(w.actors["pai"]["finished"])

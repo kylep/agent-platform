@@ -72,7 +72,7 @@ class World:
         """`owner` is the character who may edit a resident's habits (a character owns itself)."""
         a = {"id": aid, "name": name, "kind": kind, "x": x, "y": y, "acc": 0, "path": [], "pgoal": None,
              "carry": [], "cart": None, "carry_obj": None, "queue": [], "queue_version": 0,
-             "finished": {}, "next_sid": 0, "next_hid": 0, "act": None, "habit_steps": [],
+             "finished": {}, "fin_order": [], "next_sid": 0, "next_hid": 0, "act": None, "habit_steps": [],
              "habit": None, "goals": [], "habits": [], "section": "", "planner": "idle", "idle": {},
              "caption": "", "say": "", "wait_on": {}, "retry": {}, "since": {}, "gathered": False,
              "owner": owner if owner is not None else (aid if kind == "character" else None)}
@@ -671,7 +671,7 @@ class World:
             level = POND_CYCLE[self.pond["idx"]]
             self.emit("pond_level", None, [], f"the pond is {('low', 'middling', 'high')[level]}", {"level": level})
             if level == 0:
-                for s in self.sources.values():
+                for s in (self.sources[k] for k in sorted(self.sources)):
                     if s["kind"] == "stone_pile":
                         s["amount"] = min(M.SOURCE_KINDS["stone_pile"]["max"], s["amount"] + M.WASH_STONES)
                         self.emit("stones_washed_ashore", None, [s["id"]], "stones washed ashore",

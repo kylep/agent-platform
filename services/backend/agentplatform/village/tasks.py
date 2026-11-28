@@ -62,10 +62,12 @@ def _finish(w, a: dict, s: dict, state: str, reason: str | None = None):
     a["since"].pop(s["id"], None)
     if state == "done" and s["id"].startswith("sq") and s["op"] == "say":
         a["gathered"] = True
+    if s["id"] in a["finished"]:
+        a["fin_order"].remove(s["id"])
     a["finished"][s["id"]] = state
-    if len(a["finished"]) > FINISHED_CAP:
-        for k in list(a["finished"])[:len(a["finished"]) - FINISHED_CAP]:
-            del a["finished"][k]
+    a["fin_order"].append(s["id"])                 # a list: JSONB keeps its order, dict keys it does not
+    while len(a["fin_order"]) > FINISHED_CAP:
+        a["finished"].pop(a["fin_order"].pop(0), None)
     a["queue"] = [q for q in a["queue"] if q["id"] != s["id"]]
     kind = {"done": "step_done", "failed": "step_failed", "skipped": "step_skipped"}[state]
     text = {"done": f"{a['name']} finished: {describe_step(s)}",
