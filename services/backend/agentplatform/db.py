@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Any
-from sqlalchemy import (Boolean, JSON, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String,
+from sqlalchemy import (BigInteger, Boolean, JSON, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String,
                         Text, UniqueConstraint, case, func, select, text)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
@@ -1684,6 +1684,202 @@ class ApiKey(Base):
     prefix: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# --- Village (GEN-11, plan 2026-11-27-village-game §2) ---------------------
+# Columns only. The engine (`village/`) is the single writer of the world
+# tables; value vocabularies live in `village/contract.py`.
+_VG_JSON = JSON().with_variant(JSONB(), "postgresql")
+_VG_SEQ = BigInteger().with_variant(Integer, "sqlite")
+_VG_TS = DateTime(timezone=True)
+
+
+class VillageConfig(Base):
+    """One row (id=1): every cheap-to-flip rule, merged over contract.DEFAULT_RULES."""
+    __tablename__ = "village_config"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    rules: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow, onupdate=utcnow)
+
+
+class VillageSession(Base):
+    """One daily row per Toronto day (rest and skipped days included) and any
+    number of `kind=test` rows."""
+    __tablename__ = "village_sessions"
+    __table_args__ = (Index("uq_village_sessions_daily_day", "day", unique=True,
+                            postgresql_where=text("kind = 'daily'"),
+                            sqlite_where=text("kind = 'daily'")),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    day: Mapped[str] = mapped_column(String(10), index=True)
+    kind: Mapped[str] = mapped_column(String(8), default="daily")
+    planned_start: Mapped[datetime | None] = mapped_column(_VG_TS, nullable=True)
+    planned_end: Mapped[datetime | None] = mapped_column(_VG_TS, nullable=True)
+    length_min: Mapped[int] = mapped_column(Integer, default=60)
+    state: Mapped[str] = mapped_column(String(16), default="scheduled", index=True)
+    quota_at_start: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    quota_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(_VG_TS, nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(_VG_TS, nullable=True)
+    end_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    tick_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tick_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+
+
+class VillageCommand(Base):
+    """The journal. Committed before the tool gets its ack; replayed on boot."""
+    __tablename__ = "village_commands"
+    __table_args__ = (UniqueConstraint("run_id", "request_id", name="uq_village_command_request"),)
+    seq: Mapped[int] = mapped_column(_VG_SEQ, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    source: Mapped[str] = mapped_column(String(16))
+    run_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    persona: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    args_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    action: Mapped[str] = mapped_column(String(32))
+    args: Mapped[dict] = mapped_column(JSON, default=dict)
+    state: Mapped[str] = mapped_column(String(16), default="accepted", index=True)
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    apply_tick: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow, index=True)
+
+
+class VillageSnapshot(Base):
+    __tablename__ = "village_snapshots"
+    __table_args__ = (Index("ix_village_snapshots_session_tick", "session_id", "tick"),)
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    session_id: Mapped[str] = mapped_column(String(32))
+    tick: Mapped[int] = mapped_column(Integer)
+    last_applied_seq: Mapped[int] = mapped_column(_VG_SEQ, default=0)
+    state_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[dict] = mapped_column(_VG_JSON)
+    kind: Mapped[str] = mapped_column(String(16), default="periodic", index=True)
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow, index=True)
+
+
+class VillageEvent(Base):
+    """The public narrative (feed, replay, recap); never the recovery source."""
+    __tablename__ = "village_events"
+    __table_args__ = (Index("ix_village_events_session_tick", "session_id", "tick"),)
+    seq: Mapped[int] = mapped_column(_VG_SEQ, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(32))
+    epoch: Mapped[str] = mapped_column(String(32))
+    tick: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    subjects: Mapped[list] = mapped_column(JSON, default=list)
+    public_text: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    superseded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow, index=True)
+
+
+class VillageRun(Base):
+    """The fence key: a run with a row here (any state) is a village run."""
+    __tablename__ = "village_runs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    persona: Mapped[str] = mapped_column(String(128))
+    role: Mapped[str] = mapped_column(String(16))
+    run_id: Mapped[str] = mapped_column(String(32), unique=True)
+    slot: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    state: Mapped[str] = mapped_column(String(16), default="launching", index=True)
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    launched_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(_VG_TS, nullable=True)
+
+
+class VillagePlannerCycle(Base):
+    __tablename__ = "village_planner_cycles"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    persona: Mapped[str] = mapped_column(String(128))
+    run_id: Mapped[str] = mapped_column(String(32), index=True)
+    wait_returned_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+    wake_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    edit_at: Mapped[datetime | None] = mapped_column(_VG_TS, nullable=True)
+    think_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ops_applied: Mapped[int] = mapped_column(Integer, default=0)
+    ops_refused: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class VillageNote(Base):
+    """PRIVATE. Owner-only; never in any API serializer. Append-only."""
+    __tablename__ = "village_notes"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    session_id: Mapped[str] = mapped_column(String(32))
+    text: Mapped[str] = mapped_column(String(1000))
+    links: Mapped[list] = mapped_column(JSON, default=list)
+    shown_session_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+
+
+class VillageKnowledge(Base):
+    """PRIVATE to its owner's planner: what it tried, saw or was told."""
+    __tablename__ = "village_knowledge"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    kind: Mapped[str] = mapped_column(String(8))
+    rule_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claim: Mapped[str | None] = mapped_column(String(140), nullable=True)
+    text: Mapped[str] = mapped_column(String(280), default="")
+    source_agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    session_id: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+
+
+class VillageMark(Base):
+    """A marked moment (≤3 per session); its clip is the ±5 s event window."""
+    __tablename__ = "village_marks"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    tick: Mapped[int] = mapped_column(Integer)
+    x: Mapped[int] = mapped_column(Integer)
+    y: Mapped[int] = mapped_column(Integer)
+    sentence: Mapped[str] = mapped_column(String(200))
+    shared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+
+
+class VillageKeepsake(Base):
+    __tablename__ = "village_keepsakes"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    agent: Mapped[str] = mapped_column(String(128))
+    object_id: Mapped[str] = mapped_column(String(32), index=True)
+    session_id: Mapped[str] = mapped_column(String(32))
+    sentence: Mapped[str] = mapped_column(String(140))
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+
+
+class VillagePromptChange(Base):
+    """One proposed edit of a persona's "how I play" section (§6.2)."""
+    __tablename__ = "village_prompt_changes"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid.uuid4().hex)
+    agent: Mapped[str] = mapped_column(String(128), index=True)
+    session_id: Mapped[str] = mapped_column(String(32), index=True)
+    section_before: Mapped[str] = mapped_column(Text, default="")
+    section_after: Mapped[str] = mapped_column(Text, default="")
+    mark_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16), default="permanent")
+    note: Mapped[str | None] = mapped_column(String(140), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    agent_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    trial_session_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow)
+    applied_at: Mapped[datetime | None] = mapped_column(_VG_TS, nullable=True)
+
+
+class VillageViewerSettings(Base):
+    __tablename__ = "village_viewer_settings"
+    principal: Mapped[str] = mapped_column(String(128), primary_key=True)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(_VG_TS, default=utcnow, onupdate=utcnow)
+
 
 MEMORY_SCHEMA = "tool_memory"
 
