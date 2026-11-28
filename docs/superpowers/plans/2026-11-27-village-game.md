@@ -780,3 +780,167 @@ Test names are `file::behaviour` (the behaviour is the test's description; imple
 The village is a platform service, not an App: its own deployment `ap-village` from the backend image, Postgres tables, `village.*` Kafka topics, console pages at `/village`, and a `tools/village` tool. After review round 1 and Kyle's 2026-11-27 decision, the engine never calls a model. Each persona's planner is one long-lived Sonnet platform run (`village-planner`) per session that loops on a blocking `village wait` and edits the to-do list with `village edit_queue`. Reflections stay real persona runs every ~10 minutes, with a new per-run timeout. Prompt self-edits change only a delimited "how I play" section and are applied once per persona at session close. Recovery is snapshot plus a durable command journal under a single-writer lock.
 
 Things that need Kyle: grant `village` to pai, kai and olu; sign off on A10 (the engine reverts lapsed trials, section-only), A28 (the play-tactics section reaches only village runs; learning crosses over through memory, A13, as Kyle asked); and flip `auto_schedule` after P2. The build estimate is about 79% of a weekly quota including a 30% contingency, spread over 2–3 weekly windows. The game's own daily model use is unknown until the Phase 0 spike and L10 measure it.
+
+---
+
+# Build loop (Phases 2 and 3)
+
+Added 2026-11-28 after Phase 1 went live. Kyle: "You can run right up to 90% quota."
+
+## Loop protocol (read this every tick, follow it exactly)
+
+You are the **orchestrator**. You do not write product code yourself. You dispatch subagents, verify their evidence, deploy, commit, and update this file.
+
+1. **Re-read this section, "Ground rules for implementers", "Tasks" and "Handoff to Kyle".**
+   - **Quota gate:** call `get_quota` (`ap` MCP).
+     - If `seven_day ≥ 0.90`, stop: write the state into "Handoff to Kyle", PushNotification, then ScheduleWakeup `stop: true`.
+     - If `five_hour ≥ 0.90`, schedule the next wakeup for after `resets_at` and end the tick.
+   - **Next task:** find the first `- [ ]` task in "Tasks" or "Repairs".
+   - **No task left:** run "Definition of done".
+     - If it passes, stop the loop with a PushNotification giving the one-line outcome.
+     - If it fails, add a task under "Repairs" and continue.
+2. **Implementers.** Dispatch one implementer per task (Agent tool, `subagent_type: "general-purpose"`, `isolation: "worktree"`, `model: "opus"`).
+   - **Brief:** the task text verbatim, the "Ground rules" block verbatim, and the plan sections the task names (it reads them itself from the repo path).
+   - **Evidence:** require TDD and the exact test commands run, with their final summary lines.
+   - **Parallel work:** tasks marked *(parallel with Tn)* may run together. Tell each implementer which paths the others own.
+3. **Verify the evidence yourself.** Cherry-pick the worktree commits onto `main` (never a hard reset), then run:
+   - `cd services/backend && set -o pipefail && .venv/bin/python -m pytest tests/test_village_*.py -q --tb=short | tail -5`
+   - `tools/village`'s tests
+   - for `[ui]` tasks, `npm run build -w web` and `cd services/web && npm run check:tokens`
+
+   No claim of green without output in your own transcript. Before any push, also check that generated files have no drift:
+   - `python sdk/regenerate.py && git diff --exit-code sdk/`
+   - `python scripts/compile_live_operation_catalog.py && git diff --exit-code services/backend/agentplatform/live_operation_catalog.json`
+4. **Reviews.** Never use fable or the default model for subagents.
+   - **Every task:** one **sonnet reviewer** (`model: "sonnet"`) with the task text and the diff. Defects only, ranked, with the WORST CASE for every guard or limit.
+   - **`[ui]` tasks:** also a **sonnet visual reviewer**. It builds the web app, serves it against mocked village state (U6 Storybook stories or a Playwright fixture), and screenshots the `/village` pages at 1280×800 and 390×844 in both themes. It READS the PNGs and reports what a picky human would notice.
+   - **Each phase end:** **one Codex reviewer** with the phase diff and the phase's attack list from §15 (`~/.claude/skills/subagent-review/scripts/codex-reviewers.sh <brief> <dir> <repo> gpt-6.2-astra`).
+5. **Repairs.** High and critical findings go back to the **same** implementer via SendMessage. Low and medium findings: fix them if cheap, else note them under "Deferred". At most two repair rounds per task; after that, mark it `- [!]` with a one-paragraph note and move on.
+6. **Commit and push.** Commit only when no implementer is editing the tree.
+   - Stage each file with `git add <file>` by name, never `-A`.
+   - Message: `village: <task title>` plus the session's attribution trailer.
+   - Push to `origin main`, then edit this file: `- [x] **Tn …** (commit `<hash>`)`.
+7. **Deploy tasks.** Follow "Host access", then run `scripts/village-deploy.sh`. Live checks run `scripts/village_live_check.sh`; read its evidence file once.
+8. **Next wakeup.** Schedule it with `delaySeconds: 60`, `noop: false` and the loop sentinel prompt. Do one task, or one parallel group, per tick.
+9. **When things fail:**
+   - **Quota 429:** it kills a subagent instantly. Relaunch it.
+   - **Stalled agent:** it keeps its context. SendMessage "resume from X".
+   - **Refused Bash action** (hook or auto-mode classifier): don't retry variants. Write the exact commands into "Handoff to Kyle", PushNotification that the build is blocked on that step, and continue with independent tasks.
+   - **Laptop sleep:** watchers die if Kyle's laptop sleeps, but sessions run server-side. Re-read state from `/api/village/admin` instead of assuming.
+
+**Host access** (scratchpad files can vanish; recreate them when missing):
+- **kubeconfig:** run `ssh pai 'sudo cat /etc/rancher/k3s/k3s.yaml'`, rewrite server `https://127.0.0.1:6443` to `https://pai:6443`, and save it with `chmod 600` in the scratchpad.
+- **Admin cookie:** `POST http://pai:8090/api/login` with `{"password": $AGENT_PLATFORM_ADMIN}`. The password comes from `~/gh/multi/exports.sh`; build the body with `jq --arg`, write it to a file, and use `curl -c <scratchpad>/cj`.
+- **Hooks block:**
+  - `curl | cmd`
+  - `python3 -` heredocs in a command that uses curl
+  - `sleep` ≥ 60 s
+  - hard resets
+
+  Put that logic in script files instead.
+- **Helm values:** the live values come from `helm get values ap`, NOT from `values-pai-nuc.yaml`. Any new chart value must be passed with `--set` in `village-deploy.sh`.
+- **`PREV_RUNNER_DEV`:** the current `images.runnerDev.tag` from `helm get values ap`.
+
+## Ground rules for implementers
+
+- **Repo layout:**
+  - engine: `services/backend/agentplatform/village/`
+  - API: `api/village.py`
+  - tool: `tools/village/`
+  - chart: `charts/agent-platform/templates/village.yaml`
+  - web: `services/web/src/pages/Village*.tsx` and `components/village/`
+  - plan: `docs/superpowers/plans/2026-11-27-village-game.md`
+- **Contract:** `village/contract.py` is the shared contract. Change it only when the task says so, and only additively.
+- **Python and tests:**
+  - Prod is Python 3.12, so avoid annotation-shadowing names.
+  - Use the main checkout's venv, `/Users/kp/gh/agent-platform/services/backend/.venv/bin/python`.
+  - Every test pipeline uses `set -o pipefail`.
+  - Never run the full backend suite. Run `tests/test_village_*.py` plus the files you touched.
+- **Worktree and commits:**
+  - Start with `git checkout -B <your branch> main`. Never hard-reset.
+  - Commit in your worktree with `git add <file>` by name, and end the message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+  - Never push.
+- **Security model, which must not regress (§10):**
+  - Peer text is always data, wrapped only through `prompts.wrap_data` / `village_data_block`.
+  - Village runs are fenced (`api/auth.py`): no harness tools, no skills, no codex fallback.
+  - The play section changes only between its markers, via `apply_play_section`.
+  - Private text (notes, the play section, planner thinking, knowledge) never reaches events, captions, frames, SSE, recap or replay.
+- **Model calls only through platform runs.** Never call a model API directly.
+- **After API or tool changes:** run `python sdk/regenerate.py` and `python scripts/compile_live_operation_catalog.py`, and classify the effects of any new tool action there.
+- **UI:** read `packages/ui/README.md`. Reuse `@ap/ui`, use no raw hex, register Storybook states, and keep the adoption baseline shrink-only.
+- **Scope and report:** never widen scope beyond the task. Report in ≤ 15 lines: commit sha, files, the test commands with their summary lines, and open questions.
+
+## Tasks
+
+### Phase 2: all three personas
+
+- [ ] **T1 Hardening seam (opus, U9).**
+  - **Files:** `textguard.py`, the wrapping in `prompts.py`, `tools/village/run.py`, the executor-side per-call credential, and the identity check in `village/commands.py`.
+  - **textguard:** caps, URL refusal, and invisible and confusable stripping. Apply it to every peer-authored string and to play-section text, replacing `apply_play_section`'s minimal guard.
+  - **Close risk 0 (§16):** bind the command port to a per-call credential that the tool-executor attaches (the `_app_data` per-call proxy pattern, `tools/README.md` l.36-37). The engine verifies it, so code in tool-executor can't forge another run's identity.
+  - **Tests:** `test_village_injection.py`, `test_village_privacy.py` (the end-to-end token test, §12 P2), and a forged-header test that must fail.
+- [ ] **T2 Residents, objects, weather (U7)** *(parallel with T1 and T3)*.
+  - **Files:** `village/{residents,objects,weather}.py` plus their tests (§12 P2 list) and `world.register` hooks.
+  - **Ownership:** a resident is owned by a character (`add_actor(..., owner=)`).
+  - **Wishes:** they give the planner open-ended work, which fixes P1's "goals met, no neighbours" early exits. Include wishes in `wait` replies.
+- [ ] **T3 Social actions and peer visibility (U8a)** *(parallel with T1 and T2)*.
+  - **Actions:** add action handlers and planner ops per §7 for invite, answer_invite, tell (creates `told` knowledge for listeners in view), pull, consent/set_aside, and keepsake.
+  - **Peer visibility:** add the rule value `peer_queue_visibility=next3_in_view` (Pai's answer: another character's next 3 steps, only while inside the viewer's view circle) to `RULE_CHOICES`, and make it the default.
+  - **WorldView.private:** fill in knowledge rows and reminders, which are currently empty.
+  - **Tests:** `test_village_social.py`.
+- [ ] **T4 Self-evolution (U8b)** *(after T1)*.
+  - **Actions:**
+    - mark: at most 3 per session.
+    - prompt: writes the pending section, which the game reads immediately per `prompt_apply=next_planner_call`.
+    - trial: lasts one session, after which the engine reverts it, section only.
+    - undo.
+  - **At close:** apply pending sections via `apply_play_section`, one AgentVersion per persona with `changed_via=village`.
+  - **UI `[ui]`:** a Changes/undo API and Village panels.
+  - **Tests:** `test_village_selfevo.py`.
+- [ ] **T5 Three players.**
+  - **Joining:** add kai and olu to an existing world (a new-player join path in `world.py`/`glue.py`) and set `players` to [pai, kai, olu].
+  - **Grants:** grant `mcp__platform__village` to kai and olu (an admin PUT of the full definition).
+  - **Planners:** one planner per player.
+  - **Quota override:** make `quota_override` numeric ({seven_day, five_hour}) for L9 test sessions.
+  - **Capacity:** check that 3 planners plus reflections fit within `AP_GLOBAL_CONCURRENCY=8`.
+  - **Tests:** an e2e test with three players.
+- [ ] **T6 Live check script, P2 deploy and live verification.**
+  - **Script:** write `scripts/village_live_check.sh` (L1–L10 and L12, §12.5).
+  - **Review:** run the P2 Codex review and fix the highs.
+  - **Deploy:** run `scripts/village-deploy.sh`.
+  - **Live check:** run one 30-min test session with all three players, run the live check, and record the evidence under "Live verification".
+
+### Phase 3: spectator polish
+
+- [ ] **T7 Recap, replay, changes (U10) `[ui]`.**
+  - **Files:** `village/recap.py`, the replay/days routes, `VillageReplay.tsx`, `VillageChanges.tsx`.
+  - **Tests:** `test_village_recap.py`.
+- [ ] **T8 Live polish, settings, sound, glossary (U11) `[ui]`** *(parallel with T7)*.
+  - **Build:** the camera, the Since-last-time strip, the card, feed, sound and minimap, and the glossary and settings pages.
+  - **Tests:** `services/web/tests/village.spec.ts` per §12 P3: both themes, widths 390 and 1280, axe, the camera's `data-camera` attribute, and the private-token fixture.
+- [ ] **T9 P3 deploy, final live session, noon scheduling.**
+  - **Review:** run the P3 Codex review and fix the highs.
+  - **Deploy and check:** deploy, run L11 (Playwright), run a full 60-min test session with all three players, and read 3 screenshots.
+  - **Schedule:** set `auto_schedule=true` so sessions run daily at 12:00 America/Toronto, and confirm `next_fire` is the next local noon.
+  - **Report:** post a one-paragraph summary on GEN-11 with a link to `/village`.
+
+## Repairs
+
+## Deferred
+
+## Definition of done
+
+1. Every task is `[x]`, or `[!]` with a note Kyle can act on.
+2. On `main`, all of these pass:
+   - `tests/test_village_*.py`
+   - the full backend suite, run once by the orchestrator at the end, in the background
+   - the `tools/village` tests
+   - `npm run build -w web`, `check:tokens` and `village.spec.ts`
+   - SDK and catalog drift checks, clean
+3. **Deployed:** `ap-village` and `ap-web` run the tag of the final commit.
+4. **Live verification:** this section has a P2 three-player session and a P3 60-min session, with L1–L12 evidence. The privacy token search (L12) returned zero hits.
+5. **Scheduling:** `auto_schedule=true`, and the next noon session is scheduled.
+
+## Live verification
+
+## Handoff to Kyle
