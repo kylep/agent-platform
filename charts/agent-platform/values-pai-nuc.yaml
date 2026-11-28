@@ -40,6 +40,14 @@ env:
   AP_GIT_REMOTE_URL: "https://github.com/kylep/agent-platform.git"
   AP_GITHUB_REPO: "kylep/agent-platform"
   AP_DEFAULT_BRANCH: "main"
+  # Village (GEN-11): 3 long-lived planner runs plus reflections must leave room
+  # for the platform's own work (plan §0, "Global run concurrency").
+  AP_GLOBAL_CONCURRENCY: "8"
+
+# The village engine (GEN-11). Sessions only start from an admin test session
+# until village_config auto_schedule is flipped.
+village:
+  enabled: true
 
 postgresql:
   primary:

@@ -138,6 +138,17 @@ uiDesigner:
   maxVersionBytesPerDoc: 12582912   # 12 MiB
   pruneDays: 30                 # soft-deleted documents are hard-deleted after this
 
+# The village engine (GEN-11, docs/superpowers/plans/2026-11-27-village-game.md):
+# one Recreate Deployment from the backend image, single writer of the game
+# world (plus a Postgres advisory lock). Off until a values file turns it on.
+village:
+  enabled: false
+  # The in-pod command port the tool-executor posts `village` tool calls to.
+  port: 8001
+  resources:
+    requests: {memory: 256Mi, cpu: 100m}
+    limits: {memory: 512Mi}
+
 # Per-service resource requests/limits for the agent-platform-owned Deployments
 # (api, dispatcher, recorder, web). Subchart (postgresql/kafka) resources are
 # configured under the `postgresql:` and `kafka:` keys below.
@@ -317,6 +328,13 @@ topics:
     - {name: artifacts.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every artifact create/delete → the Studio's live strip)
     - {name: workbench.events, partitions: 3, retentionMs: "2592000000"}     # 30d (every publish/refusal with its file list → the Changes page, the audit)
     - {name: ui_designer.events, partitions: 3, retentionMs: "2592000000"}   # 30d (every design write → the designer SSE, #design cards)
+    # Village (GEN-11, plan §11): Postgres is the source of truth, these are the live fan-out + audit.
+    - {name: village.events, partitions: 3, retentionMs: "604800000"}       # 7d (durable copy in pg)
+    - {name: village.frames, partitions: 3, retentionMs: "3600000"}         # 1h (2 Hz positions; never stored)
+    - {name: village.session, partitions: 1, retentionMs: "2592000000"}     # 30d (lifecycle + gate decisions)
+    - {name: village.commands, partitions: 3, retentionMs: "604800000"}     # 7d (applied/refused journal mirror)
+    - {name: village.planner, partitions: 3, retentionMs: "604800000"}      # 7d (planner cycles + run lifecycle)
+    - {name: village.reflections, partitions: 3, retentionMs: "604800000"}  # 7d (reflection lifecycle)
     - {name: local-persona.events, partitions: 3, retentionMs: "604800000"}   # cursor-only fanout; history lives in pg
     # News state App (design 11): the recorder publishes the gatherer digest to inbound; the
     # state writer emits one event per accepted / freshness-rejected item. Formerly created by

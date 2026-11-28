@@ -39,6 +39,13 @@ TOPIC_ARTIFACTS_EVENTS = "artifacts.events"    # every create/delete → Studio 
 TOPIC_WORKBENCH_EVENTS = "workbench.events"    # every publish/refusal with its file list → Changes SSE, audit
 # UI Designer (docs/design/46)
 TOPIC_UI_DESIGNER_EVENTS = "ui_designer.events"  # version|comment|deleted|exported -> designer SSE, #design cards
+# Village (docs/superpowers/plans/2026-11-27-village-game.md §11)
+TOPIC_VILLAGE_EVENTS = "village.events"        # saved narrative events (key session_id) -> SSE feed, audit
+TOPIC_VILLAGE_FRAMES = "village.frames"        # 2 Hz positions + caption deltas (key session_id) -> SSE map
+TOPIC_VILLAGE_SESSION = "village.session"      # lifecycle + gate decisions (key day)
+TOPIC_VILLAGE_COMMANDS = "village.commands"    # applied/refused journal commands (key persona)
+TOPIC_VILLAGE_PLANNER = "village.planner"      # planner cycles + run lifecycle (key persona)
+TOPIC_VILLAGE_REFLECTIONS = "village.reflections"  # reflection lifecycle (key persona)
 # Infra
 TOPIC_TOOL_AUDIT = "platform.tool.audit"   # broker → audit trail (design/13 E)
 TOPIC_NEWS_INBOUND = "app.news.inbound"     # gatherer digest → state News writer
@@ -55,6 +62,8 @@ ALL_TOPICS = [
     TOPIC_CHANNEL_POST, TOPIC_RELAY_MESSAGES, TOPIC_RELAY_INVOCATIONS,
     TOPIC_TICKETS_EVENTS, TOPIC_WIKI_EVENTS, TOPIC_QUOTA_EVENTS,
     TOPIC_ARTIFACTS_EVENTS, TOPIC_WORKBENCH_EVENTS, TOPIC_UI_DESIGNER_EVENTS,
+    TOPIC_VILLAGE_EVENTS, TOPIC_VILLAGE_FRAMES, TOPIC_VILLAGE_SESSION,
+    TOPIC_VILLAGE_COMMANDS, TOPIC_VILLAGE_PLANNER, TOPIC_VILLAGE_REFLECTIONS,
     TOPIC_DEAD_LETTER, "local-persona.events",
 ]
 
