@@ -1,0 +1,234 @@
+"""Starting, watching and stopping the village's platform runs (plan §5.1, §10.2).
+
+Planner half. U5 adds the reflection half as new functions in this file
+(`launch_reflection` builds on `launch_run`, which is role-agnostic).
+
+The one rule, taken from rapid_chat/dreams: the `village_runs` row is the fence
+key, so it is COMMITTED before `materialize_run` makes a Run, and a failed
+materialize marks the row failed instead of leaving a fence-less run or a
+phantom active one.
+"""
+import logging
+import time
+import uuid
+from typing import Any, Awaitable, Callable
+
+from sqlalchemy import select
+
+from agentplatform.db import Run, RunState, VillageRun, utcnow
+from agentplatform.village import contract as c
+
+log = logging.getLogger(__name__)
+
+TRIGGER = "village"
+BACKOFF_S = (30, 120)          # before restart 1, then every later restart
+LIVE_ROW_STATES = ("launching", "running")
+
+
+def requested_by(session_id: str, persona: str) -> str:
+    return f"village:{session_id}:{persona}"
+
+
+async def launch_run(sf, producer, *, session_id: str, persona: str, role: str, agent: str,
+                     prompt: str, attempt: int = 1, slot: str | None = None) -> VillageRun:
+    """Row first (committed), then the Run; on failure the row ends `failed`
+    with the reason and is returned (the caller decides about a retry)."""
+    from agentplatform import materialize
+    if role not in c.RUN_ROLES:
+        raise ValueError(f"unknown village run role {role!r}")
+    run_id = uuid.uuid4().hex
+    async with sf() as s:
+        row = VillageRun(session_id=session_id, persona=persona, role=role, run_id=run_id,
+                         slot=slot, attempt=attempt, state="launching")
+        s.add(row)
+        await s.commit()
+        row_id = row.id
+    try:
+        await materialize.materialize_run(sf, producer, {
+            "run_id": run_id, "agent": agent, "prompt": prompt, "trigger": TRIGGER,
+            "requested_by": requested_by(session_id, persona), "initiated_by": "admin"})
+    except Exception as exc:
+        log.warning("village %s run for %s failed to launch", role, persona, exc_info=True)
+        async with sf() as s:
+            row = await s.get(VillageRun, row_id)
+            row.state, row.reason, row.finished_at = "failed", f"launch: {exc}"[:256], utcnow()
+            await s.commit()
+            s.expunge(row)
+            return row
+    async with sf() as s:
+        row = await s.get(VillageRun, row_id)
+        s.expunge(row)
+        return row
+
+
+async def launch_planner(sf, producer, *, session_id: str, persona: str, prompt: str,
+                         attempt: int = 1, agent: str = "village-planner") -> VillageRun:
+    return await launch_run(sf, producer, session_id=session_id, persona=persona,
+                            role=c.PLANNER, agent=agent, prompt=prompt, attempt=attempt)
+
+
+def _row_state(run: Run | None) -> tuple[str, str | None]:
+    """VillageRun.state (and a reason) for the platform Run behind it."""
+    if run is None:
+        return "failed", "run row missing"
+    st = run.state
+    if st == RunState.QUEUED:
+        return "launching", None
+    if st in (RunState.DISPATCHED, RunState.RUNNING):
+        return "running", None
+    if st == RunState.SUCCEEDED:
+        return "done", None
+    if st == RunState.KILLED:
+        return "cancelled", (run.error or "killed")[:256]
+    return "failed", (run.error or str(st.value if hasattr(st, "value") else st) or "ended")[:256]
+
+
+async def reconcile(sf, session_id: str, role: str | None = None) -> list[VillageRun]:
+    """Copy platform Run state onto still-open `village_runs` rows."""
+    async with sf() as s:
+        q = select(VillageRun).where(VillageRun.session_id == session_id,
+                                     VillageRun.state.in_(LIVE_ROW_STATES))
+        if role:
+            q = q.where(VillageRun.role == role)
+        rows = list((await s.execute(q)).scalars())
+        runs = {r.id: r for r in (await s.execute(
+            select(Run).where(Run.id.in_([r.run_id for r in rows])))).scalars()} if rows else {}
+        for row in rows:
+            state, reason = _row_state(runs.get(row.run_id))
+            if state != row.state:
+                row.state = state
+                if state not in LIVE_ROW_STATES:
+                    row.reason, row.finished_at = reason, utcnow()
+        await s.commit()
+        for row in rows:
+            s.expunge(row)
+        return rows
+
+
+async def cancel_runs(sf, producer, session_id: str, role: str | None = None,
+                      reason: str = "session closed") -> int:
+    """Cancel every open run of the session (queued ones are killed in the
+    database, dispatched ones by the cancel publish; rapid_chat's helper)."""
+    from agentplatform.rapid_chat import cancel_turn_run
+    n = 0
+    async with sf() as s:
+        q = select(VillageRun).where(VillageRun.session_id == session_id,
+                                     VillageRun.state.in_(LIVE_ROW_STATES))
+        if role:
+            q = q.where(VillageRun.role == role)
+        for row in list((await s.execute(q)).scalars()):
+            row.state, row.reason, row.finished_at = "cancelled", reason[:256], utcnow()
+            await s.commit()
+            await cancel_turn_run(s, producer, row.run_id)
+            n += 1
+    return n
+
+
+async def latest_planner_rows(sf, session_id: str) -> dict[str, VillageRun]:
+    """persona -> its newest planner row this session."""
+    async with sf() as s:
+        rows = (await s.execute(select(VillageRun).where(
+            VillageRun.session_id == session_id, VillageRun.role == c.PLANNER)
+            .order_by(VillageRun.attempt))).scalars()
+        out = {r.persona: r for r in rows}
+        for r in out.values():
+            s.expunge(r)
+        return out
+
+
+Emit = Callable[[str, str, str, dict], Any]      # (event kind, persona, text, data)
+
+
+class PlannerSupervisor:
+    """One planner run per persona for the session; bounded restarts (§5.1).
+
+    `tick()` is called by the engine's slow loop (seconds, never the hands'
+    tick). It never raises into the caller for one persona's trouble."""
+
+    def __init__(self, sf, producer, *, session_id: str, personas: list[str],
+                 prompt_for: Callable[[str, int], Awaitable[str]], rules: dict | None = None,
+                 emit: Emit | None = None, hub=None, clock: Callable[[], float] = time.monotonic,
+                 backoff: tuple[float, ...] = BACKOFF_S) -> None:
+        self.sf, self.producer = sf, producer
+        self.session_id, self.personas = session_id, list(personas)
+        self.prompt_for = prompt_for
+        self.rules = c.merged_rules(rules)
+        self.emit, self.hub, self.clock, self.backoff = emit, hub, clock, backoff
+        self.live = False
+        self.exhausted: set[str] = set()
+        self._due: dict[str, float] = {}
+
+    def _say(self, kind: str, persona: str, text: str, **data: Any) -> None:
+        if self.emit is not None:
+            self.emit(kind, persona, text, data)
+
+    async def _launch(self, persona: str, attempt: int) -> VillageRun:
+        prompt = await self.prompt_for(persona, attempt)
+        row = await launch_planner(self.sf, self.producer, session_id=self.session_id,
+                                   persona=persona, prompt=prompt, attempt=attempt,
+                                   agent=self.rules["planner_agent"])
+        failed = row.state == "failed"
+        if self.hub:
+            if attempt > 1:
+                self.hub.reset(persona)
+            self.hub.set_run(persona, row.run_id, active=not failed)
+        self._say("planner_status", persona, f"{persona} is waking up" if not failed else
+                  f"{persona} can't think right now", status="waking" if not failed else "failed",
+                  attempt=attempt)
+        return row
+
+    async def open(self) -> list[VillageRun]:
+        """Session open: all launches start now; the hands never wait for them."""
+        self.live = True
+        return [await self._launch(p, 1) for p in self.personas]
+
+    async def close(self, reason: str = "session closed") -> int:
+        self.live = False
+        if self.hub:
+            for p in self.personas:
+                self.hub.set_run(p, None, active=False)
+        return await cancel_runs(self.sf, self.producer, self.session_id, c.PLANNER, reason)
+
+    async def tick(self) -> None:
+        if not self.live:
+            return
+        await reconcile(self.sf, self.session_id, c.PLANNER)
+        rows = await latest_planner_rows(self.sf, self.session_id)
+        for persona in self.personas:
+            if persona in self.exhausted:
+                continue
+            row = rows.get(persona)
+            if row is None:
+                await self._launch(persona, 1)
+                continue
+            if row.state in LIVE_ROW_STATES:
+                self._due.pop(persona, None)
+                continue
+            await self._ended(persona, row)
+
+    async def _ended(self, persona: str, row: VillageRun) -> None:
+        now = self.clock()
+        if persona not in self._due:
+            if row.attempt - 1 >= self.rules["planner_max_restarts"]:
+                self.exhausted.add(persona)
+                if self.hub:
+                    self.hub.set_run(persona, None, active=False)
+                self._say("planner_status", persona, f"{persona} is running on habits",
+                          status="habits", attempt=row.attempt)
+                return
+            wait = self.backoff[min(row.attempt - 1, len(self.backoff) - 1)]
+            self._due[persona] = now + wait
+            if self.hub:
+                self.hub.set_run(persona, None, active=False)
+            self._say("planner_status", persona,
+                      f"{persona} can't think right now: restarting", status="restarting",
+                      attempt=row.attempt, in_s=wait)
+            return
+        if now >= self._due[persona]:
+            del self._due[persona]
+            await self._launch(persona, row.attempt + 1)
+
+    def statuses(self) -> dict[str, str]:
+        """persona -> habits | restarting | running, for the card."""
+        return {p: ("habits" if p in self.exhausted else "restarting" if p in self._due else "running")
+                for p in self.personas}
