@@ -291,6 +291,7 @@ async def test_the_clock_never_refreshes_quota(sf, monkeypatch):
     await set_rules(sf, auto_schedule=True)
     now = Now(T0)
     eng = make_engine(sf, now=now, quota=snapshot_reader(sf))
+    await eng.acquire_lock_once()
     await eng.boot()
     await eng.clock.poll()
     now.t += timedelta(minutes=2)

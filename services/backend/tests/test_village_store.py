@@ -87,8 +87,10 @@ def make_engine(sf, *, now=None, lock=None, epoch=None, quota=None, producer=Non
 
     async def no_quota(provider):
         return None
-    return Engine(sf, producer or FakeProducer(), make_world=fake_world, lock=lock or NullLock(),
-                  now=now or Now(), epoch=epoch, quota=quota or no_quota, codex_in_use=no_codex)
+    eng = Engine(sf, producer or FakeProducer(), make_world=fake_world, lock=lock or NullLock(),
+                 now=now or Now(), epoch=epoch, quota=quota or no_quota, codex_in_use=no_codex)
+    eng.has_lock = lock is None          # a real lock is acquired by the test (acquire_lock_once)
+    return eng
 
 
 async def live_engine(sf, **kw):

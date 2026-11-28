@@ -29,7 +29,7 @@ from agentplatform.village.bus import VillageBus
 from agentplatform.village.clock import SessionClock, codex_in_use_reader, snapshot_reader
 from agentplatform.village.contract import (FRAME_EVERY_TICKS, TICK_S, Command, CommandResult,
                                             Event, Snapshot, World)
-from agentplatform.village.journal import Journal, advance, recover
+from agentplatform.village.journal import Journal, LockLost, advance, recover
 from agentplatform.village.store import SnapshotPolicy, StoreWriter, VillagePruner, VillageStore, aware
 
 log = logging.getLogger("village.main")
@@ -38,6 +38,7 @@ LOCK_KEY = 0x56494C4C            # "VILL": the single-writer advisory lock
 LOCK_RETRY_S = 5.0
 CLOCK_POLL_S = 5.0
 MAX_CATCH_UP_TICKS = 4           # §3: then sim time slips (logged)
+MAX_CLOSE_ATTEMPTS = 5
 COMPONENTS = ("host",)          # village/host.py: command port, planners, reflections
 
 WorldFactory = Callable[[dict[str, Any] | None], World]
@@ -114,9 +115,9 @@ class Engine:
         self.epoch = epoch or uuid.uuid4().hex
         self.make_world, self.lock, self._now = make_world, lock or NullLock(), now
         self.store = VillageStore(session_factory)
-        self.journal = Journal(session_factory)
+        self.journal = Journal(session_factory, fence=self.ensure_lock)
         self.bus = VillageBus(producer)
-        self.writer = StoreWriter(self.store, self.journal, self.bus, self.epoch)
+        self.writer = StoreWriter(self.store, self.journal, self.bus, self.epoch, fence=self._holds_lock)
         self.policy = SnapshotPolicy()
         self.clock = SessionClock(
             self.store, self.journal, self.bus, quota=quota or snapshot_reader(session_factory),
@@ -134,6 +135,8 @@ class Engine:
         self.waiters: dict[int, asyncio.Future] = {}
         self.open_hooks: list[Callable[[Any], Awaitable[None]]] = []
         self.close_hooks: list[Callable[[Any], Awaitable[None]]] = []
+        self.boot_hooks: list[Callable[[], Awaitable[None]]] = []   # after recovery (sweeps)
+        self.close_attempts = 0
         # Sync callables taking one tick's events (planner hub, recent-event buffers).
         # Called inside the tick: they must never await or block.
         self.tick_hooks: list[Callable[[list[Event]], None]] = []
@@ -156,11 +159,30 @@ class Engine:
             log.warning("village: another engine holds the writer lock; retrying in %.0fs", LOCK_RETRY_S)
             await asyncio.sleep(LOCK_RETRY_S)
 
+    async def _holds_lock(self) -> bool:
+        """Checked before every batch write and every direct write: a lock we
+        no longer hold means another engine may be the writer."""
+        if not self.has_lock:
+            return False
+        if not await self.lock.alive():
+            self.lost_lock()
+            return False
+        return True
+
+    async def ensure_lock(self) -> None:
+        if not await self._holds_lock():
+            raise LockLost("village writer lock lost")
+
+    def lost_lock(self) -> None:
+        """Stop ticking and DROP pending writes (never flush them)."""
+        self.has_lock = False
+        self.live = False
+        self.writer.drop()
+
     async def watch_lock(self, every_s: float = 10.0) -> None:
         while await self.lock.alive():
             await asyncio.sleep(every_s)
-        self.has_lock = False
-        self.live = False
+        self.lost_lock()
         raise RuntimeError("village writer lock lost; exiting so Kubernetes restarts us")
 
     # --- boot (§3.1) ----------------------------------------------------------
@@ -189,6 +211,11 @@ class Engine:
                 self.pending_close = True      # crashed between T-0 and the close snapshot
         log.info("village boot: tick=%d replayed=%d ticks=%d superseded=%d live=%s",
                  self.world.tick, rec.replayed, rec.ticks, rec.superseded, bool(live))
+        for hook in self.boot_hooks:
+            try:
+                await hook()
+            except Exception:
+                log.exception("village boot hook failed")
 
     # --- session lifecycle ------------------------------------------------------
     async def open_session(self, row) -> None:
@@ -211,14 +238,36 @@ class Engine:
             await hook(row)
 
     async def close_session(self) -> None:
-        """T-0: the freeze command was applied. Write the close snapshot, mark
-        the session closed, then run close hooks (cancel runs, recap, prompt apply)."""
+        """T-0: the freeze command was applied. Write the close snapshot, run the
+        close hooks (cancel runs, recap, prompt apply) while the session is still
+        `closing`, and only then commit `closed`. A crash or a failing hook leaves
+        it `closing`, so boot (or the next clock poll) finishes the job."""
+        await self.ensure_lock()
         row = await self.store.get_session(self.session_id)
         self.live = False
         await self.writer.flush()
-        snap = Snapshot(session_id=row.id, tick=self.world.tick, last_applied_seq=self.last_applied_seq,
-                        state_hash=self.world.state_hash(), state=self.world.to_snapshot(), kind="close")
-        await self.store.write_snapshot(snap)
+        snap = await self.store.latest_snapshot(row.id, kinds=("close",))
+        if snap is None:
+            snap = Snapshot(session_id=row.id, tick=self.world.tick, last_applied_seq=self.last_applied_seq,
+                            state_hash=self.world.state_hash(), state=self.world.to_snapshot(), kind="close")
+            await self.store.write_snapshot(snap)
+        if row.state != "closing":
+            row = await self.store.update_session(row.id, state="closing")
+        failed = []
+        for hook in self.close_hooks:
+            try:
+                await hook(row)
+            except Exception:
+                log.exception("village close hook failed")
+                failed.append(hook)
+        self.close_attempts += 1
+        if failed and self.close_attempts < MAX_CLOSE_ATTEMPTS:
+            self.pending_close = True          # stays `closing`; the clock loop retries
+            return
+        if failed:
+            log.error("village: close hooks still failing after %d attempts; closing anyway "
+                      "(the boot sweep cancels stragglers)", self.close_attempts)
+        self.close_attempts = 0
         row = await self.store.update_session(row.id, state="closed", ended_at=self._now(),
                                               end_reason=row.end_reason or "time",
                                               tick_end=self.world.tick)
@@ -226,11 +275,6 @@ class Engine:
         self.pending_close = False
         self.bus.session(row.day, {"session_id": row.id, "day": row.day, "kind": row.kind,
                                    "state": "closed", "event": "closed", "end_reason": row.end_reason})
-        for hook in self.close_hooks:
-            try:
-                await hook(row)
-            except Exception:
-                log.exception("village close hook failed")
         self.session_id = self.session_row = None
 
     # --- the tick (sync: never awaits the DB or the network) ----------------------
@@ -339,7 +383,7 @@ class Engine:
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-            await self.writer.stop()
+            await self.writer.stop()            # a no-op flush when the lock was lost
             await self.bus.stop()
             await self.lock.release()
 

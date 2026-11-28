@@ -162,8 +162,11 @@ class VillageStore:
         if not events:
             return []
         async with self.sf() as s:
-            rows = [VillageEvent(session_id=session_id, epoch=epoch, tick=e.tick, kind=e.kind,
-                                 actor=e.actor, subjects=e.subjects, public_text=e.public_text,
+            # Bounded columns are truncated here, at the write boundary: Postgres
+            # rejects an over-long value and one bad row must not wedge the queue.
+            rows = [VillageEvent(session_id=session_id, epoch=epoch, tick=e.tick, kind=e.kind[:32],
+                                 actor=(e.actor or None) and e.actor[:128], subjects=e.subjects,
+                                 public_text=(e.public_text or None) and e.public_text[:200],
                                  data=e.data) for e in events]
             s.add_all(rows)
             await s.commit()
@@ -216,8 +219,17 @@ class StoreWriter:
     - `open`/`close` snapshots are written directly by the engine, after `flush()`
     """
 
-    def __init__(self, store: VillageStore, journal, bus=None, epoch: str = ""):
+    MAX_ATTEMPTS = 5
+
+    def __init__(self, store: VillageStore, journal, bus=None, epoch: str = "", *,
+                 fence: Callable[[], Awaitable[bool]] | None = None,
+                 retry_delay: float = 1.0):
         self.store, self.journal, self.bus, self.epoch = store, journal, bus, epoch
+        self.fence = fence              # async () -> still the single writer?
+        self.retry_delay = retry_delay
+        self.dropped = False            # lock lost: nothing more is ever written
+        self.fallbacks = 0
+        self.abandoned = 0
         self._q: deque = deque()
         self._wake = asyncio.Event()
         self._idle = asyncio.Event()
@@ -228,7 +240,16 @@ class StoreWriter:
         self.failures = 0
 
     # --- producers (sync) -----------------------------------------------
+    def drop(self) -> None:
+        """Lock lost: another engine may be the writer now. Discard everything
+        pending and refuse new work; flushing would be a second writer."""
+        self.dropped = True
+        self._q.clear()
+        self._idle.set()
+
     def _push(self, item: tuple) -> None:
+        if self.dropped:
+            return
         self._q.append(item)
         self._idle.clear()
         self._wake.set()
@@ -269,17 +290,44 @@ class StoreWriter:
         else:
             await self.store.write_snapshot(item[1])
 
+    async def _fallback(self, item: tuple) -> None:
+        """A minimal row for an item that keeps failing, so the narrative and
+        the journal keep their place and the queue moves on."""
+        kind = item[0]
+        if kind == "events":
+            await self.store.write_events(item[1], self.epoch,
+                                          [Event(tick=e.tick, kind=e.kind) for e in item[2]])
+        elif kind == "applied":
+            a: _Applied = item[1]
+            await self.journal.mark_applied(a.seq, a.tick, a.state, "(reason dropped)")
+
     async def drain(self) -> None:
-        while self._q:
+        while self._q and not self.dropped:
+            if self.fence is not None and not await self.fence():
+                self.drop()
+                log.error("village writer: lock lost; dropping pending writes")
+                break
             item = self._q.popleft()
-            try:
-                await self._write(item)
-            except Exception:
-                self.failures += 1
-                log.exception("village writer: %s write failed", item[0])
-                if item[0] != "snapshot":       # snapshots are re-taken; marks/events are not
-                    self._q.appendleft(item)
-                    await asyncio.sleep(1.0)
+            for attempt in range(1, self.MAX_ATTEMPTS + 1):
+                try:
+                    await self._write(item)
+                    break
+                except Exception:
+                    self.failures += 1
+                    log.exception("village writer: %s write failed (attempt %d)", item[0], attempt)
+                    if item[0] == "snapshot":        # re-taken on the next cadence
+                        break
+                    if attempt == self.MAX_ATTEMPTS:
+                        log.error("village writer: %s item keeps failing; writing a minimal row", item[0])
+                        try:
+                            await self._fallback(item)
+                            self.fallbacks += 1
+                        except Exception:
+                            self.abandoned += 1
+                            log.error("village writer: ABANDONED a %s item after the fallback "
+                                      "failed too", item[0], exc_info=True)
+                    else:
+                        await asyncio.sleep(self.retry_delay)
         self._idle.set()
 
     async def run(self) -> None:
@@ -300,7 +348,8 @@ class StoreWriter:
         await self._idle.wait()
 
     async def stop(self) -> None:
-        await self.flush()
+        if not self.dropped:
+            await self.flush()
         self._stopping = True
         self._wake.set()
         if self._task:

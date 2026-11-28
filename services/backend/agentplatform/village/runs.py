@@ -8,6 +8,7 @@ key, so it is COMMITTED before `materialize_run` makes a Run, and a failed
 materialize marks the row failed instead of leaving a fence-less run or a
 phantom active one.
 """
+import asyncio
 import logging
 import time
 import uuid
@@ -15,7 +16,7 @@ from typing import Any, Awaitable, Callable
 
 from sqlalchemy import select
 
-from agentplatform.db import Run, RunState, VillageRun, utcnow
+from agentplatform.db import ACTIVE_STATES, Run, RunState, VillageRun, VillageSession, utcnow
 from agentplatform.village import contract as c
 
 log = logging.getLogger(__name__)
@@ -132,22 +133,80 @@ async def reconcile(sf, session_id: str, role: str | None = None) -> list[Villag
         return rows
 
 
+class CancelFailed(RuntimeError):
+    """A cancel could not be confirmed (the publish failed); the run may be alive."""
+
+
+async def cancel_run_confirmed(sf, producer, run_id: str, *, attempts: int = 3,
+                               delay: float = 0.5) -> None:
+    """`cancel_turn_run` returns a string when the cancel publish failed; that is
+    a failure, retried, and raised if it never goes through."""
+    from agentplatform.rapid_chat import cancel_turn_run
+    err = ""
+    for i in range(attempts):
+        async with sf() as s:
+            err = await cancel_turn_run(s, producer, run_id, error=CANCEL_ERROR)
+        if not err:
+            return
+        if i + 1 < attempts:
+            await asyncio.sleep(delay)
+    raise CancelFailed(f"run {run_id}:{err}")
+
+
 async def cancel_runs(sf, producer, session_id: str, role: str | None = None,
                       reason: str = "session closed") -> int:
     """Cancel every open run of the session (queued ones are killed in the
-    database, dispatched ones by the cancel publish; rapid_chat's helper)."""
-    from agentplatform.rapid_chat import cancel_turn_run
-    n = 0
+    database, dispatched ones by the cancel publish; rapid_chat's helper). A
+    row is only marked cancelled once its cancel is confirmed; any that could
+    not be raise CancelFailed after the rest were tried."""
+    n, failed = 0, []
     async with sf() as s:
         q = select(VillageRun).where(VillageRun.session_id == session_id,
                                      VillageRun.state.in_(LIVE_ROW_STATES))
         if role:
             q = q.where(VillageRun.role == role)
-        for row in list((await s.execute(q)).scalars()):
-            row.state, row.reason, row.finished_at = "cancelled", reason[:256], utcnow()
+        rows = list((await s.execute(q)).scalars())
+    for row in rows:
+        try:
+            await cancel_run_confirmed(sf, producer, row.run_id)
+        except CancelFailed as exc:
+            failed.append(str(exc))
+            continue
+        async with sf() as s:
+            cur = await s.get(VillageRun, row.id)
+            cur.state, cur.reason, cur.finished_at = "cancelled", reason[:256], utcnow()
             await s.commit()
-            await cancel_turn_run(s, producer, row.run_id, error=CANCEL_ERROR)
-            n += 1
+        n += 1
+    if failed:
+        raise CancelFailed("; ".join(failed))
+    return n
+
+
+async def sweep_stale_runs(sf, producer, *, reason: str = "swept after session close") -> int:
+    """Boot sweep: runs of sessions that are no longer live/closing but whose
+    village_runs row is non-terminal or whose platform run is still active (a
+    crash between close and cancel). Cancels them, confirmed."""
+    n = 0
+    async with sf() as s:
+        ended = select(VillageSession.id).where(VillageSession.state.not_in(("live", "closing", "scheduled")))
+        rows = list((await s.execute(
+            select(VillageRun, Run.state).outerjoin(Run, Run.id == VillageRun.run_id)
+            .where(VillageRun.session_id.in_(ended)))).all())
+    for row, run_state in rows:
+        if row.state not in LIVE_ROW_STATES and run_state not in ACTIVE_STATES:
+            continue
+        if run_state in ACTIVE_STATES:
+            try:
+                await cancel_run_confirmed(sf, producer, row.run_id)
+            except CancelFailed:
+                log.error("village sweep: could not cancel run %s", row.run_id)
+                continue
+        async with sf() as s:
+            cur = await s.get(VillageRun, row.id)
+            if cur.state in LIVE_ROW_STATES:
+                cur.state, cur.reason, cur.finished_at = "cancelled", reason[:256], utcnow()
+                await s.commit()
+        n += 1
     return n
 
 

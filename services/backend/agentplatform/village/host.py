@@ -187,9 +187,7 @@ class _ReflectionHost:
         return str(run.state) if run is not None else "missing"
 
     async def cancel(self, run_id: str, reason: str) -> None:
-        from agentplatform.rapid_chat import cancel_turn_run
-        async with self.v.sf() as s:
-            await cancel_turn_run(s, self.v.producer, run_id, error=runs.CANCEL_ERROR)
+        await runs.cancel_run_confirmed(self.v.sf, self.v.producer, run_id)
 
     async def has_grant(self, persona: str) -> bool:
         async with self.v.sf() as s:
@@ -251,6 +249,7 @@ class Village:
         self._status: dict[str, str] = {}
         engine.open_hooks.append(self.on_open)
         engine.close_hooks.append(self.on_close)
+        engine.boot_hooks.append(self.sweep)
         engine.tick_hooks.append(self.on_events)
 
     @property
@@ -311,6 +310,12 @@ class Village:
         elapsed = self.elapsed_s()
         self.scheduler.handled |= {(s.persona, s.name) for s in self.scheduler.plan
                                    if s.offset_s <= elapsed}
+
+    async def sweep(self) -> None:
+        """Boot: cancel runs a crash left alive past their session's close."""
+        n = await runs.sweep_stale_runs(self.sf, self.producer)
+        if n:
+            log.warning("village: swept %d stale runs at boot", n)
 
     async def on_close(self, row) -> None:
         """T-0 (after the close snapshot): stop every mind, launch nothing more."""

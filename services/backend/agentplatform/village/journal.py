@@ -24,6 +24,13 @@ from agentplatform.village.store import VillageStore
 log = logging.getLogger("village.journal")
 
 
+REASON_MAX = 256
+
+
+class LockLost(RuntimeError):
+    """This process is no longer the single writer."""
+
+
 class IdempotencyConflict(Exception):
     """Same (run_id, request_id) as an earlier command, different arguments (§7)."""
 
@@ -48,8 +55,9 @@ def to_command(row: VillageCommand) -> Command:
 class Journal:
     """`submit` is the only way a command enters the engine."""
 
-    def __init__(self, session_factory, inbox: deque | None = None):
+    def __init__(self, session_factory, inbox: deque | None = None, fence=None):
         self.sf = session_factory
+        self.fence = fence               # async () -> raises LockLost when not the writer
         self.inbox: deque[Command] = inbox if inbox is not None else deque()
         # Insert+commit+enqueue are one critical section so enqueue order is
         # seq order: recovery's "seq > last_applied_seq" rule depends on it.
@@ -69,6 +77,8 @@ class Journal:
         only for a new command, never for a duplicate."""
         args = args or {}
         digest = digest or args_hash(args)
+        if self.fence is not None:
+            await self.fence()
         async with self._lock:
             if run_id and request_id:
                 prior = await self.find(run_id, request_id)
@@ -125,6 +135,7 @@ class Journal:
         return to_command(row) if row else None
 
     async def mark_applied(self, seq: int, tick: int, state: str, reason: str | None = None) -> None:
+        reason = reason[:REASON_MAX] if reason else reason     # String(256): never reject the row
         async with self.sf() as s:
             await s.execute(update(VillageCommand).where(VillageCommand.seq == seq).values(
                 apply_tick=tick, state=state, reason=reason))
