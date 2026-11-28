@@ -25,17 +25,9 @@ surviving belief's storage history and drops every other pending Judgment
 confirmation, since those quote record text.
 
 **Upgrading the live App (ENG-8, ENG-10).** These rules, `feedback.shared_as`
-and the new views reach the live App only through `judgment_upgrade.py`,
-which publishes the bundle as its next approved version. Until then the tool
-skips what the App lacks: it drops `shared_as` (saying so in the receipt) and
-marks reads `upgrade_pending`. Deploy the API, then from the repo root:
-
-    F=services/backend/agentplatform/appdata/judgment_upgrade.py
-    ssh pai 'sudo k3s kubectl exec -i -n agent-platform deploy/ap-api -c api -- python -' < $F
-    ssh pai 'sudo k3s kubectl exec -i -n agent-platform deploy/ap-api -c api -- python - --apply' < $F
-
-The first prints the diff and writes nothing. A second `--apply` reports
-`up_to_date`. Then check each review action in the browser.
+and the new views were published to the live App as its approved version 2
+on 2026-11-27, by a one-off script that has since been removed (see git
+history for `judgment_upgrade.py`). The tool now assumes that definition.
 
 What remains of the cutover: remove the coded workload from Helm after a
 browser walkthrough passes, and keep its schema until a later backup and

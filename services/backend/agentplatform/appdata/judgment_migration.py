@@ -122,8 +122,8 @@ def bundle() -> dict:
                                 "on_delete": "unlink"},
              "kyle_words": {"type": "text", "max": 4000, "required": True},
              # A stated preference and an actual choice are different evidence.
-             # Access spelled out as publish would settle a field new to the
-             # live App, so judgment_upgrade's second run finds nothing to do.
+             # Access is spelled out the way publish settles a new field, so
+             # the stored definition and this bundle compare equal.
              "shared_as": {"type": "enum", "values": ["preference", "choice", "correction"],
                            "access": {"read": ["owner", "kyle"],
                                       "create": ["owner", "kyle"], "update": ["kyle"]}},

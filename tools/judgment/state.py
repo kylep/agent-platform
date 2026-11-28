@@ -29,8 +29,6 @@ MAX_READ = 8_192
 MAX_SCAN = 5_000
 CONTRARY = ("contradicted", "mixed")
 SHARED_AS = ("preference", "choice", "correction")
-# Views judgment_upgrade adds to the live App.
-NEW_VIEWS = frozenset({"feedback_for_version", "links_for_belief", "versions_for_feedback"})
 
 
 class JudgmentError(ValueError):
@@ -280,10 +278,6 @@ def _feedback(base: str, args: dict) -> dict:
         _get(base, "predictions", prediction_id)
     shared_as = schema.choice("shared_as", args.get("shared_as"), SHARED_AS,
                               required=False)
-    receipt = {}
-    if shared_as is not None and "shared_as" not in _describe(base)[0]:
-        shared_as = None
-        receipt["note"] = "shared_as is not stored until the Judgment App upgrade"
     values = {"prediction": prediction_id, "belief_version": version_id,
               "kyle_words": _text("kyle_words", args.get("kyle_words")),
               "source_ref": schema.source_ref(args.get("source_ref"), required=True),
@@ -298,25 +292,14 @@ def _feedback(base: str, args: dict) -> dict:
     feedback_id = _new_id(args, "feedback")
     _transaction(base, args, [{"op": "create", "collection": "feedback",
                                "id": feedback_id, "values": values}])
-    return {"ok": True, "id": feedback_id, **receipt}
-
-
-def _describe(base: str) -> tuple[set[str], set[str]]:
-    """The live App's feedback fields and view names. Until
-    `judgment_upgrade --apply` runs, the App keeps its older definition, so
-    this code uses a new field or view only once it exists."""
-    out = _call(base, "describe")
-    fields = next((set(c.get("fields") or {}) for c in out.get("collections", [])
-                   if c.get("collection") == "feedback"), set())
-    return fields, {v.get("view") for v in out.get("views", [])}
+    return {"ok": True, "id": feedback_id}
 
 
 def _with_evidence(base: str, rows, row: dict, *, full: bool) -> dict:
     """A belief with what argues against it, so the claim never travels alone:
     Kyle's latest confirmed version when the head differs, and the feedback
     on its versions or on predictions that relied on it (only contradicting or
-    mixed items in a search; everything for one belief). `rows` reads a view
-    that may not exist yet as empty."""
+    mixed items in a search; everything for one belief)."""
     belief = _public_belief(row)
     versions = _query_all(base, "versions_for_belief", {"belief": row["id"]})
     confirmed = [v for v in versions if v.get("provenance") == "kyle_confirmed"]
@@ -343,12 +326,9 @@ def _with_evidence(base: str, rows, row: dict, *, full: bool) -> dict:
     return belief
 
 
-def _uncited(base: str, views: set[str], feedback: list[dict]) -> list[dict]:
-    """Contradicting or mixed feedback that no belief version answers yet
-    (all of it, before the upgrade adds the view that can tell)."""
+def _uncited(base: str, feedback: list[dict]) -> list[dict]:
+    """Contradicting or mixed feedback that no belief version answers yet."""
     contrary = [f for f in feedback if f.get("outcome") in CONTRARY]
-    if "versions_for_feedback" not in views:
-        return contrary
     return [f for f in contrary
             if not _query(base, "versions_for_feedback", {"feedback": f["id"]}, 1)]
 
@@ -383,19 +363,9 @@ def _review(base: str, rows) -> dict:
 
 
 def _read(base: str, args: dict) -> dict:
-    views = _describe(base)[1]
-    missing = sorted(NEW_VIEWS - views)
-
     def rows(view: str, params: dict) -> list[dict]:
-        return _query_all(base, view, params) if view in views else []
+        return _query_all(base, view, params)
 
-    out = _read_with(base, args, views, rows)
-    if missing:
-        out["upgrade_pending"] = missing
-    return out
-
-
-def _read_with(base: str, args: dict, views: set[str], rows) -> dict:
     action = args["action"]
     if action == "review":
         return _review(base, rows)
@@ -435,7 +405,7 @@ def _read_with(base: str, args: dict, views: set[str], rows) -> dict:
                 schema.RESOLVING_OUTCOMES}
     return {"pending": [p for p in predictions if p.get("timing") == "prospective"
                         and p["id"] not in resolved],
-            "contradicting_feedback_no_version_cites": _uncited(base, views, feedback)}
+            "contradicting_feedback_no_version_cites": _uncited(base, feedback)}
 
 
 def run(args: dict) -> str | dict:
