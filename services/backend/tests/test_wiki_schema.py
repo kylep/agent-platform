@@ -336,7 +336,8 @@ async def test_the_librarian_seeds_are_idempotent(engine, sfx):
     # seeds the registry adopts (wiki, codex-artist): seed,
     # before-adoption snapshot, reconcile. standup + gardener + eng-queue +
     # qa-nightly.
-    assert await counts() == [9, 13, 4]
+    # Plus the village-planner (GEN-11), one version.
+    assert await counts() == [10, 14, 4]
 
 
 async def test_a_gardener_job_that_already_exists_is_adopted(engine, sfx):

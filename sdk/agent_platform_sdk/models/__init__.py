@@ -53,6 +53,8 @@ from .codex_auth import CodexAuth
 from .codex_generated_image import CodexGeneratedImage
 from .codex_thread import CodexThread
 from .commit_in import CommitIn
+from .config_body import ConfigBody
+from .config_body_rules import ConfigBodyRules
 from .connector import Connector
 from .conversation_detail import ConversationDetail
 from .conversation_in import ConversationIn
@@ -150,6 +152,7 @@ from .page_action_dispatch_in import PageActionDispatchIn
 from .page_action_intent_in import PageActionIntentIn
 from .page_action_intent_in_values import PageActionIntentInValues
 from .password_change import PasswordChange
+from .play_section_in import PlaySectionIn
 from .pr_ref import PrRef
 from .pr_summary import PrSummary
 from .preview_in import PreviewIn
@@ -545,6 +548,8 @@ __all__ = (
     "CodexGeneratedImage",
     "CodexThread",
     "CommitIn",
+    "ConfigBody",
+    "ConfigBodyRules",
     "Connector",
     "ConversationDetail",
     "ConversationIn",
@@ -638,6 +643,7 @@ __all__ = (
     "PageActionIntentIn",
     "PageActionIntentInValues",
     "PasswordChange",
+    "PlaySectionIn",
     "PreviewIn",
     "PreviewInParams",
     "PreviewInSamplesType0",

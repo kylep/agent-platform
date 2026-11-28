@@ -194,6 +194,12 @@ def _effect_policy(source: str, tool: str, action: str) -> tuple[list[str], str]
         if tool == "strava":
             return (["external_read", "reads_sensitive"] if action != "sync"
                     else ["external_read", "reads_sensitive", "mutates_platform"]), "private"
+        if tool == "village":
+            # GEN-11: reads look at the game world; everything else is a game
+            # command. The engine only answers a village run, so none of these
+            # is ever page-callable.
+            return (["reads_sensitive"] if action in ("help", "look", "wait", "recall_notes")
+                    else ["mutates_platform"]), "private"
         if tool == "tcms":
             return (["mutates_platform"] if action in ("sync_cases", "record_results")
                     else ["reads_sensitive"]), "internal"

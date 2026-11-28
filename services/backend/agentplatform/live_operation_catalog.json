@@ -4499,9 +4499,9 @@
       "action": "answer",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4518,9 +4518,9 @@
       "action": "consent",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4537,9 +4537,9 @@
       "action": "edit_queue",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4556,9 +4556,9 @@
       "action": "help",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "reads_sensitive"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4575,9 +4575,9 @@
       "action": "invite",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4594,9 +4594,9 @@
       "action": "keepsake",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4613,9 +4613,9 @@
       "action": "look",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "reads_sensitive"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4632,9 +4632,9 @@
       "action": "mark",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4651,9 +4651,9 @@
       "action": "note",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4670,9 +4670,9 @@
       "action": "prompt",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4689,9 +4689,9 @@
       "action": "propose_object",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4708,9 +4708,9 @@
       "action": "pull",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4727,9 +4727,9 @@
       "action": "recall_notes",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "reads_sensitive"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4746,9 +4746,9 @@
       "action": "resident",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4765,9 +4765,9 @@
       "action": "say",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4784,9 +4784,9 @@
       "action": "set_goals",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4803,9 +4803,9 @@
       "action": "set_habits",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4822,9 +4822,9 @@
       "action": "tomorrow",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4841,9 +4841,9 @@
       "action": "trial",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "mutates_platform"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,
@@ -4860,9 +4860,9 @@
       "action": "wait",
       "category": "domain_capability",
       "effects": [
-        "unknown"
+        "reads_sensitive"
       ],
-      "output_classification": "restricted",
+      "output_classification": "private",
       "view_eligible": false,
       "reason": "No reviewed human page adapter",
       "input_schema": null,

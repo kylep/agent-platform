@@ -72,10 +72,6 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | list[ToolMetrics]]:
     """Metrics Tools
 
-     Per-tool call aggregates from the audit trail (docs/design/13 E):
-    volumes, denials, errors, latency — what health-monitor watches for
-    denial spikes and what the Reporting page charts.
-
     Args:
         hours (int | Unset):  Default: 24.
 
@@ -105,10 +101,6 @@ def sync(
 ) -> HTTPValidationError | list[ToolMetrics] | None:
     """Metrics Tools
 
-     Per-tool call aggregates from the audit trail (docs/design/13 E):
-    volumes, denials, errors, latency — what health-monitor watches for
-    denial spikes and what the Reporting page charts.
-
     Args:
         hours (int | Unset):  Default: 24.
 
@@ -132,10 +124,6 @@ async def asyncio_detailed(
     hours: int | Unset = 24,
 ) -> Response[HTTPValidationError | list[ToolMetrics]]:
     """Metrics Tools
-
-     Per-tool call aggregates from the audit trail (docs/design/13 E):
-    volumes, denials, errors, latency — what health-monitor watches for
-    denial spikes and what the Reporting page charts.
 
     Args:
         hours (int | Unset):  Default: 24.
@@ -163,10 +151,6 @@ async def asyncio(
     hours: int | Unset = 24,
 ) -> HTTPValidationError | list[ToolMetrics] | None:
     """Metrics Tools
-
-     Per-tool call aggregates from the audit trail (docs/design/13 E):
-    volumes, denials, errors, latency — what health-monitor watches for
-    denial spikes and what the Reporting page charts.
 
     Args:
         hours (int | Unset):  Default: 24.
