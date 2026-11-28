@@ -71,7 +71,9 @@ function PlatformLayout() {
       ...apps.filter((a) => a.ui && a.ready && !stateApps.some((s) =>
         s.name === a.name && s.status === "active" && s.approved_version !== null))
         .map((a) => ({ name: a.name, icon: a.icon, display_name: a.display_name })),
-    ]).map((e) => e.to !== "/settings" ? e : { ...e, children: e.children?.filter((c) =>
+    ]).flatMap((e) => e.to === "/skills" && isAdmin
+      ? [e, { to: "/village", label: "Village" }] : [e]
+    ).map((e) => e.to !== "/settings" ? e : { ...e, children: e.children?.filter((c) =>
       isAdmin || !["/settings/users", "/settings/groups"].includes(c.to)) }),
   [apps, stateApps, isAdmin]);
 

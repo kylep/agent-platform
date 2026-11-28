@@ -60,6 +60,7 @@ from agentplatform.api import tool_calls as tool_calls_api
 from agentplatform.api import tools as tools_api
 from agentplatform.api import tail as tail_api
 from agentplatform.api import ui_designer as ui_designer_api
+from agentplatform.api import village as village_api
 from agentplatform.api import wiki as wiki_api
 from agentplatform.api import workbench_feed as workbench_feed_api
 from agentplatform import quota_store
@@ -585,6 +586,7 @@ def create_app(settings, session_factory, producer, secret_store=None, agent_sto
     app.include_router(tools_api.router)
     app.include_router(tail_api.router)
     app.include_router(ui_designer_api.router)
+    app.include_router(village_api.router)
     app.include_router(wiki_api.router)
     app.include_router(workbench_feed_api.router)
     return app

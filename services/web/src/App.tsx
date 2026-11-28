@@ -36,6 +36,7 @@ import UiDesigner from "./pages/UiDesigner";
 import UiDesignerPlay from "./pages/UiDesignerPlay";
 import UiDesignerDocument from "./pages/UiDesignerDocument";
 import RapidChats from "./pages/RapidChats";
+import Village from "./pages/Village";
 import Skills from "./pages/Skills";
 import Profile from "./pages/Profile";
 import SettingsUsers from "./pages/SettingsUsers";
@@ -101,6 +102,7 @@ export default function App() {
             <Route path="/ui-designer/:slug/play" element={<UiDesignerPlay />} />
             <Route path="/ui-designer/:slug" element={<UiDesignerDocument />} />
             <Route path="/rapid-chats" element={<RapidChats />} />
+            <Route path="/village" element={<Village />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/settings/local-personas" element={<LocalPersonaSessions />} />
             <Route path="/settings" element={<Settings />} />
